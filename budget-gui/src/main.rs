@@ -45,6 +45,9 @@ struct App {
     view: Option<MonthView>,
     pw_prompt: Option<(PathBuf, String, String)>,
     status: String,
+    /// `--screenshot <png>`: render a few frames, save the window, exit.
+    screenshot: Option<PathBuf>,
+    frames: u32,
 }
 
 impl App {
@@ -56,8 +59,16 @@ impl App {
         let mut app = App {
             cfg, rc_path, db: None, file: None, password: None, cur, today: Cal::today().get(),
             filter_text: String::new(), filter: None, view: None, pw_prompt: None, status: String::new(),
+            screenshot: None, frames: 0,
         };
-        let start = std::env::args().nth(1).or_else(|| app.cfg.last_file_name.clone());
+        let args: Vec<String> = std::env::args().skip(1).collect();
+        if let Some(i) = args.iter().position(|a| a == "--screenshot") {
+            app.screenshot = args.get(i + 1).map(PathBuf::from);
+        }
+        if let Some(i) = args.iter().position(|a| a == "--month") {
+            if let Some(m) = args.get(i + 1).and_then(|m| m.parse::<i32>().ok()) { app.cur = Cal::from_int(m); app.cur.set_day_one(); }
+        }
+        let start = args.iter().find(|a| a.ends_with(".bgt")).cloned().or_else(|| app.cfg.last_file_name.clone());
         if let Some(f) = start {
             let p = PathBuf::from(f.trim());
             if p.is_file() { app.open(&p); }
@@ -280,7 +291,7 @@ impl App {
                 let row = |ui: &mut egui::Ui, label: &str, v: f64| {
                     ui.label(RichText::new(label).strong());
                     let col = if v < 0.0 { c.colorNegativeAmount } else { c.colorPositiveAmount };
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.allocate_ui_with_layout(Vec2::new(110.0, 18.0), egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.label(RichText::new(money(v, decimals)).monospace().color(rgb(col)));
                     });
                     ui.end_row();
@@ -329,63 +340,75 @@ impl App {
 
     fn calendar(&mut self, ui: &mut egui::Ui) {
         let Some(view) = &self.view else {
-            ui.label("Open a .bgt file (File → Open...) to see the calendar.");
+            ui.label("Open a .bgt file (File \u{2192} Open...) to see the calendar.");
             return;
         };
         let c = self.cfg.colors.clone();
-        let avail = ui.available_width();
-        let cell_w = (avail - 6.0 * 4.0) / 7.0;
+        let gap = 4.0;
+        let cell_w = ((ui.available_width() - 6.0 * gap) / 7.0).floor();
         let rows = view.cells.len() / 7;
-        let cell_h = ((ui.available_height() - 30.0) / rows as f32).max(90.0);
+        let cell_h = ((ui.available_height() - 30.0 - rows as f32 * gap) / rows as f32).floor().max(96.0);
+        let amount_w = 72.0;
         let sunday_first = self.cfg.first_day_of_week_is_sunday;
-        egui::Grid::new("cal").num_columns(7).spacing([4.0, 4.0]).min_col_width(cell_w).max_col_width(cell_w).show(ui, |ui| {
+        ui.spacing_mut().item_spacing = Vec2::new(gap, gap);
+        ui.horizontal(|ui| {
             for i in 0..7 {
                 let w = if sunday_first { i } else { (i + 1) % 7 };
-                Frame::new().fill(rgb(c.bgColorCalendarHeader)).inner_margin(4).show(ui, |ui| {
-                    ui.set_width(cell_w - 8.0);
-                    ui.vertical_centered(|ui| { ui.label(RichText::new(WDAYS[w]).strong().size(16.0).color(rgb(c.colorCalendarHeader))); });
+                ui.allocate_ui_with_layout(Vec2::new(cell_w, 24.0), egui::Layout::centered_and_justified(egui::Direction::LeftToRight), |ui| {
+                    Frame::new().fill(rgb(c.bgColorCalendarHeader)).show(ui, |ui| {
+                        ui.set_min_size(Vec2::new(cell_w, 24.0));
+                        ui.centered_and_justified(|ui| { ui.label(RichText::new(WDAYS[w]).strong().size(16.0).color(rgb(c.colorCalendarHeader))); });
+                    });
                 });
             }
-            ui.end_row();
-            for (i, cell) in view.cells.iter().enumerate() {
-                let bg = if !cell.in_month { c.bgColorCellOtherMonths }
-                    else if cell.is_today { c.bgColorCellToday }
-                    else if cell.date < self.today { c.bgColorCell }
-                    else { c.bgColorCellPast };
-                Frame::new().fill(rgb(bg)).stroke(Stroke::new(1.0_f32, Color32::from_gray(200))).inner_margin(3).show(ui, |ui| {
-                    ui.set_min_size(Vec2::new(cell_w - 8.0, cell_h));
-                    ui.set_max_width(cell_w - 8.0);
-                    ui.vertical(|ui| {
-                        let mut num = cell.day.to_string();
-                        if cell.restorable { num.push('`'); }
-                        if cell.has_note { num.push_str(" ..."); }
-                        let num_col = if !cell.in_month { Color32::GRAY } else if cell.is_today { rgb(c.colorCalendarToday) } else { rgb(c.colorCalendarDay) };
-                        ui.label(RichText::new(num).strong().size(15.0).color(num_col));
-                        for r in &cell.rows {
-                            ui.horizontal(|ui| {
-                                let t = RichText::new(&r.text).color(r.fg);
-                                let t = if let Some(bg) = r.bg { t.background_color(bg) } else { t };
-                                ui.add(egui::Label::new(t).truncate());
-                                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                    ui.label(RichText::new(&r.amount).monospace().color(r.amount_fg));
+        });
+        for row in view.cells.chunks(7) {
+            ui.horizontal(|ui| {
+                for cell in row {
+                    let bg = if !cell.in_month { c.bgColorCellOtherMonths }
+                        else if cell.is_today { c.bgColorCellToday }
+                        else if cell.date < self.today { c.bgColorCell }
+                        else { c.bgColorCellPast };
+                    ui.allocate_ui_with_layout(Vec2::new(cell_w, cell_h), egui::Layout::top_down(egui::Align::Min), |ui| {
+                        ui.set_min_size(Vec2::new(cell_w, cell_h));
+                        ui.set_max_size(Vec2::new(cell_w, cell_h));
+                        Frame::new().fill(rgb(bg)).stroke(Stroke::new(1.0_f32, Color32::from_gray(200))).inner_margin(3).show(ui, |ui| {
+                            let inner_w = cell_w - 8.0;
+                            ui.set_min_size(Vec2::new(inner_w, cell_h - 8.0));
+                            ui.set_max_size(Vec2::new(inner_w, cell_h - 8.0));
+                            ui.spacing_mut().item_spacing = Vec2::new(2.0, 1.0);
+                            let top = ui.cursor().top();
+                            let mut num = cell.day.to_string();
+                            if cell.restorable { num.push('`'); }
+                            if cell.has_note { num.push_str(" ..."); }
+                            let num_col = if !cell.in_month { Color32::GRAY } else if cell.is_today { rgb(c.colorCalendarToday) } else { rgb(c.colorCalendarDay) };
+                            ui.label(RichText::new(num).strong().size(15.0).color(num_col));
+                            for r in &cell.rows {
+                                ui.horizontal(|ui| {
+                                    ui.allocate_ui_with_layout(Vec2::new(inner_w - amount_w - 2.0, 16.0), egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                                        let t = RichText::new(&r.text).color(r.fg);
+                                        let t = if let Some(bg) = r.bg { t.background_color(bg) } else { t };
+                                        ui.add(egui::Label::new(t).truncate());
+                                    });
+                                    ui.allocate_ui_with_layout(Vec2::new(amount_w, 16.0), egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                        ui.label(RichText::new(&r.amount).monospace().color(r.amount_fg));
+                                    });
                                 });
-                            });
-                        }
-                        if let Some((txt, bar, fg)) = &cell.balance {
-                            ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
+                            }
+                            if let Some((txt, bar, fg)) = &cell.balance {
+                                let used = ui.cursor().top() - top;
+                                ui.add_space((cell_h - 8.0 - used - 22.0).max(0.0));
                                 Frame::new().fill(*bar).inner_margin(2).show(ui, |ui| {
-                                    ui.set_width(cell_w - 14.0);
-                                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                                    ui.allocate_ui_with_layout(Vec2::new(inner_w - 4.0, 16.0), egui::Layout::right_to_left(egui::Align::Center), |ui| {
                                         ui.label(RichText::new(txt).monospace().italics().color(*fg));
                                     });
                                 });
-                            });
-                        }
+                            }
+                        });
                     });
-                });
-                if i % 7 == 6 { ui.end_row(); }
-            }
-        });
+                }
+            });
+        }
     }
 
     fn password_prompt(&mut self, ctx: &egui::Context) {
@@ -422,6 +445,24 @@ impl App {
 
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        if let Some(path) = self.screenshot.clone() {
+            self.frames += 1;
+            if self.frames == 4 { ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::UserData::default())); }
+            let shot = ctx.input(|i| i.events.iter().find_map(|e| match e {
+                egui::Event::Screenshot { image, .. } => Some(image.clone()),
+                _ => None,
+            }));
+            if let Some(img) = shot {
+                let [w, h] = img.size;
+                let raw: Vec<u8> = img.pixels.iter().flat_map(|c| c.to_array()).collect();
+                match image::RgbaImage::from_raw(w as u32, h as u32, raw) {
+                    Some(buf) => { if let Err(e) = buf.save(&path) { eprintln!("screenshot: {e}"); } }
+                    None => eprintln!("screenshot: bad buffer"),
+                }
+                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            }
+            ctx.request_repaint();
+        }
         if ctx.input(|i| i.key_pressed(egui::Key::PageDown)) { self.go(1); }
         if ctx.input(|i| i.key_pressed(egui::Key::PageUp)) { self.go(-1); }
         if ctx.input(|i| i.key_pressed(egui::Key::Home)) { let mut t = Cal::today(); t.set_day_one(); self.cur = t; self.go(0); }
@@ -444,5 +485,8 @@ fn main() -> eframe::Result {
         viewport: egui::ViewportBuilder::default().with_inner_size([1200.0, 800.0]).with_title("Budget Calendar"),
         ..Default::default()
     };
-    eframe::run_native("Budget Calendar", options, Box::new(|_cc| Ok(Box::new(App::new()))))
+    eframe::run_native("Budget Calendar", options, Box::new(|cc| {
+        cc.egui_ctx.set_visuals(egui::Visuals::light());
+        Ok(Box::new(App::new()))
+    }))
 }
