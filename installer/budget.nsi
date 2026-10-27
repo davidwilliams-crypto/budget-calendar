@@ -1,8 +1,8 @@
 ; Budget Calendar (Rust port) — NSIS installer script
-; Build: makensis /DVERSION=0.1.0 installer\budget.nsi   (run from the repo root after `cargo build --release`)
+; Build: makensis /DVERSION=0.2.0 installer\budget.nsi   (run from the repo root after `cargo build --release`)
 
 !ifndef VERSION
-  !define VERSION "0.1.0"
+  !define VERSION "0.2.0"
 !endif
 !define APPNAME "Budget Calendar"
 !define EXE "BudgetCalendar.exe"
