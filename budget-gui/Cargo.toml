@@ -1,0 +1,10 @@
+[package]
+name = "budget-gui"
+version = "0.1.0"
+edition = "2021"
+description = "Budget Calendar desktop UI (egui/eframe) on top of budget-core"
+
+[dependencies]
+budget-core = { path = "../budget-core" }
+eframe = "0.31"
+rfd = "0.15"

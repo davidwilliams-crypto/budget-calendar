@@ -1,3 +1,6 @@
 [workspace]
-members = ["budget-core"]
+members = ["budget-core", "budget-gui"]
 resolver = "2"
+
+[patch.crates-io]
+webbrowser = { path = "vendor/webbrowser" }
