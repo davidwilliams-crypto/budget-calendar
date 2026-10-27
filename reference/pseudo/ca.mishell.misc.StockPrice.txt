@@ -1,0 +1,438 @@
+// ===== StockPrice extends Object 
+public static boolean is_debug;
+public static final String STOCK_URL = "https://ca.finance.yahoo.com/quote/";
+public static final String STOCK_JSON_LINK_FMT = "https://query2.finance.yahoo.com/v8/finance/chart/%s?period1=%d&period2=%d&interval=1d&events=history&includeAdjustedClose=true";
+private static final int IO_REQUEST_TIMEOUT_MSEC = 10000;
+public final String stockID;
+public final String currency;
+public final String name;
+public final java.math.BigDecimal price;
+public final String url;
+public final long asOfDate;
+private final long timeStamp;
+private static final Map cache;
+private static final Set requested;
+private static final long CACHE_HOLD_MSEC = 300000L;
+static final synthetic boolean $assertionsDisabled;
+
+public void <init>(String p0, String p1, String p2, String p3, java.math.BigDecimal p4, long p5) {
+    super.<init>();
+    this.stockID = p0;
+    this.currency = p3;
+    this.price = p4;
+    this.timeStamp = System.currentTimeMillis();
+    this.name = p2;
+    this.url = p1;
+    this.asOfDate = p5;
+    v8 = StockPrice.requested;
+    monitorenter(StockPrice.requested);
+    StockPrice.requested.remove(p0);
+    StockPrice.cache.put(p0, this);
+    StockPrice.requested.notifyAll();
+    monitorexit(v8);
+    goto L94;
+    // handler for [51,83) catch any
+    // handler for [86,91) catch any
+    L86:
+    v9 = $ex;
+    monitorexit(v8);
+    throw v9;
+    L94:
+    return;
+}
+
+public static StockPrice getStockPrice(String p0) {
+    v1 = StockPrice.requested;
+    monitorenter(StockPrice.requested);
+    if (StockPrice.requested.contains(p0) == 0) goto L73;
+    L18:
+    StockPrice.requested.wait();
+    if (StockPrice.requested.contains(p0) != 0) goto L18;
+    v2 = (StockPrice)StockPrice.cache.get(p0);
+    if (v2 != null) goto L69;
+    throw new Exception(("Failed to get stock price of '" + p0 + "'"));
+    L69:
+    monitorexit(v1);
+    return v2;
+    L73:
+    if (StockPrice.requested.size() <= 2) goto L96;
+    StockPrice.requested.wait();
+    goto L73;
+    L96:
+    v2 = (StockPrice)StockPrice.cache.get(p0);
+    if (v2 == null) goto L142;
+    if ((v2.timeStamp + 300000L) <= System.currentTimeMillis()) goto L132;
+    monitorexit(v1);
+    return v2;
+    L132:
+    StockPrice.cache.remove(p0);
+    L142:
+    StockPrice.requested.add(p0);
+    monitorexit(v1);
+    goto L162;
+    // handler for [6,72) catch any
+    // handler for [73,131) catch any
+    // handler for [132,154) catch any
+    // handler for [157,160) catch any
+    L157:
+    v3 = $ex;
+    monitorexit(v1);
+    throw v3;
+    L162:
+    v1 = StockPrice.load_url(StockPrice.getJSON_URL(p0), null);
+    v2 = StockPrice.new_stock_v8_json(p0, v1);
+    v3 = StockPrice.requested;
+    monitorenter(StockPrice.requested);
+    StockPrice.requested.remove(p0);
+    StockPrice.requested.notifyAll();
+    monitorexit(v3);
+    goto L213;
+    // handler for [183,203) catch any
+    // handler for [206,210) catch any
+    L206:
+    v4 = $ex;
+    monitorexit(v3);
+    throw v4;
+    L213:
+    return v2;
+    // handler for [162,177) catch any
+    // handler for [215,217) catch any
+    L215:
+    v5 = $ex;
+    v6 = StockPrice.requested;
+    monitorenter(StockPrice.requested);
+    StockPrice.requested.remove(p0);
+    StockPrice.requested.notifyAll();
+    monitorexit(v6);
+    goto L256;
+    // handler for [224,245) catch any
+    // handler for [248,253) catch any
+    L248:
+    v7 = $ex;
+    monitorexit(v6);
+    throw v7;
+    L256:
+    throw v5;
+}
+
+private static String get_json_field(String p0, String p1) {
+    v2 = p0.indexOf(("\"" + p1 + "\""));
+    if (v2 != -1) goto L30;
+    throw new Exception(("missing '" + p1 + "'"));
+    L30:
+    v3 = v2;
+    v2 = (v2 + (p1.length() + 2));
+    L41:
+    if (Character.isSpaceChar(p0.charAt(v2)) == 0) goto L58;
+    v2 += 1;
+    goto L41;
+    L58:
+    if (p0.charAt(v2) == 58) goto L86;
+    throw new Exception(("invalid JSON near: " + p0.substring(v3)));
+    L86:
+    v2 += 1;
+    if (Character.isSpaceChar(p0.charAt(v2)) != 0) goto L86;
+    v5 = p0.charAt(v2);
+    if (v5 != 34) goto L350;
+    v6 = new StringBuilder();
+    v2 += 1;
+    L126:
+    v7 = p0.charAt(v2);
+    if (v7 != 34) goto L143;
+    goto L340;
+    L143:
+    if (v7 != 92) goto L326;
+    v2 += 1;
+    switch (p0.charAt(v2)) { 34: L240, 47: L250, 92: L245, 98: L255, 102: L260, 110: L265, 114: L270, 116: L275, 117: L280; default: L306 }
+    L240:
+    $s0 = 34;
+    goto L324;
+    L245:
+    $s0 = 92;
+    goto L324;
+    L250:
+    $s0 = 47;
+    goto L324;
+    L255:
+    $s0 = 8;
+    goto L324;
+    L260:
+    $s0 = 12;
+    goto L324;
+    L265:
+    $s0 = 10;
+    goto L324;
+    L270:
+    $s0 = 13;
+    goto L324;
+    L275:
+    $s0 = 9;
+    goto L324;
+    L280:
+    v8 = p0.substring((v2 + 1), (v2 + 5));
+    v2 += 4;
+    $s0 = (char)Integer.parseInt(v8, 16);
+    goto L324;
+    L306:
+    throw new IllegalStateException(("Unexpected value: " + p0.charAt(v2)));
+    L324:
+    v7 = $s0;
+    L326:
+    v6.append(v7);
+    v2 += 1;
+    goto L126;
+    L340:
+    v4 = v6.toString();
+    goto L450;
+    L350:
+    if (Character.isDigit(v5) != 0) goto L372;
+    if (v5 == 45) goto L372;
+    if (v5 != 43) goto L432;
+    L372:
+    v6 = v2;
+    L375:
+    v7 = p0.charAt(v2);
+    if (Character.isSpaceChar(v7) != 0) goto L420;
+    if (v7 == 44) goto L420;
+    if (v7 == 93) goto L420;
+    if (v7 != 125) goto L414;
+    goto L420;
+    L414:
+    v2 += 1;
+    goto L375;
+    L420:
+    v4 = p0.substring(v6, v2);
+    goto L450;
+    L432:
+    throw new Exception(("unrecognized value near: " + p0.substring(v3)));
+    L450:
+    return v4;
+}
+
+private static StockPrice new_stock_v8_json(String p0, String p1) {
+    if (StockPrice.$assertionsDisabled != 0) goto L18;
+    if (p0 != null) goto L18;
+    throw new AssertionError();
+    L18:
+    if (StockPrice.is_debug == 0) goto L47;
+    System.err.println((p0 + ": JSON text length=" + p1.length()));
+    System.err.println(p1);
+    L47:
+    v2 = StockPrice.get_json_field(p1, "symbol");
+    if (p0.equals(v2) != 0) goto L77;
+    throw new Exception(("wrong symbol '" + v2 + "', asked for '" + p0 + "'"));
+    L77:
+    v3 = StockPrice.get_json_field(p1, "shortName");
+    if (v3.equals(v2) == 0) goto L99;
+    v3 = StockPrice.get_json_field(p1, "longName");
+    L99:
+    if (v3.startsWith("\"") == 0) goto L114;
+    v3 = v3.substring(1);
+    L114:
+    if (v3.endsWith("\"") == 0) goto L135;
+    v3 = v3.substring(0, (v3.length() - 1));
+    L135:
+    v4 = StockPrice.get_json_field(p1, "currency");
+    v5 = StockPrice.get_json_field(p1, "regularMarketPrice");
+    v6 = StockPrice.get_json_field(p1, "regularMarketTime");
+    return new StockPrice(p0, StockPrice.getURL(p0), v3, v4, new java.math.BigDecimal(v5), Long.parseLong(v6));
+}
+
+protected static String read_and_scan(InputStream p0, String p1) {
+    v2 = p1.length();
+    v3 = new StringBuilder(81920);
+    v4 = 0;
+    v5 = Math.max(4096, ((v2 + 256) * 2));
+    L33:
+    v6 = p0.readNBytes(v5);
+    if (v6.length != 0) goto L50;
+    goto L141;
+    L50:
+    v3.append(new String(v6, java.nio.charset.StandardCharsets.UTF_8));
+    v7 = v3.indexOf(p1, v4);
+    if (v7 == -1) goto L126;
+    if (((v7 + v2) + 256) >= v3.length()) goto L141;
+    v8 = p0.readNBytes(256);
+    v3.append(new String(v8, java.nio.charset.StandardCharsets.UTF_8));
+    goto L141;
+    L126:
+    v4 = Math.max(0, (v3.length() - v2));
+    goto L33;
+    L141:
+    return v3.toString();
+}
+
+protected static String load_url(String p0, String p1) {
+    v3 = System.getProperty("os.name");
+    if (v3 == null) goto L25;
+    if (v3.startsWith("Mac OS X") == 0) goto L25;
+    $s0 = 1;
+    goto L26;
+    L25:
+    $s0 = 0;
+    L26:
+    v4 = $s0;
+    if (v4 == 0) goto L58;
+    $a2 = new String[2];
+    $a2[0] = "/usr/local/bin/curl_chrome116";
+    $a2[1] = p0;
+    v2 = new ProcessBuilder($a2);
+    goto L112;
+    L58:
+    $a4 = new String[7];
+    $a4[0] = "C:\\bin\\curl-impersonate.exe";
+    $a4[1] = "-ks";
+    $a4[2] = "--config";
+    $a4[3] = "C:\\bin\\chrome104.config";
+    $a4[4] = "--header";
+    $a4[5] = "@C:\\bin\\chrome104.header";
+    $a4[6] = p0;
+    v2 = new ProcessBuilder($a4);
+    L112:
+    v5 = v2.start();
+    v6 = new BufferedReader(new InputStreamReader(v5.getInputStream()));
+    v7 = new StringBuilder(4096);
+    L151:
+    $t8 = v6.readLine();
+    v8 = $t8;
+    if ($t8 == null) goto L173;
+    v7.append(v8);
+    goto L151;
+    L173:
+    v5.waitFor();
+    v6.close();
+    return v7.toString();
+}
+
+protected static String load_url_direct(String p0, String p1) {
+    v2 = null;
+    v3 = java.net.URI.create(p0).toURL().openConnection();
+    v3.setRequestProperty("Accept-Encoding", "identity");
+    v3.setRequestProperty("Accept", "*/*");
+    v3.setRequestProperty("User-Agent", "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:89.0) Gecko/20100101 Firefox/89.0");
+    v3.setConnectTimeout(10000);
+    v3.setReadTimeout(10000);
+    v2 = v3.getInputStream();
+    if (StockPrice.is_debug == 0) goto L96;
+    $s0 = System.err;
+    $s1 = p0;
+    if (p1 == null) goto L85;
+    $s0 = System.err;
+    $s1 = p0;
+    $s2 = (", stop on '" + p1 + "'");
+    goto L88;
+    L85:
+    $s2 = "";
+    L88:
+    $s0.println(($s1 + ": loading" + $s2));
+    L96:
+    if (p1 != null) goto L119;
+    v4 = new String(v2.readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+    goto L126;
+    L119:
+    v4 = StockPrice.read_and_scan(v2, p1);
+    L126:
+    v2.close();
+    if (StockPrice.is_debug == 0) goto L153;
+    System.err.println((p0 + ": len = " + v4.length()));
+    L153:
+    if (v3.getContentType().contains("utf-8") != 0) goto L183;
+    throw new Exception(("non UTF-8 content type: " + v3.getContentType()));
+    L183:
+    return v4;
+    // handler for [2,185) catch Exception
+    L186:
+    v3 = $ex;
+    if (v2 == null) goto L195;
+    v2.close();
+    L195:
+    goto L200;
+    // handler for [187,195) catch Exception
+    L198:
+    v4 = $ex;
+    L200:
+    throw v3;
+}
+
+public String toString() {
+    v1 = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new Date((this.asOfDate * 1000L)));
+    $a3 = new Object[1];
+    $a3[0] = Double.valueOf(this.price.doubleValue());
+    return (v1 + " -- " + this.stockID + " -- {" + this.name + "} @ " + "%.4f".formatted($a3) + this.currency);
+}
+
+public static void invalidate(Set p0) {
+    v1 = StockPrice.requested;
+    monitorenter(StockPrice.requested);
+    v2 = p0.iterator();
+    L13:
+    if (v2.hasNext() == 0) goto L45;
+    v3 = (String)v2.next();
+    StockPrice.cache.remove(v3);
+    goto L13;
+    L45:
+    monitorexit(v1);
+    goto L57;
+    // handler for [6,47) catch any
+    // handler for [50,54) catch any
+    L50:
+    v4 = $ex;
+    monitorexit(v1);
+    throw v4;
+    L57:
+    goto L68;
+    // handler for [0,57) catch Exception
+    L60:
+    v1 = $ex;
+    v1.printStackTrace(System.err);
+    L68:
+    return;
+}
+
+public static void invalidateAll() {
+    v0 = StockPrice.requested;
+    monitorenter(StockPrice.requested);
+    StockPrice.cache.clear();
+    monitorexit(v0);
+    goto L24;
+    // handler for [6,16) catch any
+    // handler for [19,22) catch any
+    L19:
+    v1 = $ex;
+    monitorexit(v0);
+    throw v1;
+    L24:
+    return;
+}
+
+public static String getURL(String p0) {
+    return ("https://ca.finance.yahoo.com/quote/" + p0);
+}
+
+public static String getJSON_URL(String p0) {
+    v1 = (System.currentTimeMillis() / 1000L);
+    $a1 = new Object[3];
+    $a1[0] = p0;
+    $a1[1] = Long.valueOf((v1 - 1209600L));
+    $a1[2] = Long.valueOf(v1);
+    return "https://query2.finance.yahoo.com/v8/finance/chart/%s?period1=%d&period2=%d&interval=1d&events=history&includeAdjustedClose=true".formatted($a1);
+}
+
+public long getDaysAge() {
+    return (((((System.currentTimeMillis() / 1000L) - this.asOfDate) / 60L) / 60L) / 24L);
+}
+
+static void <clinit>() {
+    if (StockPrice.desiredAssertionStatus() != 0) goto L12;
+    $s0 = 1;
+    goto L13;
+    L12:
+    $s0 = 0;
+    L13:
+    StockPrice.$assertionsDisabled = $s0;
+    StockPrice.is_debug = 0;
+    System.setProperty("https.protocols", "TLSv1.2");
+    StockPrice.cache = new TreeMap();
+    StockPrice.requested = new HashSet();
+    return;
+}

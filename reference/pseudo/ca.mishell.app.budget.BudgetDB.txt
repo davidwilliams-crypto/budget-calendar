@@ -1,0 +1,2403 @@
+// ===== BudgetDB$1Tran extends Object 
+final int date;
+final double amount;
+
+ void <init>(BudgetDB p0, int p1, double p2) {
+    Objects.requireNonNull(p0);
+    super.<init>();
+    this.date = p1;
+    this.amount = p2;
+    return;
+}
+
+public String toString() {
+    $a1 = new Object[1];
+    $a1[0] = Double.valueOf(this.amount);
+    return ("{" + SimpleCalendar.toString(this.date) + ":%.2f}".formatted($a1));
+}
+
+// ===== BudgetDB$LoanSchedule extends Object 
+public SimpleCalendar actualStartCal;
+public SimpleCalendar actualEndCal;
+public SimpleCalendar endCal;
+public double last_payment_amount;
+public int n_pays;
+ double abs_amount_remaining;
+ int n_remaining;
+
+ void <init>(BudgetDB p0) {
+    Objects.requireNonNull(p0);
+    super.<init>();
+    this.abs_amount_remaining = 0.0;
+    this.n_remaining = 0;
+    return;
+}
+
+// ===== BudgetDB$MoveUndoInfo extends Object 
+ boolean available;
+ boolean dst_existed;
+ Payment pmt;
+ int src_date;
+ int dst_date;
+ String src_note;
+ String dst_note;
+ char src_flag;
+ char dst_flag;
+ double src_amount;
+ double dst_amount;
+ int src_hilight;
+ int dst_hilight;
+
+ void <init>(BudgetDB p0) {
+    Objects.requireNonNull(p0);
+    super.<init>();
+    this.available = 0;
+    this.src_hilight = -1;
+    this.dst_hilight = -1;
+    return;
+}
+
+// ===== BudgetDB$PaymentsRemaining extends Object 
+final double abs_amount;
+final int n;
+
+public void <init>(double p0, int p1) {
+    super.<init>();
+    this.abs_amount = p0;
+    this.n = p1;
+    return;
+}
+
+// ===== BudgetDB extends Object 
+public static final String $END_OF_DATA_LINE_NO = "## END-OF-DATA; line_no=";
+public static final String $END_OF_DATA_LINE_TRAILER = " ##";
+private ArrayList payments;
+protected Payment adjustments;
+private BudgetDay[] budgetDay;
+public SimpleCalendar startDate;
+public SimpleCalendar endDate;
+public String notes;
+public String version;
+private int startYear;
+private int[] yOffset;
+private boolean in_sync;
+private static Comparator comparator;
+public int updateCount;
+private static final String encrypted = "#db*Encrypted";
+private static final String encrypted2 = "#db*encrypted";
+private static Blowfish bf;
+private static int today;
+public String fileName;
+public int startDateAsInt;
+public int endDateAsInt;
+private static final String NOTES_KEY = "notes";
+private static final String VERSION_KEY = "version";
+ BudgetDB$MoveUndoInfo moveUndoInfo;
+private static char[] hexd;
+
+public boolean isPaymentInDB(Payment p0) {
+    if (this.payments == null) goto L22;
+    if (this.payments.contains(p0) == 0) goto L22;
+    $s0 = 1;
+    goto L23;
+    L22:
+    $s0 = 0;
+    L23:
+    return $s0;
+}
+
+public void sort() {
+    Collections.sort(this.payments, BudgetDB.comparator);
+    return;
+}
+
+public Payment getMostChangedPayment() {
+    if (this.payments.size() <= 0) goto L74;
+    v1 = (Payment)this.payments.get(0);
+    v2 = 1;
+    L24:
+    if (v2 >= this.payments.size()) goto L72;
+    v3 = (Payment)this.payments.get(v2);
+    if (v3.opt.size() <= v1.opt.size()) goto L66;
+    v1 = v3;
+    L66:
+    v2 += 1;
+    goto L24;
+    L72:
+    return v1;
+    L74:
+    return null;
+}
+
+private void <init>(ArrayList p0, Payment p1, SimpleCalendar p2, int p3, boolean p4, Properties p5) {
+    super.<init>();
+    this.notes = "";
+    this.version = "1";
+    this.updateCount = 0;
+    this.fileName = null;
+    BudgetDB.comparator = lambda[BudgetDB::lambda$new$0]();
+    this.moveUndoInfo = new BudgetDB$MoveUndoInfo(this);
+    this.payments = p0;
+    this.adjustments = p1;
+    if (p5 == null) goto L87;
+    this.notes = p5.getProperty("notes", "");
+    this.version = p5.getProperty("version", "1");
+    L87:
+    this.rebuildDB(p2, p3, p4);
+    v7 = p0.iterator();
+    L102:
+    if (v7.hasNext() == 0) goto L157;
+    v8 = (Payment)v7.next();
+    L124:
+    if (this.isValidCategory(v8.category, null) != 0) goto L154;
+    v8.category = (v8.category + "-");
+    goto L124;
+    L154:
+    goto L102;
+    L157:
+    v7 = p0.iterator();
+    L163:
+    if (v7.hasNext() == 0) goto L218;
+    v8 = (Payment)v7.next();
+    L185:
+    if (this.isValidDescription(v8.description, null) != 0) goto L215;
+    v8.description = (v8.description + "-");
+    goto L185;
+    L215:
+    goto L163;
+    L218:
+    return;
+}
+
+public boolean isValidCategory(String p0, Payment p1) {
+    if (p0 != null) goto L6;
+    return 1;
+    L6:
+    if (p0.equals("(Unaccounted)") == 0) goto L17;
+    return 0;
+    L17:
+    v3 = this.payments.iterator();
+    L25:
+    if (v3.hasNext() == 0) goto L71;
+    v4 = (Payment)v3.next();
+    if (v4 != p1) goto L54;
+    goto L25;
+    L54:
+    if (v4.description.equals(p0) == 0) goto L68;
+    return 0;
+    L68:
+    goto L25;
+    L71:
+    return 1;
+}
+
+public boolean isValidDescription(String p0, Payment p1) {
+    v3 = this.payments.iterator();
+    L8:
+    if (v3.hasNext() == 0) goto L62;
+    v4 = (Payment)v3.next();
+    if (v4 != p1) goto L37;
+    goto L8;
+    L37:
+    if (v4.category == null) goto L59;
+    if (v4.category.equals(p0) == 0) goto L59;
+    return 0;
+    L59:
+    goto L8;
+    L62:
+    return 1;
+}
+
+public void rebuildDB(SimpleCalendar p0, int p1, boolean p2) {
+    v4 = new SimpleCalendar(p0);
+    v4.add(2, -2);
+    v5 = v4.get();
+    v6 = 0;
+    v7 = v4.get();
+    v8 = this.adjustments.opt.iterator();
+    L48:
+    if (v8.hasNext() == 0) goto L117;
+    v9 = (PaymentOption)v8.next();
+    if (v9.date >= v5) goto L97;
+    if (v6 >= v9.date) goto L97;
+    v6 = v9.date;
+    L97:
+    if (v7 <= v9.date) goto L114;
+    v7 = v9.date;
+    L114:
+    goto L48;
+    L117:
+    if (0 != v6) goto L242;
+    v6 = v4.get();
+    v8 = 0;
+    L133:
+    if (v8 >= this.payments.size()) goto L242;
+    v9 = (Payment)this.payments.get(v8);
+    if (v9.startDate >= v6) goto L176;
+    v6 = v9.startDate;
+    L176:
+    v10 = v9.opt.iterator();
+    L186:
+    if (v10.hasNext() == 0) goto L236;
+    v11 = (PaymentOption)v10.next();
+    if (v11.deleted != 0) goto L233;
+    if (v11.date >= v6) goto L233;
+    v6 = v11.date;
+    L233:
+    goto L186;
+    L236:
+    v8 += 1;
+    goto L133;
+    L242:
+    if (p2 == 0) goto L358;
+    v8 = 0;
+    L249:
+    if (v8 >= this.payments.size()) goto L358;
+    v9 = (Payment)this.payments.get(v8);
+    if (v7 <= v9.startDate) goto L292;
+    v7 = v9.startDate;
+    L292:
+    v10 = v9.opt.iterator();
+    L302:
+    if (v10.hasNext() == 0) goto L352;
+    v11 = (PaymentOption)v10.next();
+    if (v11.deleted != 0) goto L349;
+    if (v7 <= v11.date) goto L349;
+    v7 = v11.date;
+    L349:
+    goto L302;
+    L352:
+    v8 += 1;
+    goto L249;
+    L358:
+    $s0 = this;
+    $s1 = new SimpleCalendar(?);
+    $s2 = new SimpleCalendar(?);
+    if (p2 == 0) goto L372;
+    $s0 = this;
+    $s1 = new SimpleCalendar(?);
+    $s2 = new SimpleCalendar(?);
+    $s3 = v7;
+    goto L374;
+    L372:
+    $s3 = v6;
+    L374:
+    $s2.<init>($s3);
+    $s0.startDate = $s1;
+    if (p2 == 0) goto L404;
+    this.startDate.set(2, 0);
+    this.startDate.set(1, 1);
+    L404:
+    v8 = 0;
+    L407:
+    if (v8 >= this.payments.size()) goto L504;
+    v9 = (Payment)this.payments.get(v8);
+    if (v9.getEndMode() != 64) goto L498;
+    v10 = this.calcLoanSchedule(v9, null);
+    if (this.startDate.gt(v10.actualStartCal) == 0) goto L498;
+    if (this.startDate.lt(v10.actualEndCal) == 0) goto L498;
+    this.startDate.set(v10.actualStartCal.get());
+    L498:
+    v8 += 1;
+    goto L407;
+    L504:
+    this.startDate.set(1, 1);
+    this.endDate = new SimpleCalendar(p0);
+    this.endDate.add(2, p1);
+    this.endDate.set(2, 11);
+    this.endDate.set(1, this.endDate.getActualMaximum(1));
+    v8 = new SimpleCalendar(this.startDate);
+    this.startYear = this.startDate.get(3);
+    v9 = ((this.endDate.get(3) - this.startYear) + 1);
+    v10 = 0;
+    $a5 = new int[v9];
+    this.yOffset = $a5;
+    v11 = 0;
+    L620:
+    if (v11 >= v9) goto L660;
+    this.yOffset[v11] = v10;
+    v10 = (v10 + v8.getMaximumDayOfYear());
+    v8.add(3, 1);
+    v11 += 1;
+    goto L620;
+    L660:
+    $a6 = new BudgetDay[v10];
+    this.budgetDay = $a6;
+    v11 = 0;
+    L672:
+    if (v11 >= v10) goto L699;
+    this.budgetDay[v11] = new BudgetDay();
+    v11 += 1;
+    goto L672;
+    L699:
+    this.startDateAsInt = this.startDate.get();
+    this.endDateAsInt = this.endDate.get();
+    v11 = 0;
+    L724:
+    if (v11 >= this.payments.size()) goto L766;
+    v12 = this.get(v11);
+    v12.calendarDays.clear();
+    this.update(v12, 0);
+    v11 += 1;
+    goto L724;
+    L766:
+    this.updateAdjustments(null);
+    return;
+}
+
+public void setLeftLimit(int p0) {
+    this.startDate.set(2, 0);
+    this.startDate.set(1, 1);
+    this.startDateAsInt = this.startDate.get();
+    return;
+}
+
+private int calIndex(SimpleCalendar p0) {
+    v2 = p0.get();
+    if (v2 < this.startDateAsInt) goto L21;
+    if (v2 <= this.endDateAsInt) goto L23;
+    L21:
+    return -1;
+    L23:
+    return ((this.yOffset[(p0.getYear() - this.startYear)] + p0.getDayOfYear()) - 1);
+}
+
+public int getLatestAdjustmentDate() {
+    v1 = -1;
+    v2 = this.adjustments.opt.iterator();
+    L13:
+    if (v2.hasNext() == 0) goto L61;
+    v3 = (PaymentOption)v2.next();
+    if (v1 >= v3.date) goto L58;
+    if (SimpleCalendar.getYear(v3.date) == 9999) goto L58;
+    v1 = v3.date;
+    L58:
+    goto L13;
+    L61:
+    return v1;
+}
+
+public int getOldestAdjustmentDate() {
+    v1 = new SimpleCalendar().get();
+    v2 = this.adjustments.opt.iterator();
+    L22:
+    if (v2.hasNext() == 0) goto L57;
+    v3 = (PaymentOption)v2.next();
+    if (v3.date >= v1) goto L54;
+    v1 = v3.date;
+    L54:
+    goto L22;
+    L57:
+    v2 = this.payments.iterator();
+    L65:
+    if (v2.hasNext() == 0) goto L131;
+    v3 = (Payment)v2.next().opt.iterator();
+    L90:
+    if (v3.hasNext() == 0) goto L128;
+    v4 = (PaymentOption)v3.next();
+    if (v4.date >= v1) goto L125;
+    v1 = v4.date;
+    L125:
+    goto L90;
+    L128:
+    goto L65;
+    L131:
+    return v1;
+}
+
+public static boolean isEncrypted(String p0) {
+    v1 = 0;
+    v2 = null;
+    v2 = new BufferedReader(new FileReader(p0));
+    v3 = v2.readLine();
+    if (v3 == null) goto L51;
+    if (v3.equals("#db*Encrypted") != 0) goto L49;
+    if (v3.equals("#db*encrypted") == 0) goto L51;
+    L49:
+    v1 = 1;
+    L51:
+    if (v2 == null) goto L100;
+    v2.close();
+    goto L100;
+    // handler for [55,59) catch Exception
+    L62:
+    v3 = $ex;
+    goto L100;
+    // handler for [4,51) catch Exception
+    L66:
+    v3 = $ex;
+    if (v2 == null) goto L100;
+    v2.close();
+    goto L100;
+    // handler for [71,75) catch Exception
+    L78:
+    v3 = $ex;
+    goto L100;
+    // handler for [4,51) catch any
+    // handler for [82,84) catch any
+    L82:
+    v4 = $ex;
+    if (v2 == null) goto L97;
+    v2.close();
+    goto L97;
+    // handler for [88,92) catch Exception
+    L95:
+    v5 = $ex;
+    L97:
+    throw v4;
+    L100:
+    return v1;
+}
+
+public static boolean isDecryptable(String p0, String p1) {
+    v2 = new Payment();
+    v3 = new ArrayList(50);
+    v4 = new StringBuffer();
+    return BudgetDB.loadFileData(p0, p1, v4, v2, v3, null);
+}
+
+private static boolean loadFileData(String p0, String p1, StringBuffer p2, Payment p3, ArrayList p4, Properties p5) {
+    v6 = 0;
+    v7 = 0;
+    v8 = 1;
+    v9 = null;
+    v10 = "";
+    if (p5 == null) goto L41;
+    p5.setProperty("notes", "");
+    p5.setProperty("version", "1");
+    L41:
+    BudgetDB.bf = null;
+    p2.append(("loading '" + p0 + "'...\n"));
+    v9 = new BufferedReader(new InputStreamReader(new FileInputStream(p0), "ISO-8859-1"));
+    L83:
+    $t4 = v9.readLine();
+    v11 = $t4;
+    if ($t4 == null) goto L1282;
+    v6 += 1;
+    if (v6 != 1) goto L150;
+    if (v11.equals("#db*Encrypted") == 0) goto L117;
+    goto L83;
+    L117:
+    if (v11.equals("#db*encrypted") == 0) goto L148;
+    BudgetDB.bf = new Blowfish();
+    BudgetDB.bf.setPassword(p1);
+    goto L83;
+    L148:
+    p1 = null;
+    L150:
+    v11 = BudgetDB.decryptString(v11, p1);
+    if (v11.length() == 0) goto L177;
+    if (35 != v11.charAt(0)) goto L192;
+    L177:
+    if (BudgetDB.is_end_of_data(v9, v6, v11) == 0) goto L83;
+    goto L1282;
+    L192:
+    v13 = new StringTokenizer(v11, ",");
+    v14 = new Payment();
+    v14.id = v8;
+    v12 = v13.nextToken().trim();
+    if (v12.equals(":") == 0) goto L249;
+    v14 = p3;
+    goto L900;
+    L249:
+    if (v12.equals("=") == 0) goto L300;
+    v10 = "file notes";
+    if (v13.hasMoreTokens() == 0) goto L297;
+    if (p5 == null) goto L297;
+    p5.setProperty("notes", BudgetDB.decodeDescription(v13.nextToken().trim()));
+    L297:
+    goto L83;
+    L300:
+    if (v12.equals("v") == 0) goto L350;
+    v10 = "version";
+    if (v13.hasMoreTokens() == 0) goto L347;
+    if (p5 == null) goto L347;
+    p5.setProperty("version", BudgetDB.decodeDescription(v13.nextToken().trim()));
+    L347:
+    goto L83;
+    L350:
+    v14.flag_value = 94;
+    $t8 = v12.indexOf(94);
+    v15 = $t8;
+    if (-1 == $t8) goto L388;
+    v14.flag_value = 94;
+    v12 = v12.substring(0, v15);
+    L388:
+    $t9 = v12.indexOf(59);
+    v15 = $t9;
+    if (-1 == $t9) goto L419;
+    v14.flag_value = 59;
+    v12 = v12.substring(0, v15);
+    L419:
+    $t10 = v12.indexOf(35);
+    v15 = $t10;
+    if (-1 == $t10) goto L450;
+    v14.flag_value = 35;
+    v12 = v12.substring(0, v15);
+    L450:
+    $t11 = v12.indexOf(33);
+    v15 = $t11;
+    if (-1 == $t11) goto L480;
+    v14.disabled = 1;
+    v12 = v12.substring(0, v15);
+    L480:
+    $t12 = v12.indexOf(37);
+    v15 = $t12;
+    if (-1 == $t12) goto L526;
+    v10 = "loan amount";
+    v14.loan_amount = Double.parseDouble(v12.substring((v15 + 1)));
+    v12 = v12.substring(0, v15);
+    L526:
+    v10 = "amount";
+    v14.amount = Double.parseDouble(v12);
+    v8 += 1;
+    v10 = "description";
+    v14.description = BudgetDB.decodeDescription(v13.nextToken().trim());
+    v10 = "start_date";
+    v14.startDate = Integer.parseInt(v13.nextToken().trim());
+    v10 = "frequency";
+    v12 = v13.nextToken().trim();
+    $t13 = v12.indexOf(59);
+    v15 = $t13;
+    if (-1 == $t13) goto L642;
+    v14.grace_period_days = Integer.parseInt(v12.substring((v15 + 1)));
+    v12 = v12.substring(0, v15);
+    L642:
+    v14.frequency = Integer.parseInt(v12.substring(0, (v12.length() - 1)));
+    v14.freq_type = v12.charAt((v12.length() - 1));
+    if (-1 != "dwmyWL".indexOf(v14.freq_type)) goto L718;
+    p2.append(("(" + v6 + "): Invalid frequency type '" + v14.freq_type + "'\n"));
+    v7 += 1;
+    goto L83;
+    L718:
+    if (v14.freq_type != 87) goto L734;
+    v14.frequency = 1;
+    L734:
+    v10 = "n_pays";
+    v14.n_pays = Integer.parseInt(v13.nextToken().trim());
+    v10 = "end_date";
+    v14.endDate = Integer.parseInt(v13.nextToken().trim());
+    v14.endDate = Math.max(v14.endDate, v14.startDate);
+    v10 = "flags";
+    v14.flags = Integer.parseInt(v13.nextToken().trim());
+    if (v14.getEndMode() != 0) goto L879;
+    if (v14.n_pays != 0) goto L854;
+    if (v14.startDate != v14.endDate) goto L854;
+    v14.setEndMode(16);
+    goto L879;
+    L854:
+    if (v14.n_pays == 0) goto L872;
+    v14.setEndMode(48);
+    goto L879;
+    L872:
+    v14.setEndMode(32);
+    L879:
+    v10 = "image_path";
+    v14.image_path = BudgetDB.decodeDescription(v13.nextToken().trim());
+    L900:
+    v10 = "opts";
+    L905:
+    if (v13.hasMoreTokens() == 0) goto L1235;
+    v12 = v13.nextToken().trim();
+    v15 = v12.length();
+    if (v15 != 0) goto L938;
+    goto L905;
+    L938:
+    if (v12.startsWith("$") == 0) goto L981;
+    v16 = v12.substring(1).trim();
+    if (v16.length() <= 0) goto L905;
+    v14.category = BudgetDB.decodeDescription(v16);
+    goto L905;
+    L981:
+    if (v15 >= 8) goto L1003;
+    throw new Exception(("invalid option: '" + v12 + "'"));
+    L1003:
+    v16 = Integer.parseInt(v12.substring(0, 8));
+    if (v15 != 8) goto L1033;
+    v14.addNoTransaction(v16);
+    goto L905;
+    L1033:
+    v17 = v12.charAt(8);
+    switch (v17) { 35: L1116, 38: L1195, 58: L1175, 59: L1104, 61: L1140, 94: L1128; default: L1217 }
+    L1104:
+    v14.setFlag(v16, 59);
+    goto L1232;
+    L1116:
+    v14.setFlag(v16, 35);
+    goto L1232;
+    L1128:
+    v14.setFlag(v16, 94);
+    goto L1232;
+    L1140:
+    v18 = v12.substring(9).trim();
+    if (v18.length() <= 0) goto L1232;
+    v14.setNote(v16, BudgetDB.decodeDescription(v18));
+    goto L1232;
+    L1175:
+    v14.addCustomAmount(v16, Double.parseDouble(v12.substring(9)));
+    goto L1232;
+    L1195:
+    v14.setHilighting(v16, Integer.parseInt(v12.substring(9), 16));
+    goto L1232;
+    L1217:
+    throw new Exception(("Invalid option: '" + v12 + "'"));
+    L1232:
+    goto L905;
+    L1235:
+    goto L1265;
+    // handler for [215,297) catch Exception
+    // handler for [300,347) catch Exception
+    // handler for [350,715) catch Exception
+    // handler for [718,1235) catch Exception
+    L1238:
+    v15 = $ex;
+    p2.append(("(" + v6 + "): Invalid data for '" + v10 + "'\nException: " + String.valueOf(v15)));
+    v7 += 1;
+    goto L83;
+    L1265:
+    if (v14 == p3) goto L1279;
+    p4.add(v14);
+    L1279:
+    goto L83;
+    L1282:
+    v9.close();
+    goto L1326;
+    // handler for [56,1287) catch Exception
+    L1290:
+    v13 = $ex;
+    v7 += 1;
+    p2.append(("unable to open '" + p0 + "' file.\nException: " + String.valueOf(v13)));
+    if (v9 == null) goto L1326;
+    v9.close();
+    goto L1326;
+    // handler for [1316,1321) catch Exception
+    L1324:
+    v14 = $ex;
+    L1326:
+    if (v7 == 0) goto L1405;
+    p2.append("failed");
+    if (p5 == null) goto L1403;
+    v13 = new BufferedWriter(new FileWriter((Budget.dirHome + File.separator + "errinfo.txt")));
+    v13.write((String.valueOf(p2)));
+    v13.close();
+    goto L1403;
+    // handler for [1344,1390) catch Exception
+    L1393:
+    v13 = $ex;
+    v13.printStackTrace(System.err);
+    L1403:
+    return 0;
+    L1405:
+    p2.append(("done.\n" + p4.size() + " entries loaded.\n"));
+    return 1;
+}
+
+private static boolean is_end_of_data(BufferedReader p0, int p1, String p2) {
+    if (p2.startsWith("## END-OF-DATA; line_no=") == 0) goto L190;
+    if (p2.endsWith(" ##") != 0) goto L32;
+    System.err.println(("END-OF-DATA line doesn't end with trailer, got '" + p2 + "'"));
+    L32:
+    v3 = p2.indexOf(" ##");
+    if (v3 != -1) goto L59;
+    throw new Exception(("NO TRAILER: end-of-data entry misformed, line '" + p2 + "'"));
+    L59:
+    v4 = p2.substring("## END-OF-DATA; line_no=".length(), v3);
+    v5 = Integer.parseInt(v4);
+    if (p1 != v5) goto L142;
+    if (p2.length() == (v3 + " ##".length())) goto L115;
+    System.err.println(("WARNING: unexpected data after ' ##', text='" + p2 + "'"));
+    goto L158;
+    L115:
+    v6 = p0.readLine();
+    if (v6 == null) goto L139;
+    System.err.println(("WARNING: more data past end-of-data, text='" + v6 + "'"));
+    L139:
+    goto L158;
+    L142:
+    throw new Exception(("mismatched number of read lines! line_no=" + p1 + ", file_line_no=" + v5));
+    L158:
+    goto L188;
+    // handler for [72,158) catch Exception
+    L161:
+    v5 = $ex;
+    v5.printStackTrace(System.err);
+    throw new Exception(("misformed end-of-data line: line_no=" + p1 + ", text:'" + p2 + "'"), v5);
+    L188:
+    return 1;
+    L190:
+    return 0;
+}
+
+public static BudgetDB load(String p0, String p1, StringBuffer p2, SimpleCalendar p3, int p4, boolean p5) {
+    v6 = new Payment();
+    v7 = null;
+    v8 = new ArrayList(50);
+    v9 = new Properties();
+    if (p0 != null) goto L63;
+    v7 = new BudgetDB(v8, v6, p3, p4, p5, null);
+    goto L60;
+    // handler for [36,55) catch Exception
+    L58:
+    v10 = $ex;
+    L60:
+    return v7;
+    L63:
+    if (0 != BudgetDB.loadFileData(p0, p1, p2, v6, v8, v9)) goto L81;
+    return null;
+    L81:
+    v7 = new BudgetDB(v8, v6, p3, p4, p5, v9);
+    goto L113;
+    // handler for [81,101) catch Exception
+    L104:
+    v10 = $ex;
+    p2.append(v10);
+    L113:
+    v7.fileName = p0;
+    return v7;
+}
+
+private String optsString(Payment p0) {
+    v2 = p0.opt.size();
+    v3 = new StringBuilder((v2 * 20));
+    if (p0.category == null) goto L45;
+    v3.append(", $").append(BudgetDB.encodeDescription(p0.category));
+    L45:
+    v4 = 0;
+    L48:
+    if (v4 >= v2) goto L125;
+    v5 = p0.getOption(v4);
+    if (v5.deleted == 0) goto L89;
+    v3.append(", ").append(v5.date);
+    goto L119;
+    L89:
+    v3.append(", ").append(v5.date).append(":").append(v5.amount);
+    L119:
+    v4 += 1;
+    goto L48;
+    L125:
+    if (null == p0.flag) goto L191;
+    v4 = p0.flag.iterator();
+    L142:
+    if (v4.hasNext() == 0) goto L191;
+    v5 = (PaymentFlag)v4.next();
+    v3.append(", ").append(v5.date).append(v5.value);
+    goto L142;
+    L191:
+    if (null == p0.note) goto L266;
+    v4 = p0.note.iterator();
+    L208:
+    if (v4.hasNext() == 0) goto L266;
+    v5 = (Note)v4.next();
+    v3.append(", ").append(v5.date).append("=").append(BudgetDB.encodeDescription(v5.note));
+    goto L208;
+    L266:
+    if (null == p0.hilighting) goto L341;
+    v4 = p0.hilighting.iterator();
+    L283:
+    if (v4.hasNext() == 0) goto L341;
+    v5 = (Payment$Hilight)v4.next();
+    v3.append(", ").append(v5.date).append("&").append(Integer.toHexString(v5.bg_color));
+    goto L283;
+    L341:
+    return v3.toString();
+}
+
+public static String encodeDescription(String p0) {
+    v1 = UnicodishBufferedWriter.str2unicodish(p0);
+    v2 = 0;
+    L7:
+    if (v2 >= v1.length) goto L50;
+    if (44 != v1[v2]) goto L30;
+    v1[v2] = 255;
+    goto L44;
+    L30:
+    if (10 != v1[v2]) goto L44;
+    v1[v2] = 254;
+    L44:
+    v2 += 1;
+    goto L7;
+    L50:
+    return new String(v1);
+}
+
+public static String decodeDescription(String p0) {
+    v1 = p0.toCharArray();
+    v2 = v1.length;
+    v3 = 0;
+    $a1 = new char[v2];
+    v4 = $a1;
+    v5 = 0;
+    L18:
+    if (v5 >= v2) goto L193;
+    if (v1[v5] != 255) goto L49;
+    $t2 = v3;  // value before increment
+    v3 += 1;
+    v4[$t2] = 44;
+    v5 += 1;
+    goto L18;
+    L49:
+    if (v1[v5] != 254) goto L74;
+    $t3 = v3;  // value before increment
+    v3 += 1;
+    v4[$t3] = 10;
+    v5 += 1;
+    goto L18;
+    L74:
+    if ((v2 - v5) < 8) goto L176;
+    if (v1[v5] != 38) goto L176;
+    if (v1[(v5 + 1)] != 35) goto L176;
+    if (v1[(v5 + 2)] != 120) goto L176;
+    if (v1[(v5 + 7)] != 59) goto L176;
+    v6 = new String(v1, (v5 + 3), 4);
+    $t5 = v3;  // value before increment
+    v3 += 1;
+    v4[$t5] = (char)Integer.parseInt(v6, 16);
+    goto L170;
+    // handler for [126,156) catch Exception
+    L159:
+    v6 = $ex;
+    $t6 = v3;  // value before increment
+    v3 += 1;
+    v4[$t6] = 63;
+    L170:
+    v5 += 8;
+    goto L18;
+    L176:
+    $t7 = v3;  // value before increment
+    v3 += 1;
+    $t8 = v5;  // value before increment
+    v5 += 1;
+    v4[$t7] = v1[$t8];
+    goto L18;
+    L193:
+    return new String(v4, 0, v3);
+}
+
+public static boolean copyFile(File p0, File p1) {
+    v2 = null;
+    v3 = null;
+    v4 = null;
+    v5 = null;
+    v6 = 0;
+    if (p1.exists() != 0) goto L25;
+    p1.createNewFile();
+    L25:
+    $t2 = new FileInputStream(p0);
+    v2 = $t2;
+    v4 = $t2.getChannel();
+    $t4 = new FileOutputStream(p1);
+    v3 = $t4;
+    v5 = $t4.getChannel();
+    v7 = v4.size();
+    $t5 = v5.transferFrom(v4, 0L, v7);
+    v9 = $t5;
+    if (v7 != $t5) goto L85;
+    $s0 = 1;
+    goto L86;
+    L85:
+    $s0 = 0;
+    L86:
+    v6 = $s0;
+    goto L101;
+    // handler for [13,88) catch IOException
+    L91:
+    v7 = $ex;
+    v7.printStackTrace(System.err);
+    L101:
+    if (v2 == null) goto L114;
+    v2.close();
+    goto L114;
+    // handler for [105,109) catch Exception
+    L112:
+    v7 = $ex;
+    L114:
+    if (v3 == null) goto L127;
+    v3.close();
+    goto L127;
+    // handler for [118,122) catch Exception
+    L125:
+    v7 = $ex;
+    L127:
+    return v6;
+}
+
+public boolean save(String p0, String p1, StringBuffer p2) {
+    v4 = 0;
+    v6 = null;
+    v8 = new File(p0);
+    v9 = 102400;
+    if (v8.exists() == 0) goto L46;
+    v9 = Math.max(((int)v8.length() + 10240), v9);
+    L46:
+    p2.append(("Unable to save '" + p0 + "'\n"));
+    if (p1 != null) goto L68;
+    BudgetDB.bf = null;
+    goto L85;
+    L68:
+    BudgetDB.bf = new Blowfish();
+    BudgetDB.bf.setPassword(p1);
+    L85:
+    v10 = null;
+    v11 = 0;
+    v10 = new ByteArrayOutputStream(v9);
+    v6 = new BufferedWriter(new OutputStreamWriter(v10, "ISO-8859-1"));
+    if (p1 == null) goto L138;
+    v11 += 1;
+    v6.write("#db*encrypted\n");
+    L138:
+    v11 += 1;
+    v6.write((BudgetDB.encryptString("v,2", p1) + "\n"));
+    v11 += 1;
+    v6.write((BudgetDB.encryptString((":" + this.optsString(this.adjustments)), p1) + "\n"));
+    v11 += 1;
+    v6.write((BudgetDB.encryptString(("=," + BudgetDB.encodeDescription(this.notes)), p1) + "\n"));
+    v12 = this.payments.size();
+    v13 = 0;
+    L229:
+    if (v13 >= v12) goto L451;
+    v5 = (Payment)this.payments.get(v13);
+    $s0 = v5.amount;
+    if (v5.getEndMode() == 64) goto L275;
+    $s0 = v5.amount;
+    if (v5.loan_amount == 0.0) goto L288;
+    $s0 = v5.amount;
+    L275:
+    $s1 = ("%" + v5.loan_amount);
+    goto L290;
+    L288:
+    $s1 = "";
+    L290:
+    if (v5.disabled == 0) goto L304;
+    $s2 = "!";
+    goto L306;
+    L304:
+    $s2 = "";
+    L306:
+    if (v5.flag_value == 94) goto L329;
+    $s3 = (v5.flag_value);
+    goto L331;
+    L329:
+    $s3 = "";
+    L331:
+    $s4 = BudgetDB.encodeDescription(v5.description);
+    $s5 = v5.startDate;
+    $s6 = v5.frequency;
+    $s7 = v5.freq_type;
+    if (v5.grace_period_days != 0) goto L367;
+    $s4 = BudgetDB.encodeDescription(v5.description);
+    $s5 = v5.startDate;
+    $s6 = v5.frequency;
+    $s7 = v5.freq_type;
+    $s8 = "";
+    goto L377;
+    L367:
+    $s8 = (";" + v5.grace_period_days);
+    L377:
+    $s9 = v5.n_pays;
+    $s10 = v5.endDate;
+    $s11 = v5.flags;
+    if (v5.image_path != null) goto L405;
+    $s9 = v5.n_pays;
+    $s10 = v5.endDate;
+    $s11 = v5.flags;
+    $s12 = "";
+    goto L413;
+    L405:
+    $s12 = BudgetDB.encodeDescription(v5.image_path);
+    L413:
+    v7 = ($s0 + $s1 + $s2 + $s3 + ", " + $s4 + ", " + $s5 + ", " + $s6 + $s7 + $s8 + ", " + $s9 + ", " + $s10 + ", " + $s11 + ", " + $s12 + " " + this.optsString(v5));
+    v11 += 1;
+    v6.write((BudgetDB.encryptString(v7, p1) + "\n"));
+    v13 += 1;
+    goto L229;
+    L451:
+    v11 += 1;
+    v6.write(BudgetDB.encryptString(("## END-OF-DATA; line_no=" + v11 + " ##"), p1));
+    v6.close();
+    goto L565;
+    // handler for [91,475) catch Exception
+    L478:
+    v12 = $ex;
+    p2.append(("Save exception: " + String.valueOf(v12) + "\n"));
+    v13 = v12.getStackTrace();
+    v14 = 0;
+    L505:
+    if (v14 >= v13.length) goto L529;
+    p2.append(v13[v14]);
+    v14 += 1;
+    goto L505;
+    L529:
+    v4 += 1;
+    if (v6 == null) goto L565;
+    v6.close();
+    goto L565;
+    // handler for [537,542) catch Exception
+    L545:
+    v14 = $ex;
+    v4 += 1;
+    p2.append(("Save Close:" + String.valueOf(v14)));
+    L565:
+    if (v4 != 0) goto L779;
+    v12 = null;
+    if (v8.exists() == 0) goto L717;
+    v13 = v10.toByteArray();
+    if (v8.length() != (long)v13.length) goto L626;
+    v14 = this.getFileBytes(v8);
+    if (v14 == null) goto L626;
+    if (Arrays.equals(v14, v13) == 0) goto L626;
+    return 1;
+    L626:
+    v14 = (p0 + ".bak");
+    v12 = new File(v14);
+    v15 = 0;
+    L648:
+    if (v12.exists() == 0) goto L697;
+    if (v15 <= 100) goto L673;
+    p2.append("Too many backup files, try using 'Save as..'!");
+    return 0;
+    L673:
+    v15 += 1;
+    v12 = new File((v14 + "." + v15));
+    goto L648;
+    L697:
+    if (BudgetDB.copyFile(v8, v12) != 0) goto L717;
+    p2.append("Failed to create a backup file, try using 'Save as..'!");
+    return 0;
+    L717:
+    v13 = new FileOutputStream(v8);
+    v10.writeTo(v13);
+    v13.close();
+    goto L763;
+    // handler for [717,740) catch Exception
+    L743:
+    v13 = $ex;
+    p2.append(("File Save:" + String.valueOf(v13)));
+    v4 += 1;
+    L763:
+    if (v4 != 0) goto L779;
+    if (v12 == null) goto L779;
+    v12.delete();
+    L779:
+    if (v4 != 0) goto L788;
+    $s0 = 1;
+    goto L789;
+    L788:
+    $s0 = 0;
+    L789:
+    return $s0;
+}
+
+private byte[] getFileBytes(File p0) {
+    v2 = null;
+    v3 = null;
+    v2 = new FileInputStream(p0);
+    v3 = new ByteArrayOutputStream((int)p0.length());
+    $a3 = new byte[16384];
+    v5 = $a3;
+    L33:
+    $t4 = v2.read(v5, 0, v5.length);
+    v4 = $t4;
+    if (-1 == $t4) goto L62;
+    v3.write(v5, 0, v4);
+    goto L33;
+    L62:
+    v3.flush();
+    goto L93;
+    // handler for [4,66) catch Exception
+    L69:
+    v4 = $ex;
+    System.err.println(("Failed to load data from '" + p0.getAbsolutePath() + "': " + String.valueOf(v4)));
+    v3 = null;
+    L93:
+    if (v2 == null) goto L101;
+    v2.close();
+    L101:
+    goto L106;
+    // handler for [93,101) catch Exception
+    L104:
+    v4 = $ex;
+    L106:
+    if (v3 == null) goto L117;
+    $s0 = v3.toByteArray();
+    goto L118;
+    L117:
+    $s0 = null;
+    L118:
+    return $s0;
+}
+
+static int toDate(String p0) {
+    v1 = 20000101;
+    if (p0.indexOf(45) == -1) goto L122;
+    v2 = 2000;
+    v3 = 1;
+    v4 = 1;
+    v5 = BudgetDB.split(p0, 45);
+    if (v5 == null) goto L105;
+    if (v5.length <= 0) goto L56;
+    v2 = Math.max(Integer.parseInt(v5[0]), 2000);
+    L56:
+    if (v5.length <= 1) goto L80;
+    v3 = Math.min(12, Math.max(Integer.parseInt(v5[1]), 1));
+    L80:
+    if (v5.length <= 2) goto L105;
+    v4 = Math.min(31, Math.max(Integer.parseInt(v5[2]), 1));
+    L105:
+    v1 = (((v2 * 10000) + (v3 * 100)) + v4);
+    goto L127;
+    L122:
+    v1 = Integer.parseInt(p0);
+    L127:
+    goto L135;
+    // handler for [4,127) catch Exception
+    L130:
+    v2 = $ex;
+    v1 = 20000101;
+    L135:
+    v1 = new SimpleCalendar(v1).get();
+    return v1;
+}
+
+static String sDate(int p0) {
+    v1 = (p0 / 10000);
+    v2 = ((p0 / 100) % 100);
+    v3 = (p0 % 100);
+    v4 = new DecimalFormat("0000");
+    v5 = new DecimalFormat("00");
+    v6 = (v4.format((long)v1) + "-" + v5.format((long)v2) + "-" + v5.format((long)v3));
+    return v6;
+}
+
+public static String[] split(String p0, char p1) {
+    v2 = 1;
+    v4 = 0;
+    L5:
+    $t1 = p0.indexOf(p1, v4);
+    v4 = $t1;
+    if (-1 == $t1) goto L28;
+    v2 += 1;
+    v4 += 1;
+    goto L5;
+    L28:
+    $a2 = new String[v2];
+    v5 = $a2;
+    v2 = 0;
+    v4 = 0;
+    L39:
+    $t3 = p0.indexOf(p1, v4);
+    v3 = $t3;
+    if (-1 == $t3) goto L74;
+    $t4 = v2;  // value before increment
+    v2 += 1;
+    v5[$t4] = p0.substring(v4, v3);
+    v4 = (v3 + 1);
+    goto L39;
+    L74:
+    if (v4 >= p0.length()) goto L96;
+    $t5 = v2;  // value before increment
+    v2 += 1;
+    v5[$t5] = p0.substring(v4);
+    L96:
+    return v5;
+}
+
+public static int calendarField(char p0) {
+    v1 = 2;
+    switch (p0) { 76: L86, 87: L80, 100: L60, 109: L70, 119: L65, 121: L75; default: L89 }
+    L60:
+    v1 = 1;
+    goto L89;
+    L65:
+    v1 = 5;
+    goto L89;
+    L70:
+    v1 = 2;
+    goto L89;
+    L75:
+    v1 = 3;
+    goto L89;
+    L80:
+    v1 = 7;
+    goto L89;
+    L86:
+    v1 = 8;
+    L89:
+    return v1;
+}
+
+private void removeFromBudgetDays(Payment p0) {
+    v2 = p0.calendarDays.iterator();
+    L8:
+    if (v2.hasNext() == 0) goto L63;
+    v3 = (BudgetDay)v2.next();
+    v3.remove(p0);
+    v3.removeRegular(p0);
+    v3.removeRestorable(p0);
+    this.updateCount = (this.updateCount + 1);
+    this.in_sync = 0;
+    goto L8;
+    L63:
+    p0.calendarDays.clear();
+    return;
+}
+
+private void updateAdjustments(SimpleCalendar p0) {
+    v4 = this.adjustments.opt.size();
+    this.updateCount = (this.updateCount + 1);
+    v6 = this.budgetDay.length;
+    v2 = 0;
+    L31:
+    if (v2 >= v6) goto L53;
+    this.budgetDay[v2].closing_balance_adjusted = 0;
+    v2 += 1;
+    goto L31;
+    L53:
+    v2 = 0;
+    L55:
+    if (v2 >= v4) goto L129;
+    v5 = (PaymentOption)this.adjustments.opt.get(v2);
+    $t2 = this.calIndex(new SimpleCalendar(v5.date));
+    v3 = $t2;
+    if (-1 == $t2) goto L123;
+    this.budgetDay[v3].closing_balance_adjusted = 1;
+    this.budgetDay[v3].closing_balance = v5.amount;
+    L123:
+    v2 += 1;
+    goto L55;
+    L129:
+    if (this.in_sync == 0) goto L150;
+    this.in_sync = 0;
+    if (p0 == null) goto L150;
+    this.calcBalances(p0);
+    L150:
+    return;
+}
+
+public int add(Payment p0) {
+    v2 = this.payments.size();
+    v3 = 0;
+    v4 = 0;
+    L13:
+    if (v4 >= v2) goto L60;
+    if (v3 >= (Payment)this.payments.get(v4).id) goto L54;
+    v3 = (Payment)this.payments.get(v4).id;
+    L54:
+    v4 += 1;
+    goto L13;
+    L60:
+    v3 += 1;
+    p0.id = v3;
+    this.payments.add(p0);
+    this.update(p0);
+    return v3;
+}
+
+private boolean isModifiedOn(Payment p0, SimpleCalendar p1) {
+    v3 = p1.get();
+    v4 = p0.opt.iterator();
+    L14:
+    if (v4.hasNext() == 0) goto L50;
+    v5 = (PaymentOption)v4.next();
+    if (v5.date != v3) goto L47;
+    return 1;
+    L47:
+    goto L14;
+    L50:
+    return 0;
+}
+
+public BudgetDB$LoanSchedule calcLoanSchedule(Payment p0, SimpleCalendar p1) {
+    v3 = new BudgetDB$LoanSchedule(this);
+    v4 = p0.startDate;
+    v5 = p0.startDate;
+    v6 = 0.0;
+    if (p1 == null) goto L38;
+    $s0 = new ArrayList();
+    goto L39;
+    L38:
+    $s0 = null;
+    L39:
+    v8 = $s0;
+    v9 = p0.opt.iterator();
+    L50:
+    if (v9.hasNext() == 0) goto L156;
+    v10 = (PaymentOption)v9.next();
+    if (v10.deleted != 0) goto L153;
+    v6 = (v6 + v10.amount);
+    if (v4 <= v10.date) goto L107;
+    v4 = v10.date;
+    L107:
+    if (v5 >= v10.date) goto L124;
+    v5 = v10.date;
+    L124:
+    if (v8 == null) goto L153;
+    v8.add(new BudgetDB$1Tran(this, v10.date, v10.amount));
+    L153:
+    goto L50;
+    L156:
+    v3.actualStartCal = new SimpleCalendar(Math.min(p0.startDate, v4));
+    v3.actualEndCal = new SimpleCalendar(v5);
+    v3.endCal = new SimpleCalendar(v5);
+    v3.n_pays = 0;
+    v9 = BudgetDB.calendarField(p0.freq_type);
+    v10 = new SimpleCalendar(p0.startDate);
+    if (p0.amount >= 0.0) goto L242;
+    $s0 = 1;
+    goto L243;
+    L242:
+    $s0 = 0;
+    L243:
+    v11 = $s0;
+    $s0 = Math.abs(p0.loan_amount);
+    if (v11 == 0) goto L263;
+    $s0 = Math.abs(p0.loan_amount);
+    $s1 = (-v6);
+    goto L265;
+    L263:
+    $s1 = v6;
+    L265:
+    v12 = ($s0 - $s1);
+    v14 = Math.abs(p0.amount);
+    L277:
+    if (v12 <= 0.0) goto L442;
+    v3.n_pays = (v3.n_pays + 1);
+    if (this.isModifiedOn(p0, v10) != 0) goto L420;
+    if (v10.gt(v3.endCal) == 0) goto L329;
+    v3.endCal.set(v10.get());
+    L329:
+    if (v12 > v14) goto L385;
+    $s0 = v3;
+    if (v11 == 0) goto L349;
+    $s0 = v3;
+    $s1 = (-v12);
+    goto L351;
+    L349:
+    $s1 = v12;
+    L351:
+    $s0.last_payment_amount = $s1;
+    if (v8 == null) goto L442;
+    v8.add(new BudgetDB$1Tran(this, v10.get(), v3.last_payment_amount));
+    goto L442;
+    L385:
+    v12 = (v12 - v14);
+    if (v8 == null) goto L420;
+    v8.add(new BudgetDB$1Tran(this, v10.get(), p0.amount));
+    L420:
+    BudgetDB.addPeriod(v10, v9, p0.frequency, p0.startDate, v3.n_pays);
+    goto L277;
+    L442:
+    v3.endCal = v10;
+    if (v3.endCal.gt(v3.actualEndCal) == 0) goto L477;
+    v3.actualEndCal.set(v3.endCal.get());
+    L477:
+    if (v8 == null) goto L565;
+    v16 = p1.get();
+    v17 = v8.iterator();
+    L495:
+    if (v17.hasNext() == 0) goto L554;
+    v18 = (BudgetDB$1Tran)v17.next();
+    if (v18.date <= v16) goto L551;
+    v3.abs_amount_remaining = (v3.abs_amount_remaining + v18.amount);
+    v3.n_remaining = (v3.n_remaining + 1);
+    L551:
+    goto L495;
+    L554:
+    v3.abs_amount_remaining = Math.abs(v3.abs_amount_remaining);
+    L565:
+    return v3;
+}
+
+private static void addPeriod(SimpleCalendar p0, int p1, int p2, int p3, int p4) {
+    if (p1 != 7) goto L21;
+    p0.set(p3);
+    p0.add(p1, p4);
+    return;
+    L21:
+    if (p1 == 2) goto L31;
+    if (p1 != 3) goto L59;
+    L31:
+    if (p0.getDay() <= 27) goto L59;
+    p0.set(p3);
+    p0.add(p1, (p2 * p4));
+    goto L66;
+    L59:
+    p0.add(p1, p2);
+    L66:
+    return;
+}
+
+public boolean isRegularPaymentOn(Payment p0, int p1) {
+    v3 = 0;
+    v4 = new SimpleCalendar(p0.startDate);
+    v5 = BudgetDB.calendarField(p0.freq_type);
+    v6 = p0.getEndMode();
+    v3 = 0;
+    L32:
+    if (v6 == 16) goto L47;
+    if (v3 >= p0.n_pays) goto L114;
+    L47:
+    if (v6 != 16) goto L69;
+    if (v4.gt(this.endDate) == 0) goto L69;
+    goto L114;
+    L69:
+    if (v4.get() != p1) goto L80;
+    return 1;
+    L80:
+    if (v4.get() <= p1) goto L92;
+    goto L114;
+    L92:
+    v3 += 1;
+    BudgetDB.addPeriod(v4, v5, p0.frequency, p0.startDate, v3);
+    goto L32;
+    L114:
+    return 0;
+}
+
+public int nextRegularPaymentAfterDate(Payment p0, int p1) {
+    v3 = 0;
+    v4 = new SimpleCalendar(p0.startDate);
+    v5 = BudgetDB.calendarField(p0.freq_type);
+    v6 = p0.getEndMode();
+    v3 = 0;
+    L32:
+    if (v6 == 16) goto L50;
+    if (v3 < p0.n_pays) goto L50;
+    goto L87;
+    L50:
+    if (v4.get() <= p1) goto L65;
+    return v4.get();
+    L65:
+    v3 += 1;
+    BudgetDB.addPeriod(v4, v5, p0.frequency, p0.startDate, v3);
+    goto L32;
+    L87:
+    return -1;
+}
+
+public static int get_period_days(Payment p0) {
+    v1 = new SimpleCalendar(p0.startDate);
+    v2 = new SimpleCalendar(v1);
+    BudgetDB.addPeriod(v2, BudgetDB.calendarField(p0.freq_type), p0.frequency, p0.startDate, 1);
+    return SimpleCalendar.getDiff(v1, v2);
+}
+
+public Set get_valid_payment_days(Payment p0, SimpleCalendar p1) {
+    if (p0.isTentative() == 0) goto L14;
+    $s0 = BudgetDB.get_period_days(p0);
+    goto L18;
+    L14:
+    $s0 = p0.grace_period_days;
+    L18:
+    v3 = $s0;
+    v4 = new SimpleCalendar(p1).setDayOne();
+    v5 = new SimpleCalendar(p1).setDayOne().addMonths(1);
+    v6 = new HashSet(20);
+    L60:
+    if (v4.lt(v5) == 0) goto L213;
+    if (this.isRegularPaymentOn(p0, v4.get()) == 0) goto L204;
+    if (p0.isTentative() == 0) goto L117;
+    if (p1.inRange(v4, new SimpleCalendar(v4).addDays((v3 - 1))) != 0) goto L117;
+    goto L204;
+    L117:
+    if (p1.gt(v4) == 0) goto L153;
+    if (p1.inRange(v4, new SimpleCalendar(v4).addDays((v3 - 1))) != 0) goto L153;
+    goto L204;
+    L153:
+    v7 = new SimpleCalendar(v4);
+    v8 = 0;
+    L167:
+    if (v8 >= v3) goto L201;
+    v6.add(Integer.valueOf(v7.get()));
+    v8 += 1;
+    v7.nextDay();
+    goto L167;
+    L201:
+    goto L213;
+    L204:
+    v4.nextDay();
+    goto L60;
+    L213:
+    return v6;
+}
+
+public BudgetDB$PaymentsRemaining getPaymentsRemaining(Payment p0, SimpleCalendar p1) {
+    v3 = BudgetDB.calendarField(p0.freq_type);
+    v4 = 0;
+    switch (p0.getEndMode()) { 16: L56, 32: L148, 48: L68, 64: L227; default: L253 }
+    L56:
+    return new BudgetDB$PaymentsRemaining(-1.0, -1);
+    L68:
+    if (p0.n_pays >= 1) goto L80;
+    $s0 = 1;
+    goto L84;
+    L80:
+    $s0 = p0.n_pays;
+    L84:
+    v5 = $s0;
+    v6 = new SimpleCalendar(p0.startDate);
+    v7 = 0;
+    L102:
+    if (v7 >= v5) goto L145;
+    if (v6.ge(p1) == 0) goto L121;
+    v4 += 1;
+    L121:
+    BudgetDB.addPeriod(v6, v3, p0.frequency, p0.startDate, (v7 + 1));
+    v7 += 1;
+    goto L102;
+    L145:
+    goto L253;
+    L148:
+    v5 = new SimpleCalendar(p0.endDate);
+    v6 = new SimpleCalendar(p0.startDate);
+    v7 = 1;
+    L177:
+    if (v6.ge(p1) == 0) goto L189;
+    v4 += 1;
+    L189:
+    BudgetDB.addPeriod(v6, v3, p0.frequency, p0.startDate, v7);
+    if (v6.gt(v5) == 0) goto L218;
+    goto L224;
+    L218:
+    v7 += 1;
+    goto L177;
+    L224:
+    goto L253;
+    L227:
+    v5 = this.calcLoanSchedule(p0, p1);
+    return new BudgetDB$PaymentsRemaining(v5.abs_amount_remaining, v5.n_remaining);
+    L253:
+    return new BudgetDB$PaymentsRemaining(((double)v4 * p0.amount), v4);
+}
+
+public Set getAllDeletedOptions(String p0, int p1, int p2) {
+    v4 = new TreeSet(Comparator.comparingInt(lambda[BudgetDB::lambda$getAllDeletedOptions$0]()));
+    v5 = this.payments.iterator();
+    L26:
+    if (v5.hasNext() == 0) goto L78;
+    v6 = (Payment)v5.next();
+    if (v6.description.equals(p0) == 0) goto L75;
+    v4.addAll(v6.getDeleted(p1, p2));
+    L75:
+    goto L26;
+    L78:
+    return v4;
+}
+
+public int update(Payment p0) {
+    return this.update(p0, 1);
+}
+
+private int update(Payment p0, boolean p1) {
+    v3 = 0;
+    v5 = new SimpleCalendar(p0.startDate);
+    v6 = null;
+    v8 = BudgetDB.calendarField(p0.freq_type);
+    v10 = 0.0;
+    v14 = p0.isNoWeekends();
+    this.updateCount = (this.updateCount + 1);
+    v15 = p0.getEndMode();
+    switch (v15) { 16: L96, 32: L189, 48: L99, 64: L279; default: L319 }
+    L96:
+    goto L319;
+    L99:
+    if (p0.n_pays >= 1) goto L112;
+    p0.n_pays = 1;
+    L112:
+    v16 = new SimpleCalendar(p0.startDate);
+    v3 = 0;
+    L127:
+    if ((v3 + 1) < p0.n_pays) goto L140;
+    goto L164;
+    L140:
+    BudgetDB.addPeriod(v16, v8, p0.frequency, p0.startDate, (v3 + 1));
+    v3 += 1;
+    goto L127;
+    L164:
+    p0.endDate = v16.get();
+    v6 = new SimpleCalendar(p0.endDate);
+    goto L319;
+    L189:
+    if (p0.endDate >= p0.startDate) goto L208;
+    p0.endDate = p0.startDate;
+    L208:
+    v6 = new SimpleCalendar(p0.endDate);
+    v16 = new SimpleCalendar(p0.startDate);
+    v3 = 1;
+    L236:
+    BudgetDB.addPeriod(v16, v8, p0.frequency, p0.startDate, v3);
+    if (v16.gt(v6) == 0) goto L265;
+    goto L271;
+    L265:
+    v3 += 1;
+    goto L236;
+    L271:
+    p0.n_pays = v3;
+    goto L319;
+    L279:
+    v17 = this.calcLoanSchedule(p0, null);
+    v6 = v17.endCal;
+    p0.endDate = v6.get();
+    p0.n_pays = v17.n_pays;
+    v10 = v17.last_payment_amount;
+    L319:
+    if (p1 == 0) goto L328;
+    this.removeFromBudgetDays(p0);
+    L328:
+    this.in_sync = 0;
+    v16 = 0;
+    v17 = p0.isTentative();
+    v18 = p0.isSticky();
+    v3 = 0;
+    L350:
+    if (v15 == 16) goto L365;
+    if (v3 >= p0.n_pays) goto L1094;
+    L365:
+    if (v15 != 16) goto L387;
+    if (v5.gt(this.endDate) == 0) goto L387;
+    goto L1094;
+    L387:
+    if (v15 != 64) goto L426;
+    if ((v3 + 1) != p0.n_pays) goto L426;
+    v12 = v10;
+    if (p0.hasOptionsAfter(v5.get()) != 0) goto L432;
+    v16 = 1;
+    goto L432;
+    L426:
+    v12 = p0.amount;
+    L432:
+    if (v18 == 0) goto L448;
+    v12 = p0.getAmountBeforeDate(v5.get());
+    L448:
+    if (v16 != 0) goto L485;
+    if (v15 == 16) goto L485;
+    if ((v3 + 1) != p0.n_pays) goto L485;
+    if (p0.hasOptionsAfter(v5.get()) != 0) goto L485;
+    v16 = 1;
+    L485:
+    if (v17 == 0) goto L915;
+    v19 = new SimpleCalendar(v5);
+    BudgetDB.addPeriod(v19, v8, p0.frequency, p0.startDate, (v3 + 1));
+    v19.add(1, -1);
+    if (v19.gt(v5) != 0) goto L540;
+    goto L1072;
+    L540:
+    v20 = v5.get();
+    v21 = v19.get();
+    v22 = p0.getOpt(v20, v21);
+    if (v20 < BudgetDB.today) goto L576;
+    $s0 = 1;
+    goto L577;
+    L576:
+    $s0 = 0;
+    L577:
+    v23 = $s0;
+    if (v20 > BudgetDB.today) goto L599;
+    if (BudgetDB.today > v21) goto L599;
+    $s0 = 1;
+    goto L600;
+    L599:
+    $s0 = 0;
+    L600:
+    v24 = $s0;
+    if (v24 == 0) goto L625;
+    v19 = new SimpleCalendar(BudgetDB.today);
+    v23 = 1;
+    goto L629;
+    L625:
+    v19 = v5;
+    L629:
+    if (v22 != null) goto L671;
+    if (v23 == 0) goto L1072;
+    $t8 = this.calIndex(v19);
+    v7 = $t8;
+    if (-1 == $t8) goto L1072;
+    this.budgetDay[v7].addRegular(p0, p0.amount, 0);
+    goto L1072;
+    L671:
+    if (v18 == 0) goto L835;
+    if (p0.disabled == 0) goto L835;
+    v25 = v22;
+    v26 = v25.length;
+    v27 = 0;
+    L695:
+    if (v27 >= v26) goto L758;
+    v28 = v25[v27];
+    if (v28.deleted == 0) goto L752;
+    if (v28.date == v5.get()) goto L752;
+    if (v28.date == v19.get()) goto L752;
+    p0.clear(v28.date);
+    L752:
+    v27 += 1;
+    goto L695;
+    L758:
+    if (p0.isPaid(v20, v21) != 0) goto L1072;
+    $t9 = this.calIndex(v19);
+    v7 = $t9;
+    if (-1 == $t9) goto L1072;
+    if (v24 == 0) goto L811;
+    this.budgetDay[v7].addRegular(p0, p0.getAmountBeforeDate(v19.get()), 0);
+    goto L1072;
+    L811:
+    if (v23 == 0) goto L1072;
+    this.budgetDay[v7].addRegular(p0, p0.amount, 0);
+    goto L1072;
+    L835:
+    v25 = 0;
+    v26 = v22;
+    v27 = v26.length;
+    v28 = 0;
+    L850:
+    if (v28 >= v27) goto L890;
+    v29 = v26[v28];
+    if (v29.deleted == 0) goto L884;
+    v25 += 1;
+    p0.clear(v29.date);
+    L884:
+    v28 += 1;
+    goto L850;
+    L890:
+    if (v22.length != v25) goto L912;
+    if (v23 == 0) goto L912;
+    p0.setNoTransaction(v19.get());
+    L912:
+    goto L1072;
+    L915:
+    if (v14 == 0) goto L1035;
+    $t10 = v5.getDayOfWeek();
+    v4 = $t10;
+    if ($t10 == 6) goto L938;
+    if (v4 != 0) goto L1035;
+    L938:
+    v19 = new SimpleCalendar(v5);
+    if (p0.isEarlyPay() == 0) goto L977;
+    $s0 = v19;
+    $s1 = 1;
+    if (v4 != 0) goto L969;
+    $s0 = v19;
+    $s1 = 1;
+    $s2 = -2;
+    goto L970;
+    L969:
+    $s2 = -1;
+    L970:
+    $s0.add($s1, $s2);
+    goto L994;
+    L977:
+    $s0 = v19;
+    $s1 = 1;
+    if (v4 != 0) goto L989;
+    $s0 = v19;
+    $s1 = 1;
+    $s2 = 1;
+    goto L990;
+    L989:
+    $s2 = 2;
+    L990:
+    $s0.add($s1, $s2);
+    L994:
+    $t12 = this.calIndex(v19);
+    v7 = $t12;
+    if (-1 == $t12) goto L1032;
+    $s0 = this.budgetDay[v7];
+    $s1 = p0;
+    $s2 = v12;
+    if (v16 == 0) goto L1027;
+    $s0 = this.budgetDay[v7];
+    $s1 = p0;
+    $s2 = v12;
+    $s3 = 42;
+    goto L1029;
+    L1027:
+    $s3 = 39;
+    L1029:
+    $s0.addRegular($s1, $s2, $s3);
+    L1032:
+    goto L1072;
+    L1035:
+    $t13 = this.calIndex(v5);
+    v7 = $t13;
+    if (-1 == $t13) goto L1072;
+    $s0 = this.budgetDay[v7];
+    $s1 = p0;
+    $s2 = v12;
+    if (v16 == 0) goto L1068;
+    $s0 = this.budgetDay[v7];
+    $s1 = p0;
+    $s2 = v12;
+    $s3 = 42;
+    goto L1069;
+    L1068:
+    $s3 = 0;
+    L1069:
+    $s0.addRegular($s1, $s2, $s3);
+    L1072:
+    v3 += 1;
+    BudgetDB.addPeriod(v5, v8, p0.frequency, p0.startDate, v3);
+    goto L350;
+    L1094:
+    v19 = p0.opt.iterator();
+    L1103:
+    if (v19.hasNext() == 0) goto L1338;
+    v9 = (PaymentOption)v19.next();
+    $t15 = this.calIndex(new SimpleCalendar(v9.date));
+    v7 = $t15;
+    if (-1 != $t15) goto L1151;
+    goto L1103;
+    L1151:
+    if (v9.deleted == 0) goto L1203;
+    if (0 != this.budgetDay[v7].remove(p0)) goto L1189;
+    if (v17 != 0) goto L1189;
+    v19.remove();
+    goto L1103;
+    L1189:
+    this.budgetDay[v7].addRestorable(p0);
+    goto L1103;
+    L1203:
+    v20 = 39;
+    if (v15 == 16) goto L1242;
+    if (p0.hasOptionsAfter(v9.date) != 0) goto L1242;
+    if (v9.date < p0.endDate) goto L1242;
+    v20 = 42;
+    L1242:
+    v21 = this.budgetDay[v7].get(p0);
+    if (v21 != null) goto L1281;
+    this.budgetDay[v7].add(p0, v9.amount, v20);
+    goto L1335;
+    L1281:
+    if (v21.amount != v9.amount) goto L1310;
+    if (v17 != 0) goto L1310;
+    v19.remove();
+    goto L1335;
+    L1310:
+    v21.amount = v9.amount;
+    if (v21.suffix != 0) goto L1335;
+    v21.suffix = v20;
+    L1335:
+    goto L1103;
+    L1338:
+    return 0;
+}
+
+public BudgetDay getDay(SimpleCalendar p0) {
+    v2 = this.calIndex(p0);
+    if (-1 == v2) goto L30;
+    if (this.in_sync != 0) goto L23;
+    this.calcBalances(null);
+    L23:
+    return this.budgetDay[v2];
+    L30:
+    return null;
+}
+
+public void calcBalances(SimpleCalendar p0) {
+    v2 = 0;
+    v3 = this.budgetDay.length;
+    v4 = 0.0;
+    if (this.in_sync == 0) goto L19;
+    return;
+    L19:
+    this.in_sync = 1;
+    if (p0 == null) goto L71;
+    if (p0.inRange(this.startDate, this.endDate) == 0) goto L71;
+    $t1 = this.calIndex(p0);
+    v2 = $t1;
+    if ($t1 <= 0) goto L69;
+    v4 = this.budgetDay[(v2 - 1)].closing_balance;
+    goto L71;
+    L69:
+    v2 = 0;
+    L71:
+    if (v2 >= v3) goto L209;
+    v7 = this.budgetDay[v2];
+    v7.opening_balance = v4;
+    if (v7.transactions == null) goto L159;
+    v8 = v7.transactionIterator();
+    L106:
+    if (v8.hasNext() == 0) goto L159;
+    v6 = (Transaction)v8.next();
+    if (v6.pmt.disabled != 0) goto L149;
+    v4 = (v4 + v6.amount);
+    L149:
+    v6.balance = v4;
+    goto L106;
+    L159:
+    if (v7.closing_balance_adjusted == 0) goto L190;
+    v7.adjustment_diff = (v7.closing_balance - v4);
+    v4 = v7.closing_balance;
+    goto L203;
+    L190:
+    v7.closing_balance = v4;
+    v7.adjustment_diff = 0.0;
+    L203:
+    v2 += 1;
+    goto L71;
+    L209:
+    return;
+}
+
+public boolean hasMoveUndo() {
+    return this.moveUndoInfo.available;
+}
+
+public void addMoveUndo(Payment p0, int p1, double p2, int p3, Transaction p4) {
+    this.moveUndoInfo.available = 1;
+    this.moveUndoInfo.pmt = p0;
+    this.moveUndoInfo.src_amount = p2;
+    this.moveUndoInfo.src_date = p1;
+    this.moveUndoInfo.dst_date = p3;
+    this.moveUndoInfo.src_flag = p0.getFlag(p1);
+    this.moveUndoInfo.src_note = p0.getNote(p1);
+    this.moveUndoInfo.src_hilight = p0.getHilighting(p1);
+    if (p4 != null) goto L93;
+    this.moveUndoInfo.dst_existed = 0;
+    goto L152;
+    L93:
+    this.moveUndoInfo.dst_existed = 1;
+    this.moveUndoInfo.dst_amount = p4.amount;
+    this.moveUndoInfo.dst_note = p0.getNote(p3);
+    this.moveUndoInfo.dst_flag = p0.getFlag(p3);
+    this.moveUndoInfo.dst_hilight = p0.getHilighting(p3);
+    L152:
+    return;
+}
+
+public void doMoveUndo() {
+    if (this.moveUndoInfo.available == 0) goto L280;
+    if (this.moveUndoInfo.dst_existed == 0) goto L129;
+    this.moveUndoInfo.pmt.setCustomAmount(this.moveUndoInfo.dst_date, this.moveUndoInfo.dst_amount);
+    this.moveUndoInfo.pmt.setFlag(this.moveUndoInfo.dst_date, this.moveUndoInfo.dst_flag);
+    if (this.moveUndoInfo.dst_note == null) goto L102;
+    this.moveUndoInfo.pmt.setNote(this.moveUndoInfo.dst_date, this.moveUndoInfo.dst_note);
+    L102:
+    this.moveUndoInfo.pmt.setHilighting(this.moveUndoInfo.dst_date, this.moveUndoInfo.dst_hilight);
+    goto L146;
+    L129:
+    this.moveUndoInfo.pmt.clear(this.moveUndoInfo.dst_date);
+    L146:
+    this.moveUndoInfo.pmt.setCustomAmount(this.moveUndoInfo.src_date, this.moveUndoInfo.src_amount);
+    this.moveUndoInfo.pmt.setFlag(this.moveUndoInfo.src_date, this.moveUndoInfo.src_flag);
+    if (this.moveUndoInfo.src_note == null) goto L228;
+    this.moveUndoInfo.pmt.setNote(this.moveUndoInfo.src_date, this.moveUndoInfo.src_note);
+    L228:
+    this.moveUndoInfo.pmt.setHilighting(this.moveUndoInfo.src_date, this.moveUndoInfo.src_hilight);
+    this.update(this.moveUndoInfo.pmt);
+    this.moveUndoInfo.available = 0;
+    this.moveUndoInfo.pmt = null;
+    L280:
+    return;
+}
+
+public void updateMoveUndo(Payment p0) {
+    if (this.moveUndoInfo.available == 0) goto L37;
+    if (this.moveUndoInfo.pmt != p0) goto L37;
+    this.moveUndoInfo.available = 0;
+    this.moveUndoInfo.pmt = null;
+    L37:
+    return;
+}
+
+public int deletePayment(Payment p0) {
+    if (this.moveUndoInfo.available == 0) goto L29;
+    if (this.moveUndoInfo.pmt != p0) goto L29;
+    this.moveUndoInfo.available = 0;
+    L29:
+    this.removeFromBudgetDays(p0);
+    this.payments.remove(p0);
+    this.updateCount = (this.updateCount + 1);
+    this.in_sync = 0;
+    return 0;
+}
+
+public Payment getByID(int p0) {
+    v2 = this.payments.iterator();
+    L8:
+    if (v2.hasNext() == 0) goto L40;
+    v3 = (Payment)v2.next();
+    if (v3.id != p0) goto L37;
+    return v3;
+    L37:
+    goto L8;
+    L40:
+    return null;
+}
+
+public Payment get(int p0) {
+    return (Payment)this.payments.get(p0);
+}
+
+public int size() {
+    return this.payments.size();
+}
+
+public void updateAdjustment(SimpleCalendar p0, double p1) {
+    this.adjustments.setCustomAmount(p0.get(), p1);
+    this.updateAdjustments(p0);
+    return;
+}
+
+private void recalculate_n_pays(Payment p0) {
+    v3 = BudgetDB.calendarField(p0.freq_type);
+    if (p0.endDate >= p0.startDate) goto L27;
+    p0.endDate = p0.startDate;
+    L27:
+    v4 = new SimpleCalendar(p0.endDate);
+    v5 = new SimpleCalendar(p0.startDate);
+    v2 = 1;
+    L55:
+    BudgetDB.addPeriod(v5, v3, p0.frequency, p0.startDate, v2);
+    if (v5.gt(v4) == 0) goto L83;
+    goto L89;
+    L83:
+    v2 += 1;
+    goto L55;
+    L89:
+    p0.n_pays = v2;
+    return;
+}
+
+public boolean cutOffHistoryPrior(int p0) {
+    this.calcBalances(this.startDate);
+    v2 = 1;
+    v3 = new SimpleCalendar((p0 - 1), 11, 31);
+    v4 = this.getDay(v3);
+    if (v4 != null) goto L39;
+    return 0;
+    L39:
+    v5 = v4.closing_balance;
+    v7 = v3.get();
+    v8 = this.adjustmentsSize();
+    v9 = this.adjustments.getNoteCount();
+    this.adjustments.clearBefore(v7);
+    this.adjustments.clearNotesBefore(v7);
+    $a2 = new Object[2];
+    $a2[0] = Integer.valueOf((v8 - this.adjustmentsSize()));
+    $a2[1] = Integer.valueOf((v9 - this.adjustments.getNoteCount()));
+    System.err.printf("removed %d balance adjustments, %d day notes\n", $a2);
+    v10 = this.payments.iterator();
+    L137:
+    if (v10.hasNext() == 0) goto L280;
+    v11 = (Payment)v10.next();
+    v8 = v11.opt.size();
+    v9 = v11.getNoteCount();
+    v11.clearBefore(v7);
+    v11.clearNotesBefore(v7);
+    $a3 = new Object[6];
+    $a3[0] = Integer.valueOf(v11.id);
+    $a3[1] = Integer.valueOf(v11.startDate);
+    $a3[2] = Integer.valueOf(v11.endDate);
+    $a3[3] = v11.description;
+    $a3[4] = Integer.valueOf((v8 - v11.opt.size()));
+    $a3[5] = Integer.valueOf((v9 - v11.getNoteCount()));
+    System.err.printf("#%d [%d...%d] '%s': removed %d adjustments, %d notes\n", $a3);
+    goto L137;
+    L280:
+    v10 = 1;
+    v11 = this.payments.iterator();
+    L292:
+    if (v11.hasNext() == 0) goto L903;
+    v12 = (Payment)v11.next();
+    if (v12.opt.size() != 0) goto L421;
+    if (v12.getEndMode() == 16) goto L421;
+    if (v12.endDate >= v7) goto L421;
+    $a4 = new Object[5];
+    $t5 = v10;  // value before increment
+    v10 += 1;
+    $a4[0] = Integer.valueOf($t5);
+    $a4[1] = Integer.valueOf(v12.id);
+    $a4[2] = Integer.valueOf(v12.startDate);
+    $a4[3] = Integer.valueOf(v12.endDate);
+    $a4[4] = v12.description;
+    System.err.printf("%d: Removed #%d [%d...%d] '%s'\n", $a4);
+    v11.remove();
+    goto L900;
+    L421:
+    if (v12.getEndMode() != 16) goto L521;
+    v13 = this.nextRegularPaymentAfterDate(v12, v7);
+    if (v13 != -1) goto L505;
+    $a6 = new Object[4];
+    $a6[0] = Integer.valueOf(v12.id);
+    $a6[1] = Integer.valueOf(v12.startDate);
+    $a6[2] = Integer.valueOf(v12.endDate);
+    $a6[3] = v12.description;
+    System.err.printf("Error: #%d, [%d...%d] '%s' -- unable to adjust startDate!\n", $a6);
+    goto L292;
+    L505:
+    v12.endDate = v13;
+    v12.startDate = v13;
+    goto L292;
+    L521:
+    if (v12.endDate >= v7) goto L555;
+    v12.n_pays = 1;
+    v12.startDate = v12.getFirstOptionAfter(v7).date;
+    goto L292;
+    L555:
+    if (v12.startDate < v7) goto L568;
+    goto L292;
+    L568:
+    $a7 = new Object[4];
+    $a7[0] = Integer.valueOf(v12.id);
+    $a7[1] = Integer.valueOf(v12.startDate);
+    $a7[2] = Integer.valueOf(v12.endDate);
+    $a7[3] = v12.description;
+    System.err.printf("Warning: #%d [%d...%d] '%s' -- start/end dates span the cut-off date!\n", $a7);
+    if (v12.getEndMode() != 64) goto L636;
+    goto L292;
+    L636:
+    v13 = this.nextRegularPaymentAfterDate(v12, v7);
+    if (v13 != -1) goto L656;
+    v13 = v7;
+    L656:
+    v14 = BudgetDB.get_period_days(v12);
+    v13 = this.nextRegularPaymentAfterDate(v12, new SimpleCalendar(v7).addDays((-v14)).get());
+    if (v13 == -1) goto L724;
+    System.err.println(("-----> startDate=" + v13));
+    v12.startDate = v13;
+    this.recalculate_n_pays(v12);
+    goto L292;
+    L724:
+    v13 = new SimpleCalendar(v7);
+    L735:
+    v14 = this.getDay(v13);
+    if (v14 != null) goto L751;
+    goto L900;
+    L751:
+    if (v14.hasTransactions() == 0) goto L890;
+    v15 = v14.transactions.iterator();
+    L769:
+    if (v15.hasNext() == 0) goto L890;
+    v16 = (Transaction)v15.next();
+    if (v16.pmt != v12) goto L887;
+    if (this.isRegularPaymentOn(v12, v13.get()) == 0) goto L887;
+    this.adjustments.setCustomAmount(v13.get(), v14.closing_balance);
+    $a10 = new Object[2];
+    $a10[0] = Integer.valueOf(v13.get());
+    $a10[1] = Double.valueOf(v14.closing_balance);
+    System.err.printf("-----> %d -> %.2f\n", $a10);
+    v12.startDate = v13.get();
+    this.recalculate_n_pays(v12);
+    goto L900;
+    L887:
+    goto L769;
+    L890:
+    v13.addDays(-1);
+    goto L735;
+    L900:
+    goto L292;
+    L903:
+    this.updateAdjustment(v3, v5);
+    return v2;
+}
+
+public void removeAdjustment(SimpleCalendar p0) {
+    this.adjustments.clear(p0.get());
+    this.updateAdjustments(p0);
+    return;
+}
+
+public int adjustmentsSize() {
+    return this.adjustments.opt.size();
+}
+
+public PaymentOption getAdjustment(int p0) {
+    return this.adjustments.getOption(p0);
+}
+
+public String getDayNote(SimpleCalendar p0) {
+    return this.adjustments.getNote(p0.get());
+}
+
+public void setDayNote(SimpleCalendar p0, String p1) {
+    this.adjustments.setNote(p0.get(), p1);
+    return;
+}
+
+public static byte[] hex2bytes(String p0) {
+    if ((p0.length() % 2) == 0) goto L16;
+    p0 = ("0" + p0);
+    L16:
+    $a1 = new byte[(p0.length() / 2)];
+    v1 = $a1;
+    v2 = 0;
+    L27:
+    if (v2 >= p0.length()) goto L60;
+    v1[(v2 / 2)] = (byte)Integer.parseInt(p0.substring(v2, (v2 + 2)), 16);
+    v2 += 2;
+    goto L27;
+    L60:
+    return v1;
+}
+
+public static String bytes2hex(byte[] p0) {
+    v1 = p0.length;
+    $a1 = new char[(v1 * 2)];
+    v2 = $a1;
+    v3 = 0;
+    v4 = 0;
+    L14:
+    if (v3 >= v1) goto L65;
+    v5 = (p0[v3] & 255);
+    $t2 = v4;  // value before increment
+    v4 += 1;
+    v2[$t2] = BudgetDB.hexd[(v5 >> 4)];
+    $t3 = v4;  // value before increment
+    v4 += 1;
+    v2[$t3] = BudgetDB.hexd[(v5 & 15)];
+    v3 += 1;
+    goto L14;
+    L65:
+    return new String(v2);
+}
+
+public static String encryptString(String p0, String p1) {
+    if (p1 == null) goto L111;
+    if (p1.length() <= 0) goto L111;
+    if (BudgetDB.bf != null) goto L111;
+    v2 = new StringBuffer(p0);
+    v3 = p0.length();
+    v4 = p1.length();
+    v5 = 0;
+    v6 = 0;
+    L43:
+    if (v5 >= v3) goto L106;
+    if (v6 < v4) goto L59;
+    v6 = 0;
+    L59:
+    v7 = (char)(p0.charAt(v5) ^ p1.charAt(v6));
+    if (v7 == 10) goto L97;
+    if (v7 == 13) goto L97;
+    v2.setCharAt(v5, v7);
+    L97:
+    v5 += 1;
+    v6 += 1;
+    goto L43;
+    L106:
+    return v2.toString();
+    L111:
+    if (BudgetDB.bf == null) goto L133;
+    v2 = BudgetDB.bf.encrypt(p0.getBytes());
+    return BudgetDB.bytes2hex(v2);
+    L133:
+    return p0;
+}
+
+public static String decryptString(String p0, String p1) {
+    if (BudgetDB.bf == null) goto L48;
+    v2 = BudgetDB.bf.decrypt(BudgetDB.hex2bytes(p0));
+    v3 = 0;
+    L19:
+    if (v3 >= v2.length) goto L37;
+    if (v2[v3] == 0) goto L37;
+    v3 += 1;
+    goto L19;
+    L37:
+    return new String(v2, 0, v3);
+    L48:
+    return BudgetDB.encryptString(p0, p1);
+}
+
+public String[] getCategories() {
+    v1 = new HashSet();
+    v2 = this.payments.iterator();
+    L16:
+    if (v2.hasNext() == 0) goto L56;
+    v3 = (Payment)v2.next();
+    if (v3.category == null) goto L53;
+    v1.add(v3.category);
+    L53:
+    goto L16;
+    L56:
+    $a2 = new String[v1.size()];
+    v2 = ([Ljava.lang.String;)v1.toArray($a2);
+    if (v1.size() <= 0) goto L93;
+    Arrays.sort(v2, lambda[BudgetDB::lambda$getCategories$0]());
+    L93:
+    return v2;
+}
+
+public boolean isMonthAvailable(SimpleCalendar p0) {
+    if (this.startDate.getYm() > p0.getYm()) goto L32;
+    if (p0.getYm() > this.endDate.getYm()) goto L32;
+    $s0 = 1;
+    goto L33;
+    L32:
+    $s0 = 0;
+    L33:
+    return $s0;
+}
+
+public int getNumberOfPlannedTransactions(String p0, SimpleCalendar p1, SimpleCalendar p2) {
+    v4 = 0;
+    v5 = this.payments.iterator();
+    L12:
+    if (v5.hasNext() == 0) goto L175;
+    v6 = (Payment)v5.next();
+    if (v6.description.equalsIgnoreCase(p0) == 0) goto L172;
+    v7 = 0;
+    v8 = new SimpleCalendar(v6.startDate);
+    v9 = BudgetDB.calendarField(v6.freq_type);
+    v10 = v6.getEndMode();
+    v7 = 0;
+    L83:
+    if (v10 == 16) goto L100;
+    if (v7 >= v6.n_pays) goto L172;
+    L100:
+    if (v10 != 16) goto L122;
+    if (v8.gt(this.endDate) == 0) goto L122;
+    goto L172;
+    L122:
+    if (v8.inRange(p1, p2) == 0) goto L135;
+    v4 += 1;
+    L135:
+    if (v8.gt(p2) == 0) goto L147;
+    goto L172;
+    L147:
+    v7 += 1;
+    BudgetDB.addPeriod(v8, v9, v6.frequency, v6.startDate, v7);
+    goto L83;
+    L172:
+    goto L12;
+    L175:
+    return v4;
+}
+
+private static synthetic int lambda$getCategories$0(String p0, String p1) {
+    return p0.compareToIgnoreCase(p1);
+}
+
+private static synthetic int lambda$getAllDeletedOptions$0(PaymentOption p0) {
+    return p0.date;
+}
+
+private static synthetic int lambda$new$0(Payment p0, Payment p1) {
+    if (p0.description.equalsIgnoreCase(p1.description) == 0) goto L49;
+    if (p0.startDate != p1.startDate) goto L37;
+    return Integer.compare(p0.endDate, p1.endDate);
+    L37:
+    return Integer.compare(p0.startDate, p1.startDate);
+    L49:
+    return p0.description.compareToIgnoreCase(p1.description);
+}
+
+static void <clinit>() {
+    BudgetDB.bf = null;
+    BudgetDB.today = new SimpleCalendar().get();
+    $a2 = new char[16];
+    $a2[0] = 48;
+    $a2[1] = 49;
+    $a2[2] = 50;
+    $a2[3] = 51;
+    $a2[4] = 52;
+    $a2[5] = 53;
+    $a2[6] = 54;
+    $a2[7] = 55;
+    $a2[8] = 56;
+    $a2[9] = 57;
+    $a2[10] = 97;
+    $a2[11] = 98;
+    $a2[12] = 99;
+    $a2[13] = 100;
+    $a2[14] = 101;
+    $a2[15] = 102;
+    BudgetDB.hexd = $a2;
+    return;
+}

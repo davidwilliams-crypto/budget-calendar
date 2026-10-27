@@ -1,0 +1,398 @@
+// ===== Filter$elm extends Object 
+ boolean invert;
+ int name;
+ String exp;
+ boolean isDots;
+ double val;
+
+public void <init>(Filter p0, int p1, String p2, boolean p3) {
+    Objects.requireNonNull(p0);
+    super.<init>();
+    this.name = p1;
+    this.exp = p2;
+    $s0 = this;
+    if (p2.indexOf(46) == -1) goto L36;
+    $s0 = this;
+    $s1 = 1;
+    goto L37;
+    L36:
+    $s1 = 0;
+    L37:
+    $s0.isDots = $s1;
+    this.invert = p3;
+    if (p1 < 4) goto L57;
+    if (p1 <= 6) goto L67;
+    L57:
+    if (p1 == 8) goto L67;
+    if (p1 != 0) goto L75;
+    L67:
+    this.val = Budget.toDouble(p2);
+    L75:
+    return;
+}
+
+// ===== Filter extends Object 
+public boolean OR_mode;
+public String filter;
+public boolean deleted;
+private Vector elms;
+private static final int UNKNOWN = -1;
+private static final int ALL = 0;
+private static final int CAT = 1;
+private static final int DESC = 2;
+private static final int DATE = 3;
+private static final int LT = 4;
+private static final int EQ = 5;
+private static final int GT = 6;
+private static final int NOTE = 7;
+private static final int RANGE = 8;
+private static final int FLAG = 9;
+private static List names;
+private static String NBSPACE;
+
+public void <init>(String p0) {
+    super.<init>();
+    this.OR_mode = 0;
+    this.deleted = 0;
+    this.elms = new Vector();
+    this.filter = p0;
+    $t2 = p0.startsWith("-");
+    this.deleted = $t2;
+    if ($t2 == 0) goto L50;
+    p0 = p0.substring(1);
+    L50:
+    if (p0.length() <= 0) goto L78;
+    if (p0.charAt(0) != 124) goto L78;
+    this.OR_mode = 1;
+    p0 = p0.substring(1);
+    L78:
+    v3 = BudgetDB.split(p0.toLowerCase().replaceAll("\\\\ ", Filter.NBSPACE), 32);
+    if (v3 == null) goto L120;
+    if (v3.length == 0) goto L120;
+    if (v3[0] == null) goto L120;
+    if (v3[0].length() != 0) goto L121;
+    L120:
+    return;
+    L121:
+    v4 = 0;
+    L124:
+    if (v4 >= v3.length) goto L413;
+    if (v3[v4] == null) goto L407;
+    if (v3[v4].length() != 0) goto L151;
+    goto L407;
+    L151:
+    v3[v4] = v3[v4].replaceAll(Filter.NBSPACE, " ");
+    v5 = v3[v4].startsWith("~");
+    if (v5 == 0) goto L195;
+    v3[v4] = v3[v4].substring(1);
+    L195:
+    v6 = v3[v4].charAt(0);
+    if (v6 != 60) goto L242;
+    this.elms.add(new Filter$elm(this, 4, v3[v4].substring(1), v5));
+    goto L407;
+    L242:
+    if (v6 != 61) goto L279;
+    this.elms.add(new Filter$elm(this, 5, v3[v4].substring(1), v5));
+    goto L407;
+    L279:
+    if (v6 != 62) goto L317;
+    this.elms.add(new Filter$elm(this, 6, v3[v4].substring(1), v5));
+    goto L407;
+    L317:
+    $t6 = v3[v4].indexOf(":");
+    v2 = $t6;
+    if (-1 == $t6) goto L384;
+    v7 = Filter.names.indexOf(v3[v4].substring(0, v2));
+    this.elms.add(new Filter$elm(this, v7, v3[v4].substring((v2 + 1)), v5));
+    goto L407;
+    L384:
+    this.elms.add(new Filter$elm(this, 0, v3[v4], v5));
+    L407:
+    v4 += 1;
+    goto L124;
+    L413:
+    return;
+}
+
+private static String s2s(String p0) {
+    if (p0 != null) goto L9;
+    $s0 = "";
+    goto L10;
+    L9:
+    $s0 = p0;
+    L10:
+    return $s0;
+}
+
+public boolean isMatch(Payment p0, double p1, int p2) {
+    if (this.elms.size() != 0) goto L12;
+    return 1;
+    L12:
+    v5 = 0;
+    v6 = null;
+    v7 = this.elms.iterator();
+    L27:
+    if (v7.hasNext() == 0) goto L1037;
+    v8 = (Filter$elm)v7.next();
+    v9 = null;
+    v10 = 0;
+    v11 = 0;
+    switch (v8.name) { -1: L686, 0: L120, 1: L176, 2: L195, 3: L207, 4: L222, 5: L245, 6: L268, 7: L291, 8: L314, 9: L686; default: L839 }
+    L120:
+    if (v6 != null) goto L169;
+    v6 = (Budget.sdate(p0.startDate) + " " + p0.description + " " + Filter.s2s(p0.category) + " " + Budget.numFormatFrac2.format(p1) + " " + Filter.s2s(p0.getNote(p2))).toLowerCase();
+    L169:
+    v9 = v6;
+    goto L841;
+    L176:
+    if (p0.category == null) goto L841;
+    v9 = p0.category.toLowerCase();
+    goto L841;
+    L195:
+    v9 = p0.description.toLowerCase();
+    goto L841;
+    L207:
+    v9 = Budget.sdate(p0.startDate).toLowerCase();
+    goto L841;
+    L222:
+    v10 = 1;
+    if (p1 >= v8.val) goto L239;
+    $s0 = 1;
+    goto L240;
+    L239:
+    $s0 = 0;
+    L240:
+    v11 = $s0;
+    goto L841;
+    L245:
+    v10 = 1;
+    if (v8.val != p1) goto L262;
+    $s0 = 1;
+    goto L263;
+    L262:
+    $s0 = 0;
+    L263:
+    v11 = $s0;
+    goto L841;
+    L268:
+    v10 = 1;
+    if (p1 <= v8.val) goto L285;
+    $s0 = 1;
+    goto L286;
+    L285:
+    $s0 = 0;
+    L286:
+    v11 = $s0;
+    goto L841;
+    L291:
+    $t1 = p0.getNote(p2);
+    v9 = $t1;
+    if (null == $t1) goto L841;
+    v9 = v9.toLowerCase();
+    goto L841;
+    L314:
+    v10 = 1;
+    if (v8.exp.equals("disabled") != 0) goto L343;
+    if (v8.exp.equals("d") == 0) goto L352;
+    L343:
+    v11 = p0.disabled;
+    goto L841;
+    L352:
+    v12 = new SimpleCalendar().get();
+    if (p0.getEndMode() != 16) goto L377;
+    $s0 = 1;
+    goto L378;
+    L377:
+    $s0 = 0;
+    L378:
+    v13 = $s0;
+    if (v8.val == 0.0) goto L494;
+    if ((double)SimpleCalendar.getYear(p0.startDate) >= v8.val) goto L438;
+    if (v13 != 0) goto L434;
+    if (v13 != 0) goto L438;
+    if (v8.val > (double)SimpleCalendar.getYear(p0.endDate)) goto L438;
+    L434:
+    $s0 = 1;
+    goto L439;
+    L438:
+    $s0 = 0;
+    L439:
+    v11 = $s0;
+    if (v11 != 0) goto L683;
+    v14 = p0.getOpt(((int)(v8.val * 10000.0) + 65), ((int)(v8.val * 10000.0) + 1231));
+    if (v14 == null) goto L488;
+    $s0 = 1;
+    goto L489;
+    L488:
+    $s0 = 0;
+    L489:
+    v11 = $s0;
+    goto L683;
+    L494:
+    if (v8.exp.equals("active") != 0) goto L520;
+    if (v8.exp.equals("a") == 0) goto L558;
+    L520:
+    if (p0.startDate > v12) goto L552;
+    if (v13 != 0) goto L548;
+    if (v13 != 0) goto L552;
+    if (v12 > p0.endDate) goto L552;
+    L548:
+    $s0 = 1;
+    goto L553;
+    L552:
+    $s0 = 0;
+    L553:
+    v11 = $s0;
+    goto L683;
+    L558:
+    if (v8.exp.equals("past") != 0) goto L584;
+    if (v8.exp.equals("p") == 0) goto L608;
+    L584:
+    if (p0.endDate >= v12) goto L602;
+    if (v13 != 0) goto L602;
+    $s0 = 1;
+    goto L603;
+    L602:
+    $s0 = 0;
+    L603:
+    v11 = $s0;
+    goto L683;
+    L608:
+    if (v8.exp.equals("future") != 0) goto L634;
+    if (v8.exp.equals("f") == 0) goto L653;
+    L634:
+    if (v12 >= p0.startDate) goto L647;
+    $s0 = 1;
+    goto L648;
+    L647:
+    $s0 = 0;
+    L648:
+    v11 = $s0;
+    goto L683;
+    L653:
+    if (v8.exp.equals("indefinite") != 0) goto L679;
+    if (v8.exp.equals("i") == 0) goto L683;
+    L679:
+    v11 = v13;
+    L683:
+    goto L841;
+    L686:
+    v12 = p0.getFlag(p2);
+    if (v8.exp.equals("?") != 0) goto L720;
+    if (v8.exp.equalsIgnoreCase("UNPAID") == 0) goto L747;
+    L720:
+    v10 = 1;
+    if (v12 == 94) goto L737;
+    if (v12 != 35) goto L741;
+    L737:
+    $s0 = 1;
+    goto L742;
+    L741:
+    $s0 = 0;
+    L742:
+    v11 = $s0;
+    goto L841;
+    L747:
+    if (v8.exp.equals(".") != 0) goto L773;
+    if (v8.exp.equalsIgnoreCase("PAID") == 0) goto L793;
+    L773:
+    v10 = 1;
+    if (v12 != 59) goto L787;
+    $s0 = 1;
+    goto L788;
+    L787:
+    $s0 = 0;
+    L788:
+    v11 = $s0;
+    goto L841;
+    L793:
+    if (v8.exp.equals("!") != 0) goto L819;
+    if (v8.exp.equalsIgnoreCase("IMPORTANT") == 0) goto L841;
+    L819:
+    v10 = 1;
+    if (v12 != 35) goto L833;
+    $s0 = 1;
+    goto L834;
+    L833:
+    $s0 = 0;
+    L834:
+    v11 = $s0;
+    goto L841;
+    L839:
+    return 0;
+    L841:
+    if (v10 != 0) goto L992;
+    if (v9 == null) goto L992;
+    if (-1 == v9.indexOf(v8.exp)) goto L869;
+    $s0 = 1;
+    goto L870;
+    L869:
+    $s0 = 0;
+    L870:
+    v11 = $s0;
+    if (v11 != 0) goto L992;
+    if (v8.val == 0.0) goto L907;
+    if (p1 != v8.val) goto L901;
+    $s0 = 1;
+    goto L902;
+    L901:
+    $s0 = 0;
+    L902:
+    v11 = $s0;
+    goto L992;
+    L907:
+    if (v8.isDots != 0) goto L992;
+    if (v8.name != 0) goto L992;
+    v12 = (p0.description + " " + Filter.s2s(p0.category) + " " + Filter.s2s(p0.getNote(p2))).toLowerCase();
+    if (-1 == v12.indexOf(46)) goto L992;
+    if (-1 == v12.replaceAll("\\.", "").indexOf(v8.exp)) goto L989;
+    $s0 = 1;
+    goto L990;
+    L989:
+    $s0 = 0;
+    L990:
+    v11 = $s0;
+    L992:
+    if (v8.invert == 0) goto L1012;
+    if (v11 != 0) goto L1009;
+    $s0 = 1;
+    goto L1010;
+    L1009:
+    $s0 = 0;
+    L1010:
+    v11 = $s0;
+    L1012:
+    if (v11 != 0) goto L1026;
+    if (this.OR_mode != 0) goto L1026;
+    return 0;
+    L1026:
+    if (v11 == 0) goto L1034;
+    v5 += 1;
+    L1034:
+    goto L27;
+    L1037:
+    if (v5 == 0) goto L1046;
+    $s0 = 1;
+    goto L1047;
+    L1046:
+    $s0 = 0;
+    L1047:
+    return $s0;
+}
+
+static void <clinit>() {
+    $a1 = new String[10];
+    $a1[0] = "all";
+    $a1[1] = "cat";
+    $a1[2] = "desc";
+    $a1[3] = "date";
+    $a1[4] = "lt";
+    $a1[5] = "eq";
+    $a1[6] = "gt";
+    $a1[7] = "note";
+    $a1[8] = "range";
+    $a1[9] = "flag";
+    Filter.names = Arrays.asList($a1);
+    Filter.NBSPACE = "\u2029";
+    return;
+}

@@ -1,0 +1,940 @@
+// ===== SimpleCalendar extends Object implements Comparable
+private int y;
+private int m;
+private int d;
+private boolean is_mutable;
+public static final int DAY = 1;
+public static final int DAY_OF_MONTH = 1;
+public static final int MONTH = 2;
+public static final int YEAR = 3;
+public static final int DAY_OF_YEAR = 4;
+public static final int WEEK = 5;
+public static final int DAY_OF_WEEK = 6;
+public static final int NTH_WEEKDAY = 7;
+public static final int LAST_WEEKDAY = 8;
+private static final int[] DPM;
+private static final int[] DPM_LEAP;
+private static final int[] DOY;
+private static final int[] DOY_LEAP;
+public static final int SUNDAY = 0;
+public static final int MONDAY = 1;
+public static final int TUESDAY = 2;
+public static final int WEDNESDAY = 3;
+public static final int THURSDAY = 4;
+public static final int FRIDAY = 5;
+public static final int SATURDAY = 6;
+public static final int DATE_MIN = 1;
+public static final int DATE_MAX = 99991131;
+private static final SimpleCalendar intCal;
+private static final SimpleCalendar diffCal;
+private static final SimpleCalendar diffCal2;
+protected static long lastDateCheckStamp;
+private static final SimpleCalendar today;
+public static final String FORMAT_dd_MMM_yyyy = "dd-MMM-yyyy";
+public static final String FORMAT_yyyy_MMM_dd = "yyyy-MMM-dd";
+public static final String FORMAT_MMM_yyyy = "MMM, yyyy";
+private static final char DOT = 46;
+
+public void <init>() {
+    super.<init>();
+    this.is_mutable = 1;
+    v1 = Calendar.getInstance();
+    this.set(v1.get(1), v1.get(2), v1.get(5));
+    return;
+}
+
+public void <init>(SimpleCalendar p0) {
+    super.<init>();
+    this.is_mutable = 1;
+    this.set(p0.y, p0.m, p0.d);
+    return;
+}
+
+public static SimpleCalendar getImmutable(SimpleCalendar p0) {
+    v1 = new SimpleCalendar(p0);
+    v1.is_mutable = 0;
+    return v1;
+}
+
+public void <init>(long p0) {
+    super.<init>();
+    this.is_mutable = 1;
+    v3 = Calendar.getInstance();
+    v3.setTimeInMillis(p0);
+    this.set(v3.get(1), v3.get(2), v3.get(5));
+    return;
+}
+
+public void <init>(int p0) {
+    super.<init>();
+    this.is_mutable = 1;
+    if (p0 >= 10000) goto L28;
+    p0 = ((p0 * 10000) + 101);
+    goto L41;
+    L28:
+    if (p0 >= 1000000) goto L41;
+    p0 = ((p0 * 100) + 1);
+    L41:
+    this.set(p0);
+    return;
+}
+
+public void <init>(int p0, int p1, int p2) {
+    super.<init>();
+    this.is_mutable = 1;
+    this.set(p0, p1, p2);
+    return;
+}
+
+public void <init>(Calendar p0) {
+    super.<init>();
+    this.is_mutable = 1;
+    this.set(p0.get(1), p0.get(2), p0.get(5));
+    return;
+}
+
+public void <init>(Date p0) {
+    super.<init>();
+    this.is_mutable = 1;
+    v2 = Calendar.getInstance();
+    v2.setTime(p0);
+    this.set(v2.get(1), v2.get(2), v2.get(5));
+    return;
+}
+
+public static synchronized int now() {
+    return SimpleCalendar.getToday().get();
+}
+
+public int get(int p0) {
+    switch (p0) { 1: L40, 2: L47, 3: L54, 4: L68, 5: L75, 6: L61; default: L75 }
+    L40:
+    $s0 = this.d;
+    goto L89;
+    L47:
+    $s0 = this.m;
+    goto L89;
+    L54:
+    $s0 = this.y;
+    goto L89;
+    L61:
+    $s0 = this.getDayOfWeek();
+    goto L89;
+    L68:
+    $s0 = this.getDayOfYear();
+    goto L89;
+    L75:
+    throw new IllegalArgumentException(("Illegal field value " + p0));
+    L89:
+    return $s0;
+}
+
+public int getDay() {
+    return this.d;
+}
+
+public int getMonth() {
+    return this.m;
+}
+
+public int getYear() {
+    return this.y;
+}
+
+public int getYm() {
+    return ((this.y * 100) + this.m);
+}
+
+private static synchronized int normalizedDate(int p0) {
+    return SimpleCalendar.intCal.set(p0).get();
+}
+
+public static int getYear(int p0) {
+    return (SimpleCalendar.normalizedDate(p0) / 10000);
+}
+
+public static int getMonth(int p0) {
+    return (((SimpleCalendar.normalizedDate(p0) / 100) % 100) - 1);
+}
+
+public static int getDay(int p0) {
+    return (SimpleCalendar.normalizedDate(p0) % 100);
+}
+
+public static int getYm(int p0) {
+    return ((SimpleCalendar.normalizedDate(p0) / 100) - 1);
+}
+
+public int get() {
+    return (((this.y * 10000) + ((this.m + 1) * 100)) + this.d);
+}
+
+public int yyyymmdd() {
+    return this.get();
+}
+
+public int getDayOfYear() {
+    $s0 = this.d;
+    if ((this.y % 4) != 0) goto L23;
+    $s0 = this.d;
+    if ((this.y % 100) != 0) goto L34;
+    $s0 = this.d;
+    L23:
+    if ((this.y % 400) != 0) goto L45;
+    L34:
+    $s1 = SimpleCalendar.DOY_LEAP[this.m];
+    goto L53;
+    L45:
+    $s1 = SimpleCalendar.DOY[this.m];
+    L53:
+    return ($s0 + $s1);
+}
+
+public static int getDiff(SimpleCalendar p0, SimpleCalendar p1) {
+    v2 = 1;
+    if ((((p0.y * 10000) + (p0.m * 100)) + p0.d) <= (((p1.y * 10000) + (p1.m * 100)) + p1.d)) goto L55;
+    v2 = -1;
+    v3 = p1;
+    p1 = p0;
+    p0 = v3;
+    L55:
+    $s0 = p0.d;
+    if ((p0.y % 4) != 0) goto L78;
+    $s0 = p0.d;
+    if ((p0.y % 100) != 0) goto L89;
+    $s0 = p0.d;
+    L78:
+    if ((p0.y % 400) != 0) goto L100;
+    L89:
+    $s1 = SimpleCalendar.DOY_LEAP[p0.m];
+    goto L108;
+    L100:
+    $s1 = SimpleCalendar.DOY[p0.m];
+    L108:
+    v3 = ($s0 + $s1);
+    $s0 = p1.d;
+    if ((p1.y % 4) != 0) goto L133;
+    $s0 = p1.d;
+    if ((p1.y % 100) != 0) goto L144;
+    $s0 = p1.d;
+    L133:
+    if ((p1.y % 400) != 0) goto L155;
+    L144:
+    $s1 = SimpleCalendar.DOY_LEAP[p1.m];
+    goto L163;
+    L155:
+    $s1 = SimpleCalendar.DOY[p1.m];
+    L163:
+    v4 = ($s0 + $s1);
+    if (p0.y != p1.y) goto L184;
+    return ((v4 - v3) * v2);
+    L184:
+    if ((p0.y % 4) != 0) goto L203;
+    if ((p0.y % 100) != 0) goto L214;
+    L203:
+    if ((p0.y % 400) != 0) goto L220;
+    L214:
+    $s0 = 366;
+    goto L223;
+    L220:
+    $s0 = 365;
+    L223:
+    v5 = (($s0 - v3) + v4);
+    v6 = p1.y;
+    v7 = (p0.y + 1);
+    L244:
+    if (v7 >= v6) goto L295;
+    $s0 = v5;
+    if ((v7 % 4) != 0) goto L268;
+    $s0 = v5;
+    if ((v7 % 100) != 0) goto L277;
+    $s0 = v5;
+    L268:
+    if ((v7 % 400) != 0) goto L283;
+    L277:
+    $s1 = 366;
+    goto L286;
+    L283:
+    $s1 = 365;
+    L286:
+    v5 = ($s0 + $s1);
+    v7 += 1;
+    goto L244;
+    L295:
+    return (v5 * v2);
+}
+
+public static synchronized int getDiff(SimpleCalendar p0, int p1) {
+    SimpleCalendar.diffCal.set(p1);
+    return SimpleCalendar.getDiff(p0, SimpleCalendar.diffCal);
+}
+
+public static synchronized int getDiff(int p0, int p1) {
+    if (SimpleCalendar.diffCal.get() == p0) goto L18;
+    SimpleCalendar.diffCal.set(p0);
+    L18:
+    if (SimpleCalendar.diffCal2.get() == p1) goto L36;
+    SimpleCalendar.diffCal2.set(p1);
+    L36:
+    return SimpleCalendar.getDiff(SimpleCalendar.diffCal, SimpleCalendar.diffCal2);
+}
+
+public Date getTime() {
+    v1 = Calendar.getInstance();
+    v1.set(this.y, this.m, this.d, 12, 0, 0);
+    v1.set(14, 0);
+    return v1.getTime();
+}
+
+public static int getDayOfYear(int p0) {
+    v1 = (p0 / 10000);
+    v2 = (((p0 / 100) % 100) - 1);
+    v3 = (p0 % 100);
+    $s0 = v3;
+    if (SimpleCalendar.isLeapYear(v1) == 0) goto L37;
+    $s0 = v3;
+    $s1 = SimpleCalendar.DOY_LEAP[v2];
+    goto L42;
+    L37:
+    $s1 = SimpleCalendar.DOY[v2];
+    L42:
+    return ($s0 + $s1);
+}
+
+public static int getDayOfWeek(int p0) {
+    v1 = (p0 / 10000);
+    v2 = SimpleCalendar.getDayOfYear(p0);
+    return ((((((v1 - 1) + ((v1 - 1) / 4)) - ((v1 - 1) / 100)) + ((v1 - 1) / 400)) + v2) % 7);
+}
+
+public int getDayOfWeek() {
+    v1 = this.getDayOfYear();
+    return ((((((this.y - 1) + ((this.y - 1) / 4)) - ((this.y - 1) / 100)) + ((this.y - 1) / 400)) + v1) % 7);
+}
+
+public int getWeekOfMonth() {
+    return ((this.d - 1) / 7);
+}
+
+public boolean isWeekend() {
+    v1 = this.getDayOfWeek();
+    if (v1 == 6) goto L15;
+    if (v1 != 0) goto L19;
+    L15:
+    $s0 = 1;
+    goto L20;
+    L19:
+    $s0 = 0;
+    L20:
+    return $s0;
+}
+
+public boolean isLastWeekday() {
+    if (this.d <= (this.getMaximumDayOfMonth() - 7)) goto L18;
+    $s0 = 1;
+    goto L19;
+    L18:
+    $s0 = 0;
+    L19:
+    return $s0;
+}
+
+public int getMaximumDayOfMonth() {
+    if ((this.y % 4) != 0) goto L19;
+    if ((this.y % 100) != 0) goto L30;
+    L19:
+    if ((this.y % 400) != 0) goto L41;
+    L30:
+    $s0 = SimpleCalendar.DPM_LEAP[this.m];
+    goto L49;
+    L41:
+    $s0 = SimpleCalendar.DPM[this.m];
+    L49:
+    return $s0;
+}
+
+public int getMaximumDayOfYear() {
+    if ((this.y % 4) != 0) goto L19;
+    if ((this.y % 100) != 0) goto L30;
+    L19:
+    if ((this.y % 400) != 0) goto L36;
+    L30:
+    $s0 = 366;
+    goto L39;
+    L36:
+    $s0 = 365;
+    L39:
+    return $s0;
+}
+
+public int getActualMaximum(int p0) {
+    switch (p0) { 1: L40, 2: L47, 3: L52, 4: L63, 5: L70, 6: L58; default: L70 }
+    L40:
+    $s0 = this.getMaximumDayOfMonth();
+    goto L84;
+    L47:
+    $s0 = 11;
+    goto L84;
+    L52:
+    $s0 = 2400;
+    goto L84;
+    L58:
+    $s0 = 6;
+    goto L84;
+    L63:
+    $s0 = this.getMaximumDayOfYear();
+    goto L84;
+    L70:
+    throw new IllegalArgumentException(("Illegal field value " + p0));
+    L84:
+    return $s0;
+}
+
+public static boolean isLeapYear(int p0) {
+    if ((p0 % 4) != 0) goto L13;
+    if ((p0 % 100) != 0) goto L21;
+    L13:
+    if ((p0 % 400) != 0) goto L25;
+    L21:
+    $s0 = 1;
+    goto L26;
+    L25:
+    $s0 = 0;
+    L26:
+    return $s0;
+}
+
+public boolean isLeapYear() {
+    return SimpleCalendar.isLeapYear(this.y);
+}
+
+private void adjustDay() {
+    this.ensureMutable();
+    if ((this.y % 4) != 0) goto L23;
+    if ((this.y % 100) != 0) goto L34;
+    L23:
+    if ((this.y % 400) != 0) goto L45;
+    L34:
+    $s0 = SimpleCalendar.DPM_LEAP[this.m];
+    goto L53;
+    L45:
+    $s0 = SimpleCalendar.DPM[this.m];
+    L53:
+    v1 = $s0;
+    if (this.d <= v1) goto L67;
+    this.d = v1;
+    L67:
+    return;
+}
+
+private void adjustMonth() {
+    if (this.m >= 0) goto L56;
+    this.y = (this.y + (((this.m + 1) / 12) - 1));
+    $t1 = (this.m % 12);
+    this.m = $t1;
+    if ($t1 >= 0) goto L92;
+    this.m = (this.m + 12);
+    goto L92;
+    L56:
+    if (this.m <= 11) goto L92;
+    this.y = (this.y + (this.m / 12));
+    this.m = (this.m % 12);
+    L92:
+    if ((this.y % 4) != 0) goto L111;
+    if ((this.y % 100) != 0) goto L122;
+    L111:
+    if ((this.y % 400) != 0) goto L133;
+    L122:
+    $s0 = SimpleCalendar.DPM_LEAP[this.m];
+    goto L141;
+    L133:
+    $s0 = SimpleCalendar.DPM[this.m];
+    L141:
+    v1 = $s0;
+    if (this.d <= v1) goto L155;
+    this.d = v1;
+    L155:
+    return;
+}
+
+public SimpleCalendar nextDay() {
+    this.ensureMutable();
+    if (this.d >= 28) goto L26;
+    this.d = (this.d + 1);
+    goto L33;
+    L26:
+    this.add(1, 1);
+    L33:
+    return this;
+}
+
+public SimpleCalendar addDays(int p0) {
+    this.add(1, p0);
+    return this;
+}
+
+public SimpleCalendar addMonths(int p0) {
+    this.add(2, p0);
+    return this;
+}
+
+public SimpleCalendar prevDay() {
+    this.ensureMutable();
+    if (this.d <= 1) goto L25;
+    this.d = (this.d - 1);
+    goto L32;
+    L25:
+    this.add(1, -1);
+    L32:
+    return this;
+}
+
+public SimpleCalendar nextMonth() {
+    return this.add(2, 1);
+}
+
+public SimpleCalendar prevMonth() {
+    return this.add(2, -1);
+}
+
+public SimpleCalendar add(int p0, int p1) {
+    this.ensureMutable();
+    switch (p0) { 1: L57, 2: L72, 3: L87, 4: L134, 5: L52, 6: L134, 7: L102, 8: L118; default: L134 }
+    L52:
+    p1 = (p1 * 7);
+    L57:
+    this.set(1, (this.d + p1));
+    goto L148;
+    L72:
+    this.set(2, (this.m + p1));
+    goto L148;
+    L87:
+    this.set(3, (this.y + p1));
+    goto L148;
+    L102:
+    this.set(7, (this.m + p1));
+    goto L148;
+    L118:
+    this.set(8, (this.m + p1));
+    goto L148;
+    L134:
+    throw new IllegalArgumentException(("Invalid field value " + p0));
+    L148:
+    return this;
+}
+
+private void ensureMutable() {
+    if (this.is_mutable != 0) goto L17;
+    throw new UnsupportedOperationException("attempt to change immutable SimpleCalendar instance");
+    L17:
+    return;
+}
+
+public SimpleCalendar set(int p0, int p1, int p2) {
+    this.ensureMutable();
+    this.y = p0;
+    if (p1 < 0) goto L53;
+    if (p1 > 11) goto L53;
+    this.m = p1;
+    if (p2 < 1) goto L43;
+    if (p2 > 28) goto L43;
+    this.d = p2;
+    goto L67;
+    L43:
+    this.set(1, p2);
+    goto L67;
+    L53:
+    this.set(2, p1);
+    this.set(1, p2);
+    L67:
+    return this;
+}
+
+public SimpleCalendar set(int p0) {
+    return this.set((p0 / 10000), (((p0 / 100) % 100) - 1), (p0 % 100));
+}
+
+public SimpleCalendar set(SimpleCalendar p0) {
+    return this.set(p0.get());
+}
+
+public SimpleCalendar setDayOne() {
+    this.ensureMutable();
+    this.d = 1;
+    return this;
+}
+
+public SimpleCalendar setDayLast() {
+    this.ensureMutable();
+    this.d = this.getMaximumDayOfMonth();
+    return this;
+}
+
+public SimpleCalendar set(int p0, int p1) {
+    this.ensureMutable();
+    switch (p0) { 1: L76, 2: L64, 3: L52, 4: L497, 5: L497, 6: L314, 7: L333, 8: L419; default: L497 }
+    L52:
+    this.y = p1;
+    this.adjustDay();
+    goto L511;
+    L64:
+    this.m = p1;
+    this.adjustMonth();
+    goto L511;
+    L76:
+    this.d = p1;
+    if (this.d >= 1) goto L196;
+    L89:
+    $s0 = 11;
+    $s1 = this;
+    if (this.m != 0) goto L104;
+    $s0 = 11;
+    $s1 = this;
+    $s2 = 11;
+    goto L110;
+    L104:
+    $s2 = (this.m - 1);
+    L110:
+    $s1.m = $s2;
+    if ($s0 != $s2) goto L127;
+    this.y = (this.y - 1);
+    L127:
+    $s0 = this;
+    $s1 = this.d;
+    if ((this.y % 4) != 0) goto L151;
+    $s0 = this;
+    $s1 = this.d;
+    if ((this.y % 100) != 0) goto L162;
+    $s0 = this;
+    $s1 = this.d;
+    L151:
+    if ((this.y % 400) != 0) goto L173;
+    L162:
+    $s2 = SimpleCalendar.DPM_LEAP[this.m];
+    goto L181;
+    L173:
+    $s2 = SimpleCalendar.DPM[this.m];
+    L181:
+    $s0.d = ($s1 + $s2);
+    if (this.d < 1) goto L89;
+    goto L511;
+    L196:
+    if (this.d <= 28) goto L511;
+    L205:
+    $s0 = this.d;
+    if ((this.y % 4) != 0) goto L228;
+    $s0 = this.d;
+    if ((this.y % 100) != 0) goto L239;
+    $s0 = this.d;
+    L228:
+    if ((this.y % 400) != 0) goto L250;
+    L239:
+    $s1 = SimpleCalendar.DPM_LEAP[this.m];
+    goto L258;
+    L250:
+    $s1 = SimpleCalendar.DPM[this.m];
+    L258:
+    v3 = $s1;
+    if ($s0 <= $s1) goto L511;
+    this.d = (this.d - v3);
+    $s0 = 0;
+    $s1 = this;
+    if (this.m != 11) goto L288;
+    $s0 = 0;
+    $s1 = this;
+    $s2 = 0;
+    goto L294;
+    L288:
+    $s2 = (this.m + 1);
+    L294:
+    $s1.m = $s2;
+    if ($s0 != $s2) goto L205;
+    this.y = (this.y + 1);
+    goto L205;
+    L314:
+    v4 = this.getDayOfWeek();
+    this.add(1, (p1 - v4));
+    goto L511;
+    L333:
+    v5 = this.getDayOfWeek();
+    v6 = this.getWeekOfMonth();
+    this.d = 1;
+    this.m = p1;
+    this.adjustMonth();
+    v7 = this.getDayOfWeek();
+    if (v7 > v5) goto L386;
+    this.d = ((1 + v5) - v7);
+    goto L398;
+    L386:
+    this.d = ((8 - v7) + v5);
+    L398:
+    this.d = (this.d + (v6 * 7));
+    this.adjustDay();
+    goto L511;
+    L419:
+    v5 = this.getDayOfWeek();
+    this.d = 1;
+    this.m = p1;
+    this.adjustMonth();
+    this.d = this.getMaximumDayOfMonth();
+    v6 = this.getDayOfWeek();
+    if (v6 < v5) goto L477;
+    this.d = (this.d - (v6 - v5));
+    goto L511;
+    L477:
+    this.d = (this.d - (7 - (v5 - v6)));
+    goto L511;
+    L497:
+    throw new IllegalArgumentException(("Invalid field value " + p0));
+    L511:
+    return this;
+}
+
+public boolean equals(Object p0) {
+    if (p0 != this) goto L7;
+    return 1;
+    L7:
+    if ((p0 instanceof SimpleCalendar) != 0) goto L16;
+    return 0;
+    L16:
+    v2 = (SimpleCalendar)p0;
+    if (this.y != v2.y) goto L58;
+    if (this.m != v2.m) goto L58;
+    if (this.d != v2.d) goto L58;
+    $s0 = 1;
+    goto L59;
+    L58:
+    $s0 = 0;
+    L59:
+    return $s0;
+}
+
+public int hashCode() {
+    return this.get();
+}
+
+public boolean eq(SimpleCalendar p0) {
+    return this.equals(p0);
+}
+
+public static synchronized SimpleCalendar getToday() {
+    v0 = System.currentTimeMillis();
+    if ((SimpleCalendar.lastDateCheckStamp + 60000L) >= v0) goto L58;
+    SimpleCalendar.lastDateCheckStamp = v0;
+    v2 = new SimpleCalendar();
+    SimpleCalendar.today.y = v2.y;
+    SimpleCalendar.today.m = v2.m;
+    SimpleCalendar.today.d = v2.d;
+    L58:
+    return SimpleCalendar.today;
+}
+
+public boolean lt(SimpleCalendar p0) {
+    if ((((this.y * 10000) + (this.m * 100)) + this.d) >= (((p0.y * 10000) + (p0.m * 100)) + p0.d)) goto L49;
+    $s0 = 1;
+    goto L50;
+    L49:
+    $s0 = 0;
+    L50:
+    return $s0;
+}
+
+public boolean le(SimpleCalendar p0) {
+    if (this.equals(p0) != 0) goto L16;
+    if (this.lt(p0) == 0) goto L20;
+    L16:
+    $s0 = 1;
+    goto L21;
+    L20:
+    $s0 = 0;
+    L21:
+    return $s0;
+}
+
+public boolean lt(int p0) {
+    if ((((this.y * 10000) + ((this.m + 1) * 100)) + this.d) >= SimpleCalendar.normalizedDate(p0)) goto L34;
+    $s0 = 1;
+    goto L35;
+    L34:
+    $s0 = 0;
+    L35:
+    return $s0;
+}
+
+public boolean gt(SimpleCalendar p0) {
+    if ((((this.y * 10000) + (this.m * 100)) + this.d) <= (((p0.y * 10000) + (p0.m * 100)) + p0.d)) goto L49;
+    $s0 = 1;
+    goto L50;
+    L49:
+    $s0 = 0;
+    L50:
+    return $s0;
+}
+
+public boolean ge(SimpleCalendar p0) {
+    if (this.equals(p0) != 0) goto L16;
+    if (this.gt(p0) == 0) goto L20;
+    L16:
+    $s0 = 1;
+    goto L21;
+    L20:
+    $s0 = 0;
+    L21:
+    return $s0;
+}
+
+public boolean inRange(SimpleCalendar p0, SimpleCalendar p1) {
+    v3 = (((this.y * 10000) + (this.m * 100)) + this.d);
+    v4 = (((p0.y * 10000) + (p0.m * 100)) + p0.d);
+    v5 = (((p1.y * 10000) + (p1.m * 100)) + p1.d);
+    if (v4 > v3) goto L84;
+    if (v3 > v5) goto L84;
+    $s0 = 1;
+    goto L85;
+    L84:
+    $s0 = 0;
+    L85:
+    return $s0;
+}
+
+public boolean inRange(SimpleCalendar p0, int p1) {
+    return this.inRange(p0, new SimpleCalendar(p0).set(1, ((p0.getDay() + p1) - 1)));
+}
+
+public String toString() {
+    $a1 = new Object[3];
+    $a1[0] = Integer.valueOf(this.y);
+    $a1[1] = Integer.valueOf((this.m + 1));
+    $a1[2] = Integer.valueOf(this.d);
+    return String.format("%04d-%02d-%02d", $a1);
+}
+
+public static String toString(int p0) {
+    p0 = SimpleCalendar.normalizedDate(p0);
+    $a1 = new Object[3];
+    $a1[0] = Integer.valueOf((p0 / 10000));
+    $a1[1] = Integer.valueOf(((p0 / 100) % 100));
+    $a1[2] = Integer.valueOf((p0 % 100));
+    return String.format("%04d-%02d-%02d", $a1);
+}
+
+public static String toString(int p0, String p1) {
+    return new SimpleCalendar(p0).toString(p1);
+}
+
+public String toString(String p0) {
+    v2 = new SimpleDateFormat(p0);
+    return SimpleCalendar.removeDots(v2.format(this.getTime()));
+}
+
+private static String removeDots(String p0) {
+    if (-1 == p0.indexOf(46)) goto L70;
+    v1 = p0.length();
+    $a1 = new char[v1];
+    v2 = $a1;
+    v3 = 0;
+    v4 = 0;
+    L24:
+    if (v4 >= v1) goto L59;
+    v5 = p0.charAt(v4);
+    if (v5 == 46) goto L53;
+    v2[v3] = v5;
+    v3 += 1;
+    L53:
+    v4 += 1;
+    goto L24;
+    L59:
+    return new String(v2, 0, v3);
+    L70:
+    return p0;
+}
+
+public static int getMonthsDiff(SimpleCalendar p0, SimpleCalendar p1) {
+    return ((((p1.getYear() * 12) + p1.getMonth()) + 1) - (((p0.getYear() * 12) + p0.getMonth()) + 1));
+}
+
+public static String getYMdurationString(int p0) {
+    v1 = "";
+    if (p0 <= 11) goto L20;
+    v1 = (v1 + (p0 / 12) + "y ");
+    L20:
+    p0 = (p0 % 12);
+    if (p0 == 0) goto L37;
+    v1 = (v1 + p0 + "m");
+    L37:
+    return v1;
+}
+
+public int compareTo(SimpleCalendar p0) {
+    return (this.get() - p0.get());
+}
+
+public volatile/bridge synthetic int compareTo(Object p0) {
+    return this.compareTo((SimpleCalendar)p0);
+}
+
+static void <clinit>() {
+    $a1 = new int[12];
+    $a1[0] = 31;
+    $a1[1] = 28;
+    $a1[2] = 31;
+    $a1[3] = 30;
+    $a1[4] = 31;
+    $a1[5] = 30;
+    $a1[6] = 31;
+    $a1[7] = 31;
+    $a1[8] = 30;
+    $a1[9] = 31;
+    $a1[10] = 30;
+    $a1[11] = 31;
+    SimpleCalendar.DPM = $a1;
+    $a2 = new int[12];
+    $a2[0] = 31;
+    $a2[1] = 29;
+    $a2[2] = 31;
+    $a2[3] = 30;
+    $a2[4] = 31;
+    $a2[5] = 30;
+    $a2[6] = 31;
+    $a2[7] = 31;
+    $a2[8] = 30;
+    $a2[9] = 31;
+    $a2[10] = 30;
+    $a2[11] = 31;
+    SimpleCalendar.DPM_LEAP = $a2;
+    $a3 = new int[12];
+    $a3[0] = 0;
+    $a3[1] = 31;
+    $a3[2] = 59;
+    $a3[3] = 90;
+    $a3[4] = 120;
+    $a3[5] = 151;
+    $a3[6] = 181;
+    $a3[7] = 212;
+    $a3[8] = 243;
+    $a3[9] = 273;
+    $a3[10] = 304;
+    $a3[11] = 334;
+    SimpleCalendar.DOY = $a3;
+    $a4 = new int[12];
+    $a4[0] = 0;
+    $a4[1] = 31;
+    $a4[2] = 60;
+    $a4[3] = 91;
+    $a4[4] = 121;
+    $a4[5] = 152;
+    $a4[6] = 182;
+    $a4[7] = 213;
+    $a4[8] = 244;
+    $a4[9] = 274;
+    $a4[10] = 305;
+    $a4[11] = 335;
+    SimpleCalendar.DOY_LEAP = $a4;
+    SimpleCalendar.intCal = new SimpleCalendar();
+    SimpleCalendar.diffCal = new SimpleCalendar();
+    SimpleCalendar.diffCal2 = new SimpleCalendar();
+    SimpleCalendar.today = new SimpleCalendar();
+    SimpleCalendar.today.is_mutable = 0;
+    SimpleCalendar.lastDateCheckStamp = System.currentTimeMillis();
+    return;
+}

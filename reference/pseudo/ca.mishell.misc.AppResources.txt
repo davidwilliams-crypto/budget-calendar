@@ -1,0 +1,72 @@
+// ===== AppResources extends Object 
+private static Class lastClazz;
+private static File lastClazzJarLocation;
+
+public void <init>() {
+    super.<init>();
+    return;
+}
+
+public static synchronized File getJarLocation(Class p0) {
+    if (p0 != AppResources.lastClazz) goto L11;
+    return AppResources.lastClazzJarLocation;
+    L11:
+    v1 = AppResources.getJarFile(p0);
+    AppResources.lastClazz = p0;
+    AppResources.lastClazzJarLocation = v1.getParentFile();
+    return AppResources.lastClazzJarLocation;
+    // handler for [0,10) catch Exception
+    // handler for [11,30) catch Exception
+    L31:
+    v1 = $ex;
+    v1.printStackTrace(System.err);
+    return new File(".");
+}
+
+public static synchronized File getJarFile(Class p0) {
+    return new File(p0.getProtectionDomain().getCodeSource().getLocation().toURI().getPath());
+}
+
+private static String normalize_path(String p0) {
+    return p0.replace("\\", "/");
+}
+
+public static InputStream getJarResource(jar.JarFile p0, String p1) {
+    v2 = p0.entries();
+    v3 = AppResources.normalize_path(p1);
+    L10:
+    if (v2.hasMoreElements() == 0) goto L60;
+    v4 = (jar.JarEntry)v2.nextElement();
+    if (v4.isDirectory() != 0) goto L57;
+    if (v3.equalsIgnoreCase(v4.getName()) == 0) goto L57;
+    return p0.getInputStream(v4);
+    L57:
+    goto L10;
+    L60:
+    throw new FileNotFoundException(v3);
+}
+
+public static byte[] getJarResourceAllBytes(jar.JarFile p0, String p1) {
+    v2 = AppResources.getJarResource(p0, p1);
+    v3 = v2.readAllBytes();
+    v2.close();
+    return v3;
+}
+
+static String getSVNRevision(Class p0) {
+    v1 = p0.getPackageName();
+    v2 = Class.forName((v1 + ".svnRevision"));
+    v3 = v2.getField("revision");
+    return (String)v3.get(null);
+    // handler for [0,30) catch Exception
+    L31:
+    v1 = $ex;
+    v1.printStackTrace(System.err);
+    return "??";
+}
+
+static void <clinit>() {
+    AppResources.lastClazz = null;
+    AppResources.lastClazzJarLocation = null;
+    return;
+}

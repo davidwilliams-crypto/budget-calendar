@@ -1,0 +1,2453 @@
+// ===== JSONObject$DelayedOperation extends Record 
+private final Object collector;
+private final Object v1;
+private final Object v2;
+
+private void <init>(Object p0, Object p1, Object p2) {
+    super.<init>();
+    this.collector = p0;
+    this.v1 = p1;
+    this.v2 = p2;
+    return;
+}
+
+public final String toString() {
+    return indy toString(this);
+}
+
+public final int hashCode() {
+    return indy hashCode(this);
+}
+
+public final boolean equals(Object p0) {
+    return indy equals(this, p0);
+}
+
+public Object collector() {
+    return this.collector;
+}
+
+public Object v1() {
+    return this.v1;
+}
+
+public Object v2() {
+    return this.v2;
+}
+
+// ===== JSONObject$FldCache$CacheType extends Enum 
+public static final enum JSONObject$FldCache$CacheType OBJ_BUILDER;
+public static final enum JSONObject$FldCache$CacheType JSON_BUILDER;
+private static final synthetic JSONObject$FldCache$CacheType[] $VALUES;
+
+public static JSONObject$FldCache$CacheType[] values() {
+    return ([Lca.mishell.misc.JSONObject$FldCache$CacheType;)JSONObject$FldCache$CacheType.$VALUES.clone();
+}
+
+public static JSONObject$FldCache$CacheType valueOf(String p0) {
+    return (JSONObject$FldCache$CacheType)Enum.valueOf(JSONObject$FldCache$CacheType, p0);
+}
+
+private void <init>(String p0, int p1) {
+    super.<init>(p0, p1);
+    return;
+}
+
+private static synthetic JSONObject$FldCache$CacheType[] $values() {
+    $a1 = new JSONObject$FldCache$CacheType[2];
+    $a1[0] = JSONObject$FldCache$CacheType.OBJ_BUILDER;
+    $a1[1] = JSONObject$FldCache$CacheType.JSON_BUILDER;
+    return $a1;
+}
+
+static void <clinit>() {
+    JSONObject$FldCache$CacheType.OBJ_BUILDER = new JSONObject$FldCache$CacheType("OBJ_BUILDER", 0);
+    JSONObject$FldCache$CacheType.JSON_BUILDER = new JSONObject$FldCache$CacheType("JSON_BUILDER", 1);
+    JSONObject$FldCache$CacheType.$VALUES = JSONObject$FldCache$CacheType.$values();
+    return;
+}
+
+// ===== JSONObject$FldCache$Fld extends Record 
+private final reflect.Field field;
+private final String name;
+private final boolean is_interface;
+private final boolean is_final;
+private final String annotated_type;
+
+public void <init>(reflect.Field p0, String p1, boolean p2, boolean p3, String p4) {
+    super.<init>();
+    this.field = p0;
+    this.name = p1;
+    this.is_interface = p2;
+    this.is_final = p3;
+    this.annotated_type = p4;
+    return;
+}
+
+public final String toString() {
+    return indy toString(this);
+}
+
+public final int hashCode() {
+    return indy hashCode(this);
+}
+
+public final boolean equals(Object p0) {
+    return indy equals(this, p0);
+}
+
+public reflect.Field field() {
+    return this.field;
+}
+
+public String name() {
+    return this.name;
+}
+
+public boolean is_interface() {
+    return this.is_interface;
+}
+
+public boolean is_final() {
+    return this.is_final;
+}
+
+public String annotated_type() {
+    return this.annotated_type;
+}
+
+// ===== JSONObject$FldCache extends Object 
+private final Map cache;
+final Map flds_cache;
+final Map java2json_map;
+final JSONObject$FldCache$CacheType cache_type;
+
+public Object getInstance(Class p0) {
+    v2 = (reflect.Constructor)this.cache.get(p0);
+    if (v2 != null) goto L97;
+    v3 = p0.getDeclaredConstructors();
+    v4 = v3.length;
+    v5 = 0;
+    L30:
+    if (v5 >= v4) goto L76;
+    v6 = v3[v5];
+    if (v6.getParameterCount() != 0) goto L70;
+    this.cache.put(p0, v6);
+    v2 = v6;
+    goto L76;
+    L70:
+    v5 += 1;
+    goto L30;
+    L76:
+    if (v2 != null) goto L97;
+    throw new Exception((p0.getName() + ": no available parameterless constructor, or the class is nested"));
+    L97:
+    $a2 = new Object[0];
+    return v2.newInstance($a2);
+}
+
+ void <init>(Map p0, JSONObject$FldCache$CacheType p1) {
+    super.<init>();
+    this.cache = new IdentityHashMap();
+    this.flds_cache = new IdentityHashMap();
+    this.java2json_map = p0;
+    this.cache_type = p1;
+    return;
+}
+
+private List get(Class p0) {
+    v2 = (List)this.flds_cache.get(p0);
+    if (v2 == null) goto L20;
+    return v2;
+    L20:
+    v2 = new LinkedList();
+    if (this.java2json_map == null) goto L45;
+    $s0 = new HashSet();
+    goto L46;
+    L45:
+    $s0 = null;
+    L46:
+    v3 = $s0;
+    v4 = p0.getDeclaredFields();
+    v5 = v4.length;
+    v6 = 0;
+    L61:
+    if (v6 >= v5) goto L289;
+    v7 = v4[v6];
+    v8 = v7.getModifiers();
+    if (reflect.Modifier.isStatic(v8) != 0) goto L283;
+    if (reflect.Modifier.isTransient(v8) != 0) goto L283;
+    if (v7.isSynthetic() == 0) goto L109;
+    goto L283;
+    L109:
+    v9 = v7.getName();
+    v7.setAccessible(1);
+    if (this.java2json_map == null) goto L148;
+    $s0 = (String)this.java2json_map.getOrDefault(v9, v9);
+    goto L150;
+    L148:
+    $s0 = v9;
+    L150:
+    v10 = $s0;
+    if (v3 == null) goto L180;
+    if (v3.add(v10) != 0) goto L180;
+    throw new Exception(("duplicated name mapping: " + v9));
+    L180:
+    v11 = reflect.Modifier.isFinal(v8);
+    if (v11 == 0) goto L226;
+    if (v7.getType().isPrimitive() == 0) goto L226;
+    throw new IllegalAccessException((v7.getType().getName() + "." + v9 + ": is a final primitive type, it can't be modified"));
+    L226:
+    $s0 = v2;
+    $s1 = new JSONObject$FldCache$Fld(?);
+    $s2 = new JSONObject$FldCache$Fld(?);
+    $s3 = v7;
+    $s4 = v10;
+    $s5 = v7.getType().isInterface();
+    $s6 = v11;
+    if (this.cache_type != JSONObject$FldCache$CacheType.OBJ_BUILDER) goto L273;
+    $s0 = v2;
+    $s1 = new JSONObject$FldCache$Fld(?);
+    $s2 = new JSONObject$FldCache$Fld(?);
+    $s3 = v7;
+    $s4 = v10;
+    $s5 = v7.getType().isInterface();
+    $s6 = v11;
+    $s7 = v7.getAnnotatedType().getType().getTypeName();
+    goto L274;
+    L273:
+    $s7 = null;
+    L274:
+    $s2.<init>($s3, $s4, $s5, $s6, $s7);
+    $s0.add($s1);
+    L283:
+    v6 += 1;
+    goto L61;
+    L289:
+    this.flds_cache.put(p0, v2);
+    return v2;
+}
+
+// ===== JSONObject$JSONBuilder extends Object 
+final Stack name_stack;
+final Stack obj_stack;
+final Map objects;
+private final Map java2json_map;
+ int id_count;
+final boolean is_strict_json;
+ boolean is_one_per_line;
+final StringBuilder bld;
+final Object object;
+final OutputStream out;
+ long n_bytes;
+ int indent;
+final JSONObject$FldCache fld_cache;
+
+private String full_name() {
+    return (String)this.name_stack.stream().map(lambda[JSONObject$JSONBuilder::lambda$full_name$0]()).collect(stream.Collectors.joining(".", "'", "'")).replaceAll("\\.\\[", "[");
+}
+
+ void <init>(OutputStream p0, Object p1, boolean p2, Map p3) {
+    super.<init>();
+    this.name_stack = new Stack();
+    this.obj_stack = new Stack();
+    this.objects = new IdentityHashMap(512);
+    this.id_count = 0;
+    this.is_one_per_line = 0;
+    this.bld = new StringBuilder();
+    this.n_bytes = 0L;
+    this.indent = 0;
+    this.object = p1;
+    this.objects.put(p1, Integer.valueOf(0));
+    this.java2json_map = p3;
+    this.verify_map(p3);
+    this.is_strict_json = p2;
+    this.out = p0;
+    this.fld_cache = new JSONObject$FldCache(p3, JSONObject$FldCache$CacheType.JSON_BUILDER);
+    return;
+}
+
+private void verify_map(Map p0) {
+    if (p0 == null) goto L64;
+    v2 = p0.entrySet().iterator();
+    L16:
+    if (v2.hasNext() == 0) goto L64;
+    v3 = (Map$Entry)v2.next();
+    this.verify_identifier((String)v3.getKey());
+    this.verify_identifier((String)v3.getValue());
+    goto L16;
+    L64:
+    return;
+}
+
+private void verify_identifier(String p0) {
+    if (Character.isJavaIdentifierStart(p0.charAt(0)) != 0) goto L25;
+    throw new Exception(("invalid identifier '" + p0 + "'"));
+    L25:
+    v2 = 1;
+    L27:
+    if (v2 >= p0.length()) goto L66;
+    if (Character.isJavaIdentifierPart(p0.charAt(v2)) != 0) goto L60;
+    throw new Exception(("invalid identifier '" + p0 + "'"));
+    L60:
+    v2 += 1;
+    goto L27;
+    L66:
+    return;
+}
+
+ void <init>(Object p0, boolean p1, Map p2) {
+    super.<init>(null, p0, p1, p2);
+    return;
+}
+
+private static boolean is_wrapper_class(Class p0) {
+    if (p0 != Boolean) goto L10;
+    $s0 = 1;
+    goto L11;
+    L10:
+    $s0 = 0;
+    L11:
+    if (p0 != Long) goto L21;
+    $s1 = 1;
+    goto L22;
+    L21:
+    $s1 = 0;
+    L22:
+    if (($s0 | $s1) != 0) goto L38;
+    if (p0 == Integer) goto L38;
+    if (p0 != Double) goto L42;
+    L38:
+    $s0 = 1;
+    goto L43;
+    L42:
+    $s0 = 0;
+    L43:
+    return $s0;
+}
+
+ boolean add_reference(Object p0) {
+    if (this.is_strict_json != 0) goto L87;
+    if (JSONObject$JSONBuilder.is_wrapper_class(p0.getClass()) != 0) goto L87;
+    v2 = (Integer)this.objects.get(p0);
+    if (v2 == null) goto L69;
+    this.bld.append("@");
+    this.bld.append(Integer.toString((this.id_count - v2.intValue()), 36));
+    return 1;
+    L69:
+    this.objects.put(p0, Integer.valueOf(this.id_count));
+    L87:
+    return 0;
+}
+
+private String dump_java2json_name_map() {
+    return (JSONObject.toJSONString("JSONx java to json name map") + ":[" + (String)this.java2json_map.entrySet().stream().sorted(lambda[JSONObject$JSONBuilder::lambda$dump_java2json_name_map$0]()).map(lambda[JSONObject$JSONBuilder::lambda$dump_java2json_name_map$1]()).collect(stream.Collectors.joining(",", "{", "}")) + "],");
+}
+
+private void dump_list(Iterable p0, int p1, Object p2) {
+    this.bld.append(91);
+    v4 = 1;
+    v5 = 0;
+    v6 = p0.iterator();
+    L24:
+    if (v6.hasNext() == 0) goto L243;
+    v7 = v6.next();
+    if (v4 == 0) goto L222;
+    v4 = 0;
+    v8 = v7.getClass();
+    if (this.is_strict_json != 0) goto L219;
+    if (p1 <= 1) goto L219;
+    if (v8.isPrimitive() != 0) goto L219;
+    if ((p2 instanceof Map) != 0) goto L219;
+    if (v8.getModule().isNamed() == 0) goto L113;
+    if (v8.getModule().getName().startsWith("java.") != 0) goto L219;
+    L113:
+    this.bld.append(40);
+    v9 = 0;
+    v10 = this.fld_cache.get(v8).iterator();
+    L142:
+    if (v10.hasNext() == 0) goto L190;
+    v11 = (JSONObject$FldCache$Fld)v10.next();
+    this.bld.append(v11.name);
+    this.bld.append(44);
+    goto L142;
+    L190:
+    this.bld.setLength((this.bld.length() - 1));
+    this.bld.append(41);
+    v5 = 1;
+    L219:
+    goto L232;
+    L222:
+    this.bld.append(44);
+    L232:
+    this.dump_value(v7, v5);
+    goto L24;
+    L243:
+    this.bld.append(93);
+    return;
+}
+
+private void dump_value(Object p0, boolean p1) {
+    this.id_count = (this.id_count + 1);
+    if (p0 != null) goto L57;
+    $s0 = this.bld;
+    if (this.is_strict_json == 0) goto L31;
+    $s0 = this.bld;
+    $s1 = "null";
+    goto L34;
+    L31:
+    $s1 = "_";
+    L34:
+    $s0.append($s1);
+    this.objects.put(null, Integer.valueOf(this.id_count));
+    return;
+    L57:
+    if (this.add_reference(p0) == 0) goto L66;
+    return;
+    L66:
+    if ((p0 instanceof Iterable) == 0) goto L125;
+    v3 = (Iterable)p0;
+    v11 = 0;
+    v12 = v3.iterator();
+    L89:
+    if (v12.hasNext() == 0) goto L114;
+    v13 = v12.next();
+    v11 += 1;
+    goto L89;
+    L114:
+    this.dump_list(v3, v11, p0);
+    goto L501;
+    L125:
+    if ((p0 instanceof Map) == 0) goto L234;
+    v4 = (Map)p0;
+    v11 = new ArrayList(v4.size());
+    v12 = v4.entrySet().iterator();
+    L168:
+    if (v12.hasNext() == 0) goto L219;
+    v13 = (Map$Entry)v12.next();
+    v11.add(v13.getKey());
+    v11.add(v13.getValue());
+    goto L168;
+    L219:
+    this.dump_list(v11, v11.size(), p0);
+    goto L501;
+    L234:
+    if (p0.getClass().isArray() == 0) goto L302;
+    v11 = new ArrayList();
+    v12 = 0;
+    L256:
+    if (v12 >= reflect.Array.getLength(p0)) goto L285;
+    v11.add(reflect.Array.get(p0, v12));
+    v12 += 1;
+    goto L256;
+    L285:
+    this.dump_list(v11, v11.size(), p0);
+    goto L501;
+    L302:
+    if ((p0 instanceof String) == 0) goto L327;
+    v5 = (String)p0;
+    JSONObject$JSONBuilder.appendJSONString(this.bld, v5);
+    goto L501;
+    L327:
+    if ((p0 instanceof Boolean) == 0) goto L388;
+    v6 = (Boolean)p0;
+    if (this.is_strict_json == 0) goto L360;
+    this.bld.append(v6);
+    goto L501;
+    L360:
+    $s0 = this.bld;
+    if (v6.booleanValue() == 0) goto L378;
+    $s0 = this.bld;
+    $s1 = "t";
+    goto L381;
+    L378:
+    $s1 = "f";
+    L381:
+    $s0.append($s1);
+    goto L501;
+    L388:
+    if ((p0 instanceof java.math.BigDecimal) == 0) goto L417;
+    v7 = (java.math.BigDecimal)p0;
+    this.bld.append(v7.toEngineeringString());
+    goto L501;
+    L417:
+    if ((p0 instanceof Long) == 0) goto L443;
+    v8 = (Long)p0;
+    this.bld.append(v8);
+    goto L501;
+    L443:
+    if ((p0 instanceof Integer) == 0) goto L469;
+    v9 = (Integer)p0;
+    this.bld.append(v9);
+    goto L501;
+    L469:
+    if ((p0 instanceof Double) == 0) goto L495;
+    v10 = (Double)p0;
+    this.bld.append(v10);
+    goto L501;
+    L495:
+    this.dump_object(p0, p1);
+    L501:
+    return;
+}
+
+private void dump_object(Object p0, boolean p1) {
+    this.indent = (this.indent + 2);
+    v3 = p0.getClass();
+    v4 = 0;
+    if (v3.getModule().isNamed() == 0) goto L61;
+    if (v3.getModule().getName().startsWith("java.") == 0) goto L61;
+    throw new Exception(("unsupported object from 'java.*' module: " + v3.getCanonicalName()));
+    L61:
+    v5 = v3.isEnum();
+    if (this.is_one_per_line == 0) goto L93;
+    if (v5 != 0) goto L93;
+    this.bld.append("{\n");
+    goto L103;
+    L93:
+    this.bld.append(123);
+    L103:
+    if (this.java2json_map == null) goto L141;
+    if (this.id_count != 0) goto L141;
+    if (this.java2json_map.isEmpty() != 0) goto L141;
+    this.bld.append(this.dump_java2json_name_map());
+    L141:
+    if (v5 == 0) goto L234;
+    if (this.is_strict_json == 0) goto L167;
+    JSONObject$JSONBuilder.appendJSONString(this.bld, v3.getSimpleName());
+    goto L179;
+    L167:
+    this.bld.append(v3.getSimpleName());
+    L179:
+    this.bld.append(58);
+    if (this.is_strict_json == 0) goto L213;
+    JSONObject$JSONBuilder.appendJSONString(this.bld, (Enum)p0.name());
+    goto L228;
+    L213:
+    this.bld.append((Enum)p0.name());
+    L228:
+    v4 += 1;
+    goto L519;
+    L234:
+    v6 = this.fld_cache.get(v3).iterator();
+    L249:
+    if (v6.hasNext() == 0) goto L519;
+    v7 = (JSONObject$FldCache$Fld)v6.next();
+    $t2 = v4;  // value before increment
+    v4 += 1;
+    if ($t2 == 0) goto L310;
+    if (this.is_one_per_line == 0) goto L300;
+    this.bld.append(",\n");
+    goto L310;
+    L300:
+    this.bld.append(44);
+    L310:
+    if (p1 != 0) goto L380;
+    if (this.is_one_per_line == 0) goto L335;
+    this.bld.repeat(32, this.indent);
+    L335:
+    if (this.is_strict_json == 0) goto L357;
+    JSONObject$JSONBuilder.appendJSONString(this.bld, v7.name);
+    goto L370;
+    L357:
+    this.bld.append(v7.name);
+    L370:
+    this.bld.append(58);
+    L380:
+    if (this.is_strict_json == 0) goto L434;
+    if (this.obj_stack.contains(p0) == 0) goto L425;
+    throw new Exception(("recursive reference: " + v3.getName() + "." + (String)this.name_stack.peek()));
+    L425:
+    this.obj_stack.push(p0);
+    L434:
+    this.name_stack.push(v7.name);
+    if (this.is_strict_json != 0) goto L479;
+    if (v7.is_interface == 0) goto L479;
+    throw new Exception((this.full_name() + " is an interface, deserialization will fail."));
+    L479:
+    this.dump_value(v7.field.get(p0), 0);
+    if (this.is_strict_json == 0) goto L508;
+    this.obj_stack.pop();
+    L508:
+    this.name_stack.pop();
+    goto L249;
+    L519:
+    if (v4 != 0) goto L541;
+    throw new Exception((v3.getName() + ": no suitable for serialization field(s) found"));
+    L541:
+    if (this.is_one_per_line == 0) goto L567;
+    if (v5 != 0) goto L567;
+    this.bld.append("}\n");
+    goto L577;
+    L567:
+    this.bld.append(125);
+    L577:
+    if (this.out == null) goto L629;
+    v6 = this.bld.toString().getBytes(java.nio.charset.StandardCharsets.UTF_8);
+    this.out.write(v6);
+    this.n_bytes = (this.n_bytes + (long)v6.length);
+    this.bld.setLength(0);
+    L629:
+    this.indent = (this.indent - 2);
+    return;
+}
+
+public String get_json() {
+    this.dump_object(this.object, 0);
+    return this.bld.toString();
+}
+
+public static void appendJSONString(StringBuilder p0, String p1) {
+    if (p1 != null) goto L13;
+    p0.append("null");
+    return;
+    L13:
+    v2 = p1.length();
+    v3 = 0;
+    L20:
+    if (v3 >= v2) goto L54;
+    v4 = p1.charAt(v3);
+    if (JSONObject.needs_encoding(v4) == 0) goto L48;
+    JSONObject.encode_to_sb(p0, p1, v3, v2);
+    return;
+    L48:
+    v3 += 1;
+    goto L20;
+    L54:
+    p0.append("\"");
+    p0.append(p1);
+    p0.append("\"");
+    return;
+}
+
+private static synthetic String lambda$dump_java2json_name_map$1(Map$Entry p0) {
+    return (JSONObject.toJSONString((String)p0.getKey()) + ":" + JSONObject.toJSONString((String)p0.getValue()));
+}
+
+private static synthetic int lambda$dump_java2json_name_map$0(Map$Entry p0, Map$Entry p1) {
+    return (String)p0.getKey().compareToIgnoreCase((String)p1.getKey());
+}
+
+private static synthetic String lambda$full_name$0(String p0) {
+    if (Character.isDigit(p0.charAt(0)) == 0) goto L20;
+    $s0 = ("[" + p0 + "]");
+    goto L21;
+    L20:
+    $s0 = p0;
+    L21:
+    return $s0;
+}
+
+// ===== JSONObject$JSONParser extends Object 
+static final String $ERROR_INVALID_NUMBER = "invalid number";
+final int text_length;
+final String text;
+ int text_pos;
+final boolean is_strict_json;
+final ArrayList table;
+private int table_index;
+ StringBuilder bld;
+ char[] string_collector;
+static final synthetic boolean $assertionsDisabled;
+
+ void <init>(String p0, boolean p1) {
+    super.<init>();
+    this.text_pos = 0;
+    this.table = new ArrayList(100);
+    this.table_index = 1;
+    this.bld = new StringBuilder(256);
+    $a3 = new char[128];
+    this.string_collector = $a3;
+    this.text = p0;
+    this.text_length = p0.length();
+    this.is_strict_json = p1;
+    return;
+}
+
+ char next_char() {
+    L0:
+    if (this.text_pos >= this.text_length) goto L39;
+    this.text_pos = (this.text_pos + 1);
+    v1 = this.text.charAt(this.text_pos);
+    if (Character.isWhitespace(v1) != 0) goto L0;
+    return v1;
+    L39:
+    return 0;
+}
+
+ String read_value() {
+    v1 = this.text_pos;
+    L5:
+    v2 = this.text.charAt(this.text_pos);
+    if (v2 != 95) goto L43;
+    if (this.is_strict_json != 0) goto L43;
+    this.text_pos = (this.text_pos + 1);
+    return "null";
+    L43:
+    if (Character.isAlphabetic(v2) != 0) goto L53;
+    goto L66;
+    L53:
+    this.text_pos = (this.text_pos + 1);
+    goto L5;
+    L66:
+    if (this.is_strict_json != 0) goto L110;
+    if ((this.text_pos - v1) != 1) goto L110;
+    v2 = this.text.charAt(v1);
+    if (v2 != 102) goto L101;
+    return "false";
+    L101:
+    if (v2 != 116) goto L110;
+    return "true";
+    L110:
+    return this.text.substring(v1, this.text_pos);
+}
+
+ String read_identifier() {
+    v1 = this.next_char();
+    if (Character.isJavaIdentifierStart(v1) != 0) goto L23;
+    throw this.error(("invalid identifier char '" + v1 + "'"));
+    L23:
+    v2 = (this.text_pos - 1);
+    L30:
+    v1 = this.text.charAt(this.text_pos);
+    if (Character.isJavaIdentifierPart(v1) != 0) goto L52;
+    goto L65;
+    L52:
+    this.text_pos = (this.text_pos + 1);
+    goto L30;
+    L65:
+    return this.text.substring(v2, this.text_pos);
+}
+
+ String read_number() {
+    v1 = this.text_pos;
+    v2 = this.text.charAt(v1);
+    if (v2 != 45) goto L32;
+    v1 += 1;
+    v2 = this.text.charAt(v1);
+    L32:
+    if (v2 < 48) goto L44;
+    if (v2 <= 57) goto L51;
+    L44:
+    throw this.error("invalid number");
+    L51:
+    if (v2 < 48) goto L78;
+    if (v2 > 57) goto L78;
+    v1 += 1;
+    v2 = this.text.charAt(v1);
+    goto L51;
+    L78:
+    if (46 != v2) goto L142;
+    v1 += 1;
+    v2 = this.text.charAt(v1);
+    if (v2 < 48) goto L108;
+    if (v2 <= 57) goto L115;
+    L108:
+    throw this.error("invalid number");
+    L115:
+    if (v2 < 48) goto L142;
+    if (v2 > 57) goto L142;
+    v1 += 1;
+    v2 = this.text.charAt(v1);
+    goto L115;
+    L142:
+    if (101 == v2) goto L154;
+    if (69 != v2) goto L236;
+    L154:
+    v1 += 1;
+    v2 = this.text.charAt(v1);
+    if (v2 == 43) goto L178;
+    if (v2 != 45) goto L190;
+    L178:
+    v1 += 1;
+    v2 = this.text.charAt(v1);
+    L190:
+    if (v2 < 48) goto L202;
+    if (v2 <= 57) goto L209;
+    L202:
+    throw this.error("invalid number");
+    L209:
+    if (v2 < 48) goto L236;
+    if (v2 > 57) goto L236;
+    v1 += 1;
+    v2 = this.text.charAt(v1);
+    goto L209;
+    L236:
+    v3 = this.text.substring(this.text_pos, v1);
+    this.text_pos = v1;
+    return v3;
+}
+
+ int read_reference() {
+    v1 = this.text_pos;
+    L5:
+    v2 = this.text.charAt(v1);
+    if (48 > v2) goto L26;
+    if (v2 <= 57) goto L41;
+    L26:
+    if (97 > v2) goto L47;
+    if (v2 <= 122) goto L41;
+    goto L47;
+    L41:
+    v1 += 1;
+    goto L5;
+    L47:
+    if (v1 != this.text_pos) goto L62;
+    throw this.error("invalid reference");
+    L62:
+    v2 = Integer.parseInt(this.text, this.text_pos, v1, 36);
+    this.text_pos = v1;
+    return v2;
+}
+
+ String read_string() {
+    this.bld.setLength(0);
+    v1 = 0;
+    L10:
+    if (this.text_pos != this.text_length) goto L28;
+    throw this.error("no closing double quotes");
+    L28:
+    v2 = this.text.charAt(this.text_pos);
+    this.text_pos = (this.text_pos + 1);
+    if (v2 != 34) goto L59;
+    goto L332;
+    L59:
+    if (v2 != 92) goto L294;
+    switch (this.text.charAt(this.text_pos)) { 34: L160, 47: L174, 92: L167, 98: L181, 102: L188, 110: L195, 114: L202, 116: L209, 117: L216; default: L276 }
+    L160:
+    v3 = 34;
+    $s0 = v3;
+    goto L283;
+    L167:
+    v3 = 92;
+    $s0 = v3;
+    goto L283;
+    L174:
+    v3 = 47;
+    $s0 = v3;
+    goto L283;
+    L181:
+    v3 = 8;
+    $s0 = v3;
+    goto L283;
+    L188:
+    v3 = 12;
+    $s0 = v3;
+    goto L283;
+    L195:
+    v3 = 10;
+    $s0 = v3;
+    goto L283;
+    L202:
+    v3 = 13;
+    $s0 = v3;
+    goto L283;
+    L209:
+    v3 = 9;
+    $s0 = v3;
+    goto L283;
+    L216:
+    v4 = this.text.substring((this.text_pos + 1), (this.text_pos + 5));
+    v5 = (char)Integer.parseInt(v4, 16);
+    goto L259;
+    // handler for [237,247) catch Exception
+    L250:
+    v6 = $ex;
+    throw this.error("invalid '\\u' sequence");
+    L259:
+    this.text_pos = (this.text_pos + 4);
+    v3 = v5;
+    $s0 = v3;
+    goto L283;
+    L276:
+    throw this.error("unexpected value");
+    L283:
+    v2 = $s0;
+    this.text_pos = (this.text_pos + 1);
+    L294:
+    $t1 = v1;  // value before increment
+    v1 += 1;
+    this.string_collector[$t1] = v2;
+    if (v1 != this.string_collector.length) goto L329;
+    this.bld.append(this.string_collector, 0, v1);
+    v1 = 0;
+    L329:
+    goto L10;
+    L332:
+    if (this.bld.isEmpty() != 0) goto L364;
+    this.bld.append(this.string_collector, 0, v1);
+    return this.bld.toString();
+    L364:
+    return new String(this.string_collector, 0, v1);
+}
+
+ JSONObject parse_value(String p0, ArrayList p1) {
+    v3 = this.next_char();
+    this.table_index = (this.table_index + 1);
+    v4 = this.table_index;
+    this.table.add(null);
+    if (JSONObject$JSONParser.$assertionsDisabled != 0) goto L57;
+    if (this.table.size() == this.table_index) goto L57;
+    throw new AssertionError("table.size() != index");
+    L57:
+    switch (v3) { 34: L404, 45: L474, 48: L474, 49: L474, 50: L474, 51: L474, 52: L474, 53: L474, 54: L474, 55: L474, 56: L474, 57: L474, 64: L427, 91: L188, 123: L380; default: L507 }
+    L188:
+    v6 = new LinkedHashMap(64);
+    v3 = this.next_char();
+    if (v3 == 93) goto L359;
+    v7 = null;
+    if (this.is_strict_json != 0) goto L283;
+    if (v3 != 40) goto L283;
+    v7 = new ArrayList();
+    L235:
+    v8 = this.read_identifier();
+    v7.add(v8);
+    v3 = this.next_char();
+    if (v3 != 41) goto L263;
+    goto L293;
+    L263:
+    if (v3 == 44) goto L280;
+    throw this.error(("invalid char '" + v3 + "'"));
+    L280:
+    goto L235;
+    L283:
+    this.text_pos = (this.text_pos - 1);
+    L293:
+    v8 = 0;
+    L296:
+    v9 = this.parse_value(String.valueOf(v8), v7);
+    v6.put(v9.name, v9);
+    v3 = this.next_char();
+    if (v3 != 93) goto L336;
+    goto L359;
+    L336:
+    if (v3 == 44) goto L353;
+    throw this.error(("invalid char '" + v3 + "'"));
+    L353:
+    v8 += 1;
+    goto L296;
+    L359:
+    $s0 = new JSONObject(this.table, JSONObject$Type.ARRAY, p0, null, v6);
+    goto L666;
+    L380:
+    $s0 = new JSONObject(this.table, JSONObject$Type.OBJECT, p0, null, this.parse(p1));
+    goto L666;
+    L404:
+    $s0 = new JSONObject(this.table, JSONObject$Type.STRING, p0, this.read_string(), null);
+    goto L666;
+    L427:
+    if (this.is_strict_json == 0) goto L451;
+    this.text_pos = (this.text_pos - 1);
+    throw this.error("@ references are not allowed in the strict mode");
+    L451:
+    $s0 = new JSONObject(this.table, JSONObject$Type.REFENCE, p0, this.read_reference(), null);
+    goto L666;
+    L474:
+    this.text_pos = (this.text_pos - 1);
+    $s0 = new JSONObject(this.table, JSONObject$Type.NUMBER, p0, this.read_number(), null);
+    goto L666;
+    L507:
+    this.text_pos = (this.text_pos - 1);
+    v6 = this.read_value();
+    if (v6.equalsIgnoreCase("true") == 0) goto L554;
+    $s0 = new JSONObject(this.table, JSONObject$Type.BOOLEAN, p0, "true", null);
+    goto L666;
+    L554:
+    if (v6.equalsIgnoreCase("false") == 0) goto L585;
+    $s0 = new JSONObject(this.table, JSONObject$Type.BOOLEAN, p0, "false", null);
+    goto L666;
+    L585:
+    if (v6.equalsIgnoreCase("null") == 0) goto L616;
+    $s0 = new JSONObject(this.table, JSONObject$Type.NULL, p0, "null", null);
+    goto L666;
+    L616:
+    if (this.is_strict_json != 0) goto L653;
+    if (this.is_java_identifier(v6) == 0) goto L653;
+    $s0 = new JSONObject(this.table, JSONObject$Type.STRING, p0, v6, null);
+    goto L666;
+    L653:
+    throw this.error(("invalid value '" + v6 + "' for '" + p0 + "'"));
+    L666:
+    v5 = $s0;
+    this.table.set(v4, v5);
+    return v5;
+}
+
+private boolean is_java_identifier(String p0) {
+    if (p0.isEmpty() != 0) goto L18;
+    if (Character.isJavaIdentifierStart(p0.charAt(0)) != 0) goto L20;
+    L18:
+    return 0;
+    L20:
+    v2 = 1;
+    L22:
+    if (v2 >= p0.length()) goto L49;
+    if (Character.isJavaIdentifierPart(p0.charAt(v2)) != 0) goto L43;
+    return 0;
+    L43:
+    v2 += 1;
+    goto L22;
+    L49:
+    return 1;
+}
+
+private LinkedHashMap parse(ArrayList p0) {
+    v2 = new LinkedHashMap(32);
+    if (p0 != null) goto L18;
+    $s0 = null;
+    goto L22;
+    L18:
+    $s0 = p0.iterator();
+    L22:
+    v3 = $s0;
+    L23:
+    v4 = this.next_char();
+    if (v4 != 125) goto L39;
+    goto L250;
+    L39:
+    if (v3 == null) goto L90;
+    if (v3.hasNext() != 0) goto L66;
+    throw this.error(("too many values for (" + String.valueOf(p0) + ")"));
+    L66:
+    v5 = (String)v3.next();
+    this.text_pos = (this.text_pos - 1);
+    goto L169;
+    L90:
+    if (v4 != 34) goto L106;
+    v5 = this.read_string();
+    goto L148;
+    L106:
+    if (this.is_strict_json != 0) goto L140;
+    if (Character.isJavaIdentifierStart(v4) == 0) goto L140;
+    this.text_pos = (this.text_pos - 1);
+    v5 = this.read_identifier();
+    goto L148;
+    L140:
+    throw this.error("no starting double quote");
+    L148:
+    v4 = this.next_char();
+    if (v4 == 58) goto L169;
+    throw this.error("no colon!");
+    L169:
+    v6 = this.parse_value(v5, null);
+    if (null == v2.put(v5, v6)) goto L202;
+    throw this.error(("duplicated name '" + v5 + "'"));
+    L202:
+    v4 = this.next_char();
+    switch (v4) { 44: L236, 125: L239; default: L242 }
+    L236:
+    goto L23;
+    L239:
+    goto L250;
+    L242:
+    throw this.error("no closing '}'");
+    L250:
+    if (v3 == null) goto L282;
+    if (v3.hasNext() == 0) goto L282;
+    throw this.error(("incomplete value set, no value(s) starting from '" + (String)v3.next() + "'"));
+    L282:
+    return v2;
+}
+
+public String toString() {
+    return ("@" + this.text_pos + ": '" + this.text.substring(this.text_pos, Math.min((this.text_pos + 20), this.text_length)) + "'");
+}
+
+ Exception error(String p0) {
+    if (this.text_pos >= this.text_length) goto L75;
+    if ((this.text_pos + 30) < this.text_length) goto L44;
+    $s0 = (this.text.substring(this.text_pos) + "'");
+    goto L67;
+    L44:
+    $s0 = (this.text.substring(this.text_pos, (this.text_pos + 30)) + "'...");
+    L67:
+    $s0 = ("'" + $s0);
+    goto L78;
+    L75:
+    $s0 = "post end of expression";
+    L78:
+    v2 = $s0;
+    return new Exception(("(" + this.text_pos + "): " + p0 + "; near: " + v2));
+}
+
+private static JSONObject from_string(String p0, boolean p1) {
+    v2 = new JSONObject$JSONParser(p0, p1);
+    if (v2.next_char() == 123) goto L27;
+    throw v2.error("no opening '{'");
+    L27:
+    v2.table.add(null);
+    v3 = v2.parse(null);
+    if (v2.next_char() == 0) goto L57;
+    throw v2.error("malformed JSON");
+    L57:
+    v4 = new JSONObject(v2.table, JSONObject$Type.OBJECT, null, null, v3);
+    v2.table.set(0, v4);
+    v5 = 0;
+    L90:
+    if (v5 >= v2.table_index) goto L186;
+    v6 = (JSONObject)v2.table.get(v5);
+    if (v6.ref_offset == 0) goto L180;
+    if (v6.ref_offset <= 0) goto L139;
+    if (v6.ref_offset <= v5) goto L157;
+    L139:
+    throw new Exception(("invalid reference: '" + String.valueOf(v6) + "'"));
+    L157:
+    v6.ref_object = (JSONObject)v2.table.get((v5 - v6.ref_offset));
+    L180:
+    v5 += 1;
+    goto L90;
+    L186:
+    return v4;
+}
+
+static void <clinit>() {
+    if (JSONObject.desiredAssertionStatus() != 0) goto L12;
+    $s0 = 1;
+    goto L13;
+    L12:
+    $s0 = 0;
+    L13:
+    JSONObject$JSONParser.$assertionsDisabled = $s0;
+    return;
+}
+
+// ===== JSONObject$MissingFieldInfo extends Record 
+private final reflect.Field field;
+private final Object object;
+private final JSONObject jsonObject;
+
+public void <init>(reflect.Field p0, Object p1, JSONObject p2) {
+    super.<init>();
+    this.field = p0;
+    this.object = p1;
+    this.jsonObject = p2;
+    return;
+}
+
+public final String toString() {
+    return indy toString(this);
+}
+
+public final int hashCode() {
+    return indy hashCode(this);
+}
+
+public final boolean equals(Object p0) {
+    return indy equals(this, p0);
+}
+
+public reflect.Field field() {
+    return this.field;
+}
+
+public Object object() {
+    return this.object;
+}
+
+public JSONObject jsonObject() {
+    return this.jsonObject;
+}
+
+// ===== JSONObject$ObjectBuilder extends Object 
+final Stack name_stack;
+private final JSONObject root_jobj;
+public boolean is_verbose;
+private final List delayed_operations;
+ Map java2json_name_map;
+private final function.BiConsumer unknown_jobj_handler;
+private final function.Function missing_field_handler;
+private final JSONObject$FldCache fld_cache;
+private Map compared_objects;
+static final synthetic boolean $assertionsDisabled;
+
+private static boolean fld_class_implements(Class p0, Class p1) {
+    v2 = p0.getInterfaces();
+    v3 = v2.length;
+    v4 = 0;
+    L11:
+    if (v4 >= v3) goto L48;
+    v5 = v2[v4];
+    if (v5 != p1) goto L31;
+    return 1;
+    L31:
+    if (JSONObject$ObjectBuilder.fld_class_implements(v5, p1) == 0) goto L42;
+    return 1;
+    L42:
+    v4 += 1;
+    goto L11;
+    L48:
+    return 0;
+}
+
+private String full_name() {
+    return (String)this.name_stack.stream().map(lambda[JSONObject$ObjectBuilder::lambda$full_name$0]()).collect(stream.Collectors.joining(".", "'", "'")).replaceAll("\\.\\[", "[");
+}
+
+public void <init>(JSONObject p0, Map p1, function.BiConsumer p2, function.Function p3) {
+    super.<init>();
+    this.name_stack = new Stack();
+    this.delayed_operations = new LinkedList();
+    this.root_jobj = p0;
+    this.java2json_name_map = p1;
+    if (p2 != null) goto L75;
+    v5 = 0;
+    if (JSONObject$ObjectBuilder.$assertionsDisabled != 0) goto L64;
+    v5 = 1;
+    if (1 != 0) goto L64;
+    throw new AssertionError();
+    L64:
+    if (v5 == 0) goto L75;
+    p2 = lambda[JSONObject$ObjectBuilder::lambda$new$0]();
+    L75:
+    this.unknown_jobj_handler = p2;
+    this.missing_field_handler = p3;
+    this.fld_cache = new JSONObject$FldCache(p1, JSONObject$FldCache$CacheType.OBJ_BUILDER);
+    if (p1 != null) goto L236;
+    v5 = p0.get("JSONx java to json name map");
+    if (v5 == null) goto L236;
+    v6 = new HashMap();
+    v7 = v5.values().iterator();
+    L139:
+    if (v7.hasNext() == 0) goto L233;
+    v8 = (JSONObject)v7.next();
+    v9 = v8.members.entrySet().iterator();
+    L176:
+    if (v9.hasNext() == 0) goto L230;
+    v10 = (Map$Entry)v9.next();
+    v6.put((String)v10.getKey(), (JSONObject)v10.getValue().value);
+    goto L176;
+    L230:
+    goto L139;
+    L233:
+    p1 = v6;
+    L236:
+    this.java2json_name_map = p1;
+    if ((JSONObject)p0.table.getFirst().object != null) goto L299;
+    v5 = p0.table.iterator();
+    L266:
+    if (v5.hasNext() == 0) goto L299;
+    v6 = (JSONObject)v5.next();
+    v6.object = JSONObject$SpecialObject.NOT_INITIALIZED;
+    goto L266;
+    L299:
+    return;
+}
+
+private Object get_shared_object(JSONObject$ObjectBuilder p0, Class p1, String p2, JSONObject p3) {
+    if (JSONObject$ObjectBuilder.$assertionsDisabled != 0) goto L27;
+    if (p3.type == JSONObject$Type.REFENCE) goto L27;
+    throw new AssertionError("Object type if not a REFERENCE");
+    L27:
+    if (p1.isPrimitive() == 0) goto L51;
+    throw new Exception((p0.full_name() + ": invalid reference, primitive type can't have a reference to something else"));
+    L51:
+    if (JSONObject$ObjectBuilder.$assertionsDisabled != 0) goto L75;
+    if (p3.ref_object != null) goto L75;
+    throw new AssertionError("ref_object is a null");
+    L75:
+    v5 = p3.ref_object.object;
+    if (v5 != JSONObject$SpecialObject.NOT_INITIALIZED) goto L137;
+    v5 = this.get_object(p1, p2, p3.ref_object);
+    p3.ref_object.object = v5;
+    if (JSONObject$ObjectBuilder.$assertionsDisabled != 0) goto L137;
+    if (v5 != null) goto L137;
+    throw new AssertionError("ref_object.object is a null");
+    L137:
+    if (v5.getClass() == p1) goto L184;
+    if (p1.isInstance(v5) != 0) goto L184;
+    throw new Exception((p1.getCanonicalName() + p0.full_name() + " doesn't match the type of " + v5.getClass().getName()));
+    L184:
+    return v5;
+}
+
+private List to_list(String p0, String p1, JSONObject p2) {
+    v4 = JSONObject$TypeDesc.of(p1);
+    if (v4.parameters.size() == 1) goto L32;
+    throw new Exception((p0 + ": a List must have one parameter type"));
+    L32:
+    $a2 = new Class[0];
+    v5 = (List)v4.type.getDeclaredConstructor($a2).newInstance(([Ljava.lang.Object;)null);
+    p2.object = v5;
+    v6 = (JSONObject$TypeDesc)v4.parameters.getFirst();
+    v7 = p2.members.values().iterator();
+    L89:
+    if (v7.hasNext() == 0) goto L159;
+    v8 = (JSONObject)v7.next();
+    this.name_stack.push(v8.name);
+    v5.add(this.get_object(v6.type, v6.annotated_type, v8));
+    this.name_stack.removeLast();
+    goto L89;
+    L159:
+    return v5;
+}
+
+private Map to_map(String p0, String p1, JSONObject p2) {
+    v4 = JSONObject$TypeDesc.of(p1);
+    if (v4.parameters.size() == 2) goto L32;
+    throw new Exception((p0 + ": a Map must have two parameter types"));
+    L32:
+    if ((p2.size() % 2) == 0) goto L55;
+    throw new Exception(("'" + p0 + "' has an 'odd' number of elements for a Map"));
+    L55:
+    $a3 = new Class[0];
+    v5 = (Map)v4.type.getDeclaredConstructor($a3).newInstance(([Ljava.lang.Object;)null);
+    p2.object = v5;
+    v6 = (JSONObject$TypeDesc)v4.parameters.get(0);
+    v7 = (JSONObject$TypeDesc)v4.parameters.get(1);
+    v8 = p2.members.entrySet().iterator();
+    L127:
+    if (v8.hasNext() == 0) goto L252;
+    v9 = (JSONObject)(Map$Entry)v8.next().getValue();
+    v10 = (JSONObject)(Map$Entry)v8.next().getValue();
+    this.name_stack.push(v9.name);
+    this.delayed_operations.add(new JSONObject$DelayedOperation(v5, this.get_object(v6.type, v6.annotated_type, v9), this.get_object(v7.type, v7.annotated_type, v10)));
+    this.name_stack.removeLast();
+    goto L127;
+    L252:
+    return v5;
+}
+
+private Set to_set(String p0, String p1, JSONObject p2) {
+    v4 = JSONObject$TypeDesc.of(p1);
+    if (v4.parameters.size() == 1) goto L32;
+    throw new Exception((p0 + ": a Set must have one parameter type"));
+    L32:
+    $a2 = new Class[0];
+    v5 = (Set)v4.type.getDeclaredConstructor($a2).newInstance(([Ljava.lang.Object;)null);
+    p2.object = v5;
+    v6 = (JSONObject$TypeDesc)v4.parameters.getFirst();
+    v7 = p2.members.values().iterator();
+    L89:
+    if (v7.hasNext() == 0) goto L175;
+    v8 = (JSONObject)v7.next();
+    this.name_stack.push(v8.name);
+    v9 = this.get_object(v6.type, v6.annotated_type, v8);
+    this.delayed_operations.add(new JSONObject$DelayedOperation(v5, v9, null));
+    this.name_stack.pop();
+    goto L89;
+    L175:
+    return v5;
+}
+
+private Object get_object(Class p0, String p1, JSONObject p2) {
+    v4 = p2.object;
+    if (v4 == JSONObject$SpecialObject.NOT_INITIALIZED) goto L17;
+    return v4;
+    L17:
+    switch (p2.type.ordinal()) { 0: L154, 1: L196, 2: L99, 3: L68, 4: L386, 5: L348, 6: L329; default: L849 }
+    L68:
+    if (p0.isPrimitive() != 0) goto L82;
+    p2.object = null;
+    return null;
+    L82:
+    throw new IllegalStateException((this.full_name() + " is a primitive type, can't be assigned a NULL"));
+    L99:
+    if (p0 == Boolean.TYPE) goto L119;
+    if (p0 == Boolean) goto L119;
+    if (p0 != Object) goto L137;
+    L119:
+    v4 = Boolean.valueOf(p2.booleanValue());
+    p2.object = v4;
+    return v4;
+    L137:
+    throw new IllegalStateException((this.full_name() + " is not a boolean"));
+    L154:
+    if (p0 == String) goto L166;
+    if (p0 != Object) goto L179;
+    L166:
+    p2.object = p2.value;
+    return p2.value;
+    L179:
+    throw new Exception((this.full_name() + " is not a String"));
+    L196:
+    if (p0 == Double.TYPE) goto L210;
+    if (p0 != Double) goto L222;
+    L210:
+    v4 = Double.valueOf(p2.value);
+    goto L320;
+    L222:
+    if (p0 == Integer.TYPE) goto L236;
+    if (p0 != Integer) goto L248;
+    L236:
+    v4 = Integer.valueOf(p2.value);
+    goto L320;
+    L248:
+    if (p0 == Long.TYPE) goto L262;
+    if (p0 != Long) goto L274;
+    L262:
+    v4 = Long.valueOf(p2.value);
+    goto L320;
+    L274:
+    if (p0 == java.math.BigDecimal) goto L287;
+    if (p0 != Object) goto L303;
+    L287:
+    v4 = new java.math.BigDecimal(p2.value);
+    goto L320;
+    L303:
+    throw new Exception((this.full_name() + " unsupported type; use: int, long, double, or BigDecimal"));
+    L320:
+    p2.object = v4;
+    return v4;
+    L329:
+    v4 = this.get_shared_object(this, p0, p1, p2);
+    p2.object = v4;
+    return v4;
+    L348:
+    if (p0.isPrimitive() == 0) goto L372;
+    throw new Exception((this.full_name() + " is not an object"));
+    L372:
+    return this.to_object(([Ljava.lang.Object;)reflect.Array.newInstance(p0, 0), p2);
+    L386:
+    if (p0.isArray() != 0) goto L496;
+    if (p0.isInterface() == 0) goto L417;
+    throw new Exception(("can't instantiate an interface " + p0.getCanonicalName()));
+    L417:
+    if (JSONObject$ObjectBuilder.fld_class_implements(p0, List) == 0) goto L438;
+    return this.to_list(p2.name, p1, p2);
+    L438:
+    if (JSONObject$ObjectBuilder.fld_class_implements(p0, Set) == 0) goto L458;
+    return this.to_set(p2.name, p1, p2);
+    L458:
+    if (JSONObject$ObjectBuilder.fld_class_implements(p0, Map) == 0) goto L479;
+    return this.to_map(p2.name, p1, p2);
+    L479:
+    throw new Exception((this.full_name() + " is not an array, or a List/Set/Map"));
+    L496:
+    v4 = p0.getComponentType();
+    if (v4.isPrimitive() == 0) goto L713;
+    v5 = reflect.Array.newInstance(v4, p2.size());
+    p2.object = v5;
+    v6 = 0;
+    v7 = p2.members.values().iterator();
+    L544:
+    if (v7.hasNext() == 0) goto L710;
+    v8 = (JSONObject)v7.next();
+    if (JSONObject$ObjectBuilder.$assertionsDisabled != 0) goto L590;
+    v8.object = null;
+    if (null == null) goto L590;
+    throw new AssertionError();
+    L590:
+    if (v8.isNumber() != 0) goto L617;
+    throw new Exception((this.full_name() + "[" + v6 + "] is not a number"));
+    L617:
+    if (v4 != Long.TYPE) goto L640;
+    reflect.Array.setLong(v5, v6, v8.longValue());
+    goto L704;
+    L640:
+    if (v4 != Integer.TYPE) goto L663;
+    reflect.Array.setInt(v5, v6, v8.intValue());
+    goto L704;
+    L663:
+    if (v4 != Double.TYPE) goto L686;
+    reflect.Array.setDouble(v5, v6, v8.doubleValue());
+    goto L704;
+    L686:
+    throw new RuntimeException(("need more code: unsupported type " + v4.getName()));
+    L704:
+    v6 += 1;
+    goto L544;
+    L710:
+    return v5;
+    L713:
+    v5 = ([Ljava.lang.Object;)reflect.Array.newInstance(v4, p2.size());
+    p2.object = v5;
+    v6 = 0;
+    v7 = p2.members.values().iterator();
+    L750:
+    if (v7.hasNext() == 0) goto L846;
+    v8 = (JSONObject)v7.next();
+    this.name_stack.push(v8.name);
+    v5[v6] = this.get_object(v4, p1, v8);
+    if (JSONObject$ObjectBuilder.$assertionsDisabled != 0) goto L832;
+    v8.object = v5[v6];
+    if (v5[v6] == v5[v6]) goto L832;
+    throw new AssertionError();
+    L832:
+    this.name_stack.removeLast();
+    v6 += 1;
+    goto L750;
+    L846:
+    return v5;
+    L849:
+    throw new Exception(("unsupported type: " + String.valueOf(p2.type)));
+}
+
+private void ensure_identical(Object p0, Object p1) {
+    v3 = p0.getClass();
+    if (JSONObject$ObjectBuilder.$assertionsDisabled != 0) goto L27;
+    if (v3 == p1.getClass()) goto L27;
+    throw new AssertionError();
+    L27:
+    this.compared_objects.put(p0, p1);
+    v4 = 0;
+    v5 = this.fld_cache.get(v3).iterator();
+    L57:
+    if (v5.hasNext() == 0) goto L128;
+    v6 = (JSONObject$FldCache$Fld)v5.next();
+    this.name_stack.push(v6.name);
+    this.do_compare(v6.field.get(p0), v6.field.get(p1));
+    this.name_stack.pop();
+    v4 += 1;
+    goto L57;
+    L128:
+    if (v4 != 0) goto L144;
+    throw new Exception("no suitable fields found for comparison");
+    L144:
+    return;
+}
+
+private void do_compare(Object p0, Object p1) {
+    v3 = this.compared_objects.getOrDefault(p0, JSONObject$SpecialObject.NOT_INITIALIZED);
+    if (v3 == JSONObject$SpecialObject.NOT_INITIALIZED) goto L66;
+    if (v3 == p1) goto L43;
+    throw new Exception((this.full_name() + ": not a one-to-one reference?"));
+    L43:
+    if (this.is_verbose == 0) goto L65;
+    System.err.println((this.full_name() + ": already compared OK"));
+    L65:
+    return;
+    L66:
+    if (p0 == p1) goto L753;
+    if (p0 == null) goto L79;
+    if (p1 != null) goto L96;
+    L79:
+    throw new Exception((this.full_name() + ": one of the values is a null"));
+    L96:
+    if ((p0 instanceof Iterable) == 0) goto L267;
+    v3 = (Iterable)p0;
+    if (JSONObject$ObjectBuilder.$assertionsDisabled != 0) goto L132;
+    if ((p1 instanceof Iterable) != 0) goto L132;
+    throw new AssertionError("o_val is not Iterable");
+    L132:
+    v6 = 0;
+    v7 = v3.iterator();
+    v8 = (Iterable)p1.iterator();
+    L154:
+    if (v7.hasNext() == 0) goto L227;
+    if (v8.hasNext() == 0) goto L227;
+    v9 = v7.next();
+    v10 = v8.next();
+    this.name_stack.push(Integer.toString(v6));
+    this.do_compare(v9, v10);
+    this.name_stack.removeLast();
+    v6 += 1;
+    goto L154;
+    L227:
+    if (v7.hasNext() != 0) goto L247;
+    if (v8.hasNext() == 0) goto L264;
+    L247:
+    throw new Exception((this.full_name() + ": different list/set sizes"));
+    L264:
+    goto L738;
+    L267:
+    if ((p0 instanceof Map) == 0) goto L492;
+    v4 = (Map)p0;
+    if (JSONObject$ObjectBuilder.$assertionsDisabled != 0) goto L301;
+    if ((p1 instanceof Map) != 0) goto L301;
+    throw new AssertionError();
+    L301:
+    v6 = (Map)p1;
+    v7 = v4.size();
+    if (v7 == v6.size()) goto L354;
+    throw new Exception((this.full_name() + ": map sizes differ: " + v7 + " vs " + v6.size()));
+    L354:
+    v8 = 0;
+    v9 = v4.entrySet().iterator();
+    L371:
+    if (v9.hasNext() == 0) goto L489;
+    v10 = v9.next();
+    v11 = (Map$Entry)v10;
+    v12 = v11.getKey();
+    if (v6.containsKey(v12) != 0) goto L440;
+    throw new Exception((this.full_name() + ": {" + v12.toString() + "} not in original object"));
+    L440:
+    this.name_stack.push(("[" + v12.toString() + "]"));
+    this.do_compare(v11.getValue(), v6.get(v12));
+    this.name_stack.removeLast();
+    goto L371;
+    L489:
+    goto L738;
+    L492:
+    if (p0.getClass().isArray() == 0) goto L620;
+    if (JSONObject$ObjectBuilder.$assertionsDisabled != 0) goto L526;
+    if (p1.getClass().isArray() != 0) goto L526;
+    throw new AssertionError();
+    L526:
+    v6 = reflect.Array.getLength(p0);
+    if (v6 == reflect.Array.getLength(p1)) goto L564;
+    throw new Exception((this.full_name() + ": array sizes differ: " + v6 + " vs " + reflect.Array.getLength(p1)));
+    L564:
+    v7 = 0;
+    L567:
+    if (v7 >= v6) goto L617;
+    this.name_stack.push(Integer.toString(v7));
+    this.do_compare(reflect.Array.get(p0, v7), reflect.Array.get(p1, v7));
+    this.name_stack.removeLast();
+    v7 += 1;
+    goto L567;
+    L617:
+    goto L738;
+    L620:
+    if ((p0 instanceof Comparable) == 0) goto L732;
+    v5 = (Comparable)p0;
+    if (JSONObject$ObjectBuilder.$assertionsDisabled != 0) goto L654;
+    if ((p1 instanceof Comparable) != 0) goto L654;
+    throw new AssertionError();
+    L654:
+    v6 = v5.compareTo(p1);
+    if (0 == v6) goto L697;
+    throw new Exception((this.full_name() + ": {" + String.valueOf(p0) + "}.compareTo({" + String.valueOf(p1) + "}) = " + v6));
+    L697:
+    if (this.is_verbose == 0) goto L729;
+    System.err.println((this.full_name() + ": {" + String.valueOf(p0) + "}.compareTo({" + String.valueOf(p1) + "}) = " + v6));
+    L729:
+    goto L738;
+    L732:
+    this.ensure_identical(p0, p1);
+    L738:
+    this.compared_objects.put(p0, p1);
+    goto L783;
+    L753:
+    if (this.is_verbose == 0) goto L783;
+    System.err.println((this.full_name() + ": {" + String.valueOf(p0) + "} == {" + String.valueOf(p1) + "}"));
+    L783:
+    return;
+}
+
+private Object to_object(Object[] p0, JSONObject p1) {
+    v3 = p0.getClass().getComponentType();
+    if (v3.isEnum() == 0) goto L153;
+    if (p1.members.size() == 1) goto L47;
+    throw new Exception((this.full_name() + ": invalid data for " + v3.getSimpleName()));
+    L47:
+    v4 = p1.members.firstEntry();
+    if (v3.getSimpleName().equals(v4.getKey()) != 0) goto L104;
+    throw new Exception((this.full_name() + ": unexpected type '" + (String)v4.getKey() + "' for " + v3.getSimpleName()));
+    L104:
+    v5 = Enum.valueOf(v3.asSubclass(Enum), (JSONObject)v4.getValue().value());
+    p1.object = v5;
+    (JSONObject)v4.getValue().object = v5;
+    return v5;
+    L153:
+    v4 = this.fld_cache.getInstance(v3);
+    p1.object = v4;
+    if (this.unknown_jobj_handler == null) goto L186;
+    $s0 = new HashSet();
+    goto L187;
+    L186:
+    $s0 = null;
+    L187:
+    v5 = $s0;
+    v6 = this.fld_cache.get(v3).iterator();
+    L204:
+    if (v6.hasNext() == 0) goto L533;
+    v7 = (JSONObject$FldCache$Fld)v6.next();
+    this.name_stack.push(v7.name);
+    v8 = v7.field.getType();
+    if (v7.is_final == 0) goto L288;
+    if (null == v7.field.get(v4)) goto L288;
+    throw new IllegalAccessException((this.full_name() + " is a non-null final object, it can't be modified"));
+    L288:
+    $s0 = p1.members;
+    if (this.java2json_name_map != null) goto L307;
+    $s0 = p1.members;
+    $s1 = v7.name;
+    goto L326;
+    L307:
+    $s1 = this.java2json_name_map.getOrDefault(v7.name, v7.name);
+    L326:
+    v9 = (JSONObject)$s0.get($s1);
+    if (v9 != null) goto L439;
+    if (this.missing_field_handler == null) goto L390;
+    if ((Boolean)this.missing_field_handler.apply(new JSONObject$MissingFieldInfo(v7.field, v4, p1)).booleanValue() == 0) goto L422;
+    this.name_stack.pop();
+    goto L204;
+    L390:
+    if (v8.isPrimitive() != 0) goto L411;
+    if (v7.field.get(v4) == null) goto L422;
+    L411:
+    this.name_stack.pop();
+    goto L204;
+    L422:
+    throw new Exception(("undefined name " + this.full_name()));
+    L439:
+    if (v5 == null) goto L455;
+    v5.add(v9.name);
+    L455:
+    v7.field.set(v4, this.get_object(v8, v7.annotated_type, v9));
+    goto L522;
+    // handler for [455,478) catch Exception
+    L481:
+    v10 = $ex;
+    v11 = (this.full_name() + ": deserialization failed");
+    if (v10.getMessage().equals(v11) == 0) goto L510;
+    throw v10;
+    L510:
+    throw new Exception(v11, v10);
+    L522:
+    this.name_stack.pop();
+    goto L204;
+    L533:
+    if (v5 == null) goto L657;
+    v6 = new ArrayList();
+    v7 = p1.members.entrySet().iterator();
+    L561:
+    if (v7.hasNext() == 0) goto L644;
+    v8 = (Map$Entry)v7.next();
+    if (v5.contains(v8.getKey()) != 0) goto L641;
+    v9 = (JSONObject)v8.getValue();
+    v6.add(v9);
+    if (JSONObject$ObjectBuilder.$assertionsDisabled != 0) goto L641;
+    if (this.mark_as_unknown(v9) != 0) goto L641;
+    throw new AssertionError();
+    L641:
+    goto L561;
+    L644:
+    this.unknown_jobj_handler.accept(v4, v6);
+    L657:
+    if (this.name_stack.isEmpty() == 0) goto L725;
+    if (this.delayed_operations.isEmpty() != 0) goto L683;
+    this.do_delayed_operations();
+    L683:
+    if (JSONObject$ObjectBuilder.$assertionsDisabled != 0) goto L711;
+    if (this.verify_initialization(this.root_jobj) != 0) goto L711;
+    throw new AssertionError("Object verification failed");
+    L711:
+    (JSONObject)p1.table.getFirst().object = null;
+    L725:
+    return v4;
+}
+
+private boolean verify_initialization(JSONObject p0) {
+    if (JSONObject.skip_verification == 0) goto L8;
+    return 1;
+    L8:
+    if (JSONObject$ObjectBuilder.$assertionsDisabled != 0) goto L41;
+    if (p0.object != JSONObject$SpecialObject.NOT_INITIALIZED) goto L41;
+    throw new AssertionError(("Object is not initialized: " + String.valueOf(p0)));
+    L41:
+    if (p0.members == null) goto L104;
+    v2 = p0.get("JSONx java to json name map");
+    v3 = p0.members.values().iterator();
+    L68:
+    if (v3.hasNext() == 0) goto L104;
+    v4 = (JSONObject)v3.next();
+    if (v4 == v2) goto L101;
+    this.verify_initialization(v4);
+    L101:
+    goto L68;
+    L104:
+    return 1;
+}
+
+ boolean mark_as_unknown(JSONObject p0) {
+    if (JSONObject.skip_verification == 0) goto L8;
+    return 1;
+    L8:
+    p0.object = JSONObject$SpecialObject.UNKNOWN;
+    if (p0.members == null) goto L63;
+    v2 = p0.members.values().iterator();
+    L35:
+    if (v2.hasNext() == 0) goto L63;
+    v3 = (JSONObject)v2.next();
+    this.mark_as_unknown(v3);
+    goto L35;
+    L63:
+    return 1;
+}
+
+private void do_delayed_operations() {
+    v1 = this.delayed_operations.iterator();
+    L10:
+    if (v1.hasNext() == 0) goto L117;
+    v2 = (JSONObject$DelayedOperation)v1.next();
+    v5 = v2.collector;
+    if ((v5 instanceof Collection) == 0) goto L65;
+    v4 = (Collection)v5;
+    v4.add(v2.v1);
+    goto L114;
+    L65:
+    v5 = v2.collector;
+    if ((v5 instanceof Map) == 0) goto L103;
+    v3 = (Map)v5;
+    v3.put(v2.v1, v2.v2);
+    goto L114;
+    L103:
+    throw new RuntimeException("internal error -- unhandled 'collector'");
+    L114:
+    goto L10;
+    L117:
+    return;
+}
+
+private static synthetic void lambda$new$0(Object p0, List p1) {
+    return;
+}
+
+private static synthetic String lambda$full_name$0(String p0) {
+    if (Character.isDigit(p0.charAt(0)) == 0) goto L20;
+    $s0 = ("[" + p0 + "]");
+    goto L21;
+    L20:
+    $s0 = p0;
+    L21:
+    return $s0;
+}
+
+static void <clinit>() {
+    if (JSONObject.desiredAssertionStatus() != 0) goto L12;
+    $s0 = 1;
+    goto L13;
+    L12:
+    $s0 = 0;
+    L13:
+    JSONObject$ObjectBuilder.$assertionsDisabled = $s0;
+    return;
+}
+
+// ===== JSONObject$SpecialObject extends Enum 
+public static final enum JSONObject$SpecialObject NOT_INITIALIZED;
+public static final enum JSONObject$SpecialObject UNKNOWN;
+private static final synthetic JSONObject$SpecialObject[] $VALUES;
+
+public static JSONObject$SpecialObject[] values() {
+    return ([Lca.mishell.misc.JSONObject$SpecialObject;)JSONObject$SpecialObject.$VALUES.clone();
+}
+
+public static JSONObject$SpecialObject valueOf(String p0) {
+    return (JSONObject$SpecialObject)Enum.valueOf(JSONObject$SpecialObject, p0);
+}
+
+private void <init>(String p0, int p1) {
+    super.<init>(p0, p1);
+    return;
+}
+
+private static synthetic JSONObject$SpecialObject[] $values() {
+    $a1 = new JSONObject$SpecialObject[2];
+    $a1[0] = JSONObject$SpecialObject.NOT_INITIALIZED;
+    $a1[1] = JSONObject$SpecialObject.UNKNOWN;
+    return $a1;
+}
+
+static void <clinit>() {
+    JSONObject$SpecialObject.NOT_INITIALIZED = new JSONObject$SpecialObject("NOT_INITIALIZED", 0);
+    JSONObject$SpecialObject.UNKNOWN = new JSONObject$SpecialObject("UNKNOWN", 1);
+    JSONObject$SpecialObject.$VALUES = JSONObject$SpecialObject.$values();
+    return;
+}
+
+// ===== JSONObject$Type extends Enum 
+public static final enum JSONObject$Type STRING;
+public static final enum JSONObject$Type NUMBER;
+public static final enum JSONObject$Type BOOLEAN;
+public static final enum JSONObject$Type NULL;
+public static final enum JSONObject$Type ARRAY;
+public static final enum JSONObject$Type OBJECT;
+public static final enum JSONObject$Type REFENCE;
+private static final synthetic JSONObject$Type[] $VALUES;
+
+public static JSONObject$Type[] values() {
+    return ([Lca.mishell.misc.JSONObject$Type;)JSONObject$Type.$VALUES.clone();
+}
+
+public static JSONObject$Type valueOf(String p0) {
+    return (JSONObject$Type)Enum.valueOf(JSONObject$Type, p0);
+}
+
+private void <init>(String p0, int p1) {
+    super.<init>(p0, p1);
+    return;
+}
+
+private static synthetic JSONObject$Type[] $values() {
+    $a1 = new JSONObject$Type[7];
+    $a1[0] = JSONObject$Type.STRING;
+    $a1[1] = JSONObject$Type.NUMBER;
+    $a1[2] = JSONObject$Type.BOOLEAN;
+    $a1[3] = JSONObject$Type.NULL;
+    $a1[4] = JSONObject$Type.ARRAY;
+    $a1[5] = JSONObject$Type.OBJECT;
+    $a1[6] = JSONObject$Type.REFENCE;
+    return $a1;
+}
+
+static void <clinit>() {
+    JSONObject$Type.STRING = new JSONObject$Type("STRING", 0);
+    JSONObject$Type.NUMBER = new JSONObject$Type("NUMBER", 1);
+    JSONObject$Type.BOOLEAN = new JSONObject$Type("BOOLEAN", 2);
+    JSONObject$Type.NULL = new JSONObject$Type("NULL", 3);
+    JSONObject$Type.ARRAY = new JSONObject$Type("ARRAY", 4);
+    JSONObject$Type.OBJECT = new JSONObject$Type("OBJECT", 5);
+    JSONObject$Type.REFENCE = new JSONObject$Type("REFENCE", 6);
+    JSONObject$Type.$VALUES = JSONObject$Type.$values();
+    return;
+}
+
+// ===== JSONObject$TypeDesc extends Object 
+ Class type;
+ String annotated_type;
+ ArrayList parameters;
+private static final Map cache;
+
+private void <init>() {
+    super.<init>();
+    this.parameters = new ArrayList();
+    return;
+}
+
+static JSONObject$TypeDesc of(String p0) {
+    v1 = (JSONObject$TypeDesc)JSONObject$TypeDesc.cache.get(p0);
+    if (v1 == null) goto L19;
+    return v1;
+    L19:
+    v1 = new JSONObject$TypeDesc();
+    v1.annotated_type = p0;
+    JSONObject$TypeDesc.cache.put(p0, v1);
+    if (p0.equals("?") == 0) goto L60;
+    v1.type = Object;
+    return v1;
+    L60:
+    v2 = p0.indexOf(60);
+    if (v2 == -1) goto L81;
+    if (p0.endsWith(">") != 0) goto L91;
+    L81:
+    v1.type = Class.forName(p0);
+    return v1;
+    L91:
+    v3 = p0.substring(0, v2);
+    v1.type = Class.forName(v3);
+    v4 = 0;
+    v5 = (v2 + 1);
+    L114:
+    if (v5 >= p0.length()) goto L254;
+    v6 = p0.charAt(v5);
+    if (v6 != 60) goto L144;
+    v4 += 1;
+    goto L248;
+    L144:
+    if (v6 != 62) goto L210;
+    v4 += -1;
+    if (v4 != -1) goto L248;
+    if ((v5 + 1) == p0.length()) goto L185;
+    throw new Exception(("invalid type: " + p0));
+    L185:
+    v1.parameters.add(JSONObject$TypeDesc.of(p0.substring((v2 + 1), v5).trim()));
+    return v1;
+    L210:
+    if (v6 != 44) goto L248;
+    if (v4 != 0) goto L248;
+    v1.parameters.add(JSONObject$TypeDesc.of(p0.substring((v2 + 1), v5).trim()));
+    v2 = v5;
+    L248:
+    v5 += 1;
+    goto L114;
+    L254:
+    throw new Exception(("invalid type: " + p0));
+}
+
+static void <clinit>() {
+    JSONObject$TypeDesc.cache = new HashMap();
+    return;
+}
+
+// ===== JSONObject extends Object 
+private static final int OFFSET_RADIX = 36;
+public static final String JSONx_JAVA2JSON_NAME_MAP = "JSONx java to json name map";
+private static final String $TRUE = "true";
+private static final String $FALSE = "false";
+private static final String $NULL = "null";
+private final JSONObject$Type type;
+private final String name;
+private final String value;
+private final int ref_offset;
+private JSONObject ref_object;
+private Object object;
+protected final ArrayList table;
+protected static boolean skip_verification;
+private final LinkedHashMap members;
+
+private void <init>(ArrayList p0, JSONObject$Type p1, String p2, String p3, LinkedHashMap p4) {
+    super.<init>();
+    this.object = JSONObject$SpecialObject.NOT_INITIALIZED;
+    this.table = p0;
+    this.type = p1;
+    this.name = p2;
+    this.value = p3;
+    this.members = p4;
+    this.ref_offset = 0;
+    return;
+}
+
+private void <init>(ArrayList p0, JSONObject$Type p1, String p2, int p3, LinkedHashMap p4) {
+    super.<init>();
+    this.object = JSONObject$SpecialObject.NOT_INITIALIZED;
+    this.table = p0;
+    this.type = p1;
+    this.name = p2;
+    this.value = "?";
+    this.members = p4;
+    this.ref_offset = p3;
+    return;
+}
+
+public boolean equals(Object p0) {
+    if (this != p0) goto L7;
+    return 1;
+    L7:
+    if (p0 == null) goto L22;
+    if (this.getClass() == p0.getClass()) goto L24;
+    L22:
+    return 0;
+    L24:
+    v2 = (JSONObject)p0;
+    if (this.type != v2.type) goto L86;
+    if (Objects.equals(this.name, v2.name) == 0) goto L86;
+    if (Objects.equals(this.value, v2.value) == 0) goto L86;
+    if (Objects.equals(this.members, v2.members) == 0) goto L86;
+    $s0 = 1;
+    goto L87;
+    L86:
+    $s0 = 0;
+    L87:
+    return $s0;
+}
+
+public int hashCode() {
+    $a1 = new Object[4];
+    $a1[0] = this.type;
+    $a1[1] = this.name;
+    $a1[2] = this.value;
+    $a1[3] = this.members;
+    return Objects.hash($a1);
+}
+
+public JSONObject$Type type() {
+    return this.type;
+}
+
+public String name() {
+    return this.name;
+}
+
+public Set names() {
+    if (this.members != null) goto L13;
+    $s0 = Collections.emptySet();
+    goto L20;
+    L13:
+    $s0 = this.members.keySet();
+    L20:
+    return $s0;
+}
+
+public String value() {
+    return this.value;
+}
+
+private void number_check() {
+    if (this.isNumber() != 0) goto L24;
+    throw new RuntimeException(("'" + this.name + "' is not a NUMBER"));
+    L24:
+    return;
+}
+
+public int intValue() {
+    this.number_check();
+    return Integer.parseInt(this.value);
+}
+
+public long longValue() {
+    this.number_check();
+    return Long.parseLong(this.value);
+}
+
+public double doubleValue() {
+    this.number_check();
+    return Double.parseDouble(this.value);
+}
+
+public java.math.BigDecimal bigDecimalValue() {
+    this.number_check();
+    return new java.math.BigDecimal(this.value);
+}
+
+public boolean booleanValue() {
+    if (this.isBoolean() != 0) goto L24;
+    throw new RuntimeException(("'" + this.name + "' is not an BOOLEAN"));
+    L24:
+    return Objects.equals(this.value, "true");
+}
+
+public Collection values() {
+    if (this.members != null) goto L11;
+    return Collections.emptyList();
+    L11:
+    return this.members.values();
+}
+
+public JSONObject get(String p0) {
+    return (JSONObject)this.members.get(p0);
+}
+
+public JSONObject index(int p0) {
+    if (this.isArray() != 0) goto L24;
+    throw new RuntimeException(("'" + this.name + "' is not an ARRAY"));
+    L24:
+    v2 = (JSONObject)this.members.get(String.valueOf(p0));
+    if (v2 != null) goto L65;
+    throw new IndexOutOfBoundsException(("Out of '" + this.name + "' bounds, index=" + p0 + ", the array size is " + this.size()));
+    L65:
+    return v2;
+}
+
+public boolean isString() {
+    if (this.type != JSONObject$Type.STRING) goto L14;
+    $s0 = 1;
+    goto L15;
+    L14:
+    $s0 = 0;
+    L15:
+    return $s0;
+}
+
+public boolean isNumber() {
+    if (this.type != JSONObject$Type.NUMBER) goto L14;
+    $s0 = 1;
+    goto L15;
+    L14:
+    $s0 = 0;
+    L15:
+    return $s0;
+}
+
+public boolean isArray() {
+    if (this.type != JSONObject$Type.ARRAY) goto L14;
+    $s0 = 1;
+    goto L15;
+    L14:
+    $s0 = 0;
+    L15:
+    return $s0;
+}
+
+public boolean isObject() {
+    if (this.type != JSONObject$Type.OBJECT) goto L14;
+    $s0 = 1;
+    goto L15;
+    L14:
+    $s0 = 0;
+    L15:
+    return $s0;
+}
+
+public boolean isBoolean() {
+    if (this.type != JSONObject$Type.BOOLEAN) goto L14;
+    $s0 = 1;
+    goto L15;
+    L14:
+    $s0 = 0;
+    L15:
+    return $s0;
+}
+
+public boolean isNULL() {
+    if (this.type != JSONObject$Type.NULL) goto L14;
+    $s0 = 1;
+    goto L15;
+    L14:
+    $s0 = 0;
+    L15:
+    return $s0;
+}
+
+public int size() {
+    if (this.isArray() != 0) goto L24;
+    throw new RuntimeException(("'" + this.name + "' is not an ARRAY"));
+    L24:
+    return this.members.size();
+}
+
+public String toString() {
+    return this.toString(0);
+}
+
+public String toPrettyString() {
+    return this.toString(1);
+}
+
+private String toString(boolean p0) {
+    v2 = new StringBuilder();
+    if (this.name == null) goto L31;
+    $s0 = v2;
+    if (p0 == 0) goto L25;
+    $s0 = v2;
+    $s1 = "{\n";
+    goto L27;
+    L25:
+    $s1 = "{";
+    L27:
+    $s0.append($s1);
+    L31:
+    $s0 = this;
+    $s1 = 0;
+    $s2 = p0;
+    $s3 = v2;
+    if (this.name != null) goto L46;
+    $s0 = this;
+    $s1 = 0;
+    $s2 = p0;
+    $s3 = v2;
+    $s4 = 1;
+    goto L47;
+    L46:
+    $s4 = 0;
+    L47:
+    $s0.toString($s1, $s2, $s3, $s4);
+    if (this.name == null) goto L73;
+    $s0 = v2;
+    if (p0 == 0) goto L67;
+    $s0 = v2;
+    $s1 = "}\n";
+    goto L69;
+    L67:
+    $s1 = "}";
+    L69:
+    $s0.append($s1);
+    L73:
+    return v2.toString();
+}
+
+private void toString(int p0, boolean p1, StringBuilder p2, boolean p3) {
+    if (p1 == 0) goto L12;
+    p2.repeat(9, p0);
+    L12:
+    if (p3 != 0) goto L32;
+    JSONObject$JSONBuilder.appendJSONString(p2, this.name);
+    p2.append(58);
+    L32:
+    if (this.type != JSONObject$Type.REFENCE) goto L66;
+    p2.append(64);
+    p2.append(Integer.toString(this.ref_offset, 36));
+    goto L253;
+    L66:
+    if (this.value == null) goto L103;
+    if (this.isString() == 0) goto L91;
+    JSONObject$JSONBuilder.appendJSONString(p2, this.value);
+    goto L253;
+    L91:
+    p2.append(this.value);
+    goto L253;
+    L103:
+    if (this.members == null) goto L245;
+    $s0 = p2;
+    if (this.isArray() == 0) goto L123;
+    $s0 = p2;
+    $s1 = "[";
+    goto L125;
+    L123:
+    $s1 = "{";
+    L125:
+    $s0.append($s1);
+    if (p1 == 0) goto L140;
+    p2.append(10);
+    L140:
+    v5 = 1;
+    v6 = this.members.values().iterator();
+    L157:
+    if (v6.hasNext() == 0) goto L223;
+    v7 = (JSONObject)v6.next();
+    if (v5 != 0) goto L203;
+    $s0 = p2;
+    if (p1 == 0) goto L194;
+    $s0 = p2;
+    $s1 = ",\n";
+    goto L196;
+    L194:
+    $s1 = ",";
+    L196:
+    $s0.append($s1);
+    goto L206;
+    L203:
+    v5 = 0;
+    L206:
+    v7.toString((p0 + 1), p1, p2, this.isArray());
+    goto L157;
+    L223:
+    $s0 = p2;
+    if (this.isArray() == 0) goto L236;
+    $s0 = p2;
+    $s1 = "]";
+    goto L238;
+    L236:
+    $s1 = "}";
+    L238:
+    $s0.append($s1);
+    goto L253;
+    L245:
+    throw new IllegalStateException();
+    L253:
+    return;
+}
+
+public Object toObject(Object[] p0) {
+    return new JSONObject$ObjectBuilder(this, null, null, null).to_object(p0, this);
+}
+
+public Object toObject(Object[] p0, Map p1, function.BiConsumer p2, function.Function p3) {
+    return new JSONObject$ObjectBuilder(this, p1, p2, p3).to_object(p0, this);
+}
+
+public static JSONObject fromJSON(String p0) {
+    return JSONObject$JSONParser.from_string(p0, 1);
+}
+
+public static JSONObject fromJSONx(String p0) {
+    return JSONObject$JSONParser.from_string(p0, 0);
+}
+
+public static Object toObject(String p0, Object[] p1) {
+    return JSONObject$JSONParser.from_string(p0, 0).toObject(p1);
+}
+
+public static void verify(String p0, Object p1, boolean p2) {
+    v3 = JSONObject$JSONParser.from_string(p0, 0);
+    v4 = new JSONObject$ObjectBuilder(v3, null, null, null);
+    v5 = v4.to_object(([Ljava.lang.Object;)reflect.Array.newInstance(p1.getClass(), 0), v3);
+    v4.compared_objects = new IdentityHashMap();
+    v4.is_verbose = p2;
+    v4.ensure_identical(v5, p1);
+    if (v4.is_verbose == 0) goto L93;
+    System.err.println((v4.compared_objects.size() + " objects inspected"));
+    L93:
+    return;
+}
+
+public static Object toObject(String p0, Object[] p1, Map p2) {
+    return JSONObject$JSONParser.from_string(p0, 0).toObject(p1, p2, null, null);
+}
+
+private static void encode_to_sb(StringBuilder p0, String p1, int p2, int p3) {
+    p0.append("\"");
+    if (p2 == 0) goto L20;
+    p0.append(p1, 0, p2);
+    L20:
+    v4 = p2;
+    L23:
+    if (v4 >= p3) goto L246;
+    v5 = p1.charAt(v4);
+    switch (v5) { 8: L134, 9: L178, 10: L156, 12: L145, 13: L167, 34: L123, 47: L189, 92: L112; default: L200 }
+    L112:
+    p0.append("\\\\");
+    goto L240;
+    L123:
+    p0.append("\\\"");
+    goto L240;
+    L134:
+    p0.append("\\b");
+    goto L240;
+    L145:
+    p0.append("\\f");
+    goto L240;
+    L156:
+    p0.append("\\n");
+    goto L240;
+    L167:
+    p0.append("\\r");
+    goto L240;
+    L178:
+    p0.append("\\t");
+    goto L240;
+    L189:
+    p0.append("\\/");
+    goto L240;
+    L200:
+    if (v5 >= 32) goto L233;
+    $a1 = new Object[1];
+    $a1[0] = Integer.valueOf(v5);
+    p0.append("\\u%04x".formatted($a1));
+    goto L240;
+    L233:
+    p0.append(v5);
+    L240:
+    v4 += 1;
+    goto L23;
+    L246:
+    p0.append("\"");
+    return;
+}
+
+public static String toJSON(Object p0) {
+    return new JSONObject$JSONBuilder(p0, 1, null).get_json();
+}
+
+public static String toJSONx(Object p0) {
+    return new JSONObject$JSONBuilder(p0, 0, null).get_json();
+}
+
+public static long toJSON(OutputStream p0, Object p1) {
+    v2 = new JSONObject$JSONBuilder(p0, p1, 1, null);
+    v2.dump_object(p1, 0);
+    return v2.n_bytes;
+}
+
+public static long toJSONx(OutputStream p0, Object p1) {
+    v2 = new JSONObject$JSONBuilder(p0, p1, 0, null);
+    v2.dump_object(p1, 0);
+    return v2.n_bytes;
+}
+
+public static long toHumanReadableJSONx(OutputStream p0, Object p1) {
+    v2 = new JSONObject$JSONBuilder(p0, p1, 0, null);
+    v2.is_one_per_line = 1;
+    v2.dump_object(p1, 0);
+    return v2.n_bytes;
+}
+
+public static long toJSONx(OutputStream p0, Object p1, Map p2) {
+    v3 = new JSONObject$JSONBuilder(p0, p1, 0, p2);
+    v3.dump_object(p1, 0);
+    return v3.n_bytes;
+}
+
+public static String toJSONx(Object p0, Map p1) {
+    return new JSONObject$JSONBuilder(p0, 0, p1).get_json();
+}
+
+public static String toJSONString(String p0) {
+    if (p0 != null) goto L8;
+    return "null";
+    L8:
+    v1 = p0.length();
+    v2 = 0;
+    L15:
+    if (v2 >= v1) goto L66;
+    v3 = p0.charAt(v2);
+    if (JSONObject.needs_encoding(v3) == 0) goto L60;
+    v4 = new StringBuilder((v1 + 20));
+    JSONObject.encode_to_sb(v4, p0, v2, v1);
+    return v4.toString();
+    L60:
+    v2 += 1;
+    goto L15;
+    L66:
+    return ("\"" + p0 + "\"");
+}
+
+private static boolean needs_encoding(char p0) {
+    if (p0 < 32) goto L24;
+    if (p0 == 92) goto L24;
+    if (p0 == 34) goto L24;
+    if (p0 != 47) goto L28;
+    L24:
+    $s0 = 1;
+    goto L29;
+    L28:
+    $s0 = 0;
+    L29:
+    return $s0;
+}
+
+static void <clinit>() {
+    JSONObject.skip_verification = 0;
+    return;
+}

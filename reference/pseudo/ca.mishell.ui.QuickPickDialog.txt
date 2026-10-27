@@ -1,0 +1,498 @@
+// ===== QuickPickDialog$1 extends Object implements QuickPicker$DataHandler
+private final boolean is_reverse;
+final synthetic EnumSet val$style;
+final synthetic Map val$map;
+final synthetic QuickPickDialog this$0;
+
+ void <init>(QuickPickDialog p0, EnumSet p1, Map p2) {
+    this.val$style = p1;
+    this.val$map = p2;
+    Objects.requireNonNull(p0);
+    this.this$0 = p0;
+    super.<init>();
+    $s0 = this;
+    if (this.val$style == null) goto L49;
+    $s0 = this;
+    if (this.val$style.contains(QuickPickDialog$Style.REVERSE_ORDER) == 0) goto L49;
+    $s0 = this;
+    $s1 = 1;
+    goto L50;
+    L49:
+    $s1 = 0;
+    L50:
+    $s0.is_reverse = $s1;
+    return;
+}
+
+public void getMatches(String p0, QuickPicker$MatchesHandler p1) {
+    v3 = new TreeSet(String.CASE_INSENSITIVE_ORDER);
+    v4 = p0.toUpperCase();
+    v5 = this.val$map.keySet().iterator();
+    L33:
+    if (v5.hasNext() == 0) goto L78;
+    v6 = (String)v5.next();
+    if (v6.toUpperCase().contains(v4) == 0) goto L75;
+    v3.add(v6);
+    L75:
+    goto L33;
+    L78:
+    if (this.is_reverse == 0) goto L93;
+    v3 = (TreeSet)v3.descendingSet();
+    L93:
+    p1.handleResult(p0, 1, v3, 0, null);
+    return;
+}
+
+public String[] getStrings(String p0) {
+    $a1 = new String[1];
+    $a1[0] = p0;
+    return $a1;
+}
+
+public Image getImage(String p0) {
+    return (Image)this.val$map.get(p0);
+}
+
+public void acceptFuzzy(QuickPicker p0, String p1, Set p2) {
+    if (this.val$style == null) goto L50;
+    if (this.val$style.contains(QuickPickDialog$Style.NEEDS_TO_MATCH) == 0) goto L50;
+    if (p2.contains(p1) == 0) goto L41;
+    this.this$0.accepted(p1);
+    goto L58;
+    L41:
+    Display.getCurrent().beep();
+    goto L58;
+    L50:
+    this.this$0.accepted(p1);
+    L58:
+    return;
+}
+
+public void accept(QuickPicker p0, String p1) {
+    this.this$0.accepted(p1);
+    return;
+}
+
+public volatile/bridge synthetic void accept(QuickPicker p0, Object p1) {
+    this.accept(p0, (String)p1);
+    return;
+}
+
+public volatile/bridge synthetic String[] getStrings(Object p0) {
+    return this.getStrings((String)p0);
+}
+
+public volatile/bridge synthetic Image getImage(Object p0) {
+    return this.getImage((String)p0);
+}
+
+// ===== QuickPickDialog$BottomLeftButton extends Object 
+
+public abstract void onCreate(Button p0);
+
+public abstract Object onClick(QuickPicker p0, Text p1);
+
+// ===== QuickPickDialog$Style extends Enum 
+public static final enum QuickPickDialog$Style NO_TREE;
+public static final enum QuickPickDialog$Style NEEDS_TO_MATCH;
+public static final enum QuickPickDialog$Style MULTI_SELECTION;
+public static final enum QuickPickDialog$Style SKIP_INITIAL_SEARCH;
+public static final enum QuickPickDialog$Style DELAY_SEARCH;
+public static final enum QuickPickDialog$Style WIDE_COLUMN;
+public static final enum QuickPickDialog$Style REVERSE_ORDER;
+private static final synthetic QuickPickDialog$Style[] $VALUES;
+
+public static QuickPickDialog$Style[] values() {
+    return ([Lca.mishell.ui.QuickPickDialog$Style;)QuickPickDialog$Style.$VALUES.clone();
+}
+
+public static QuickPickDialog$Style valueOf(String p0) {
+    return (QuickPickDialog$Style)Enum.valueOf(QuickPickDialog$Style, p0);
+}
+
+private void <init>(String p0, int p1) {
+    super.<init>(p0, p1);
+    return;
+}
+
+private static synthetic QuickPickDialog$Style[] $values() {
+    $a1 = new QuickPickDialog$Style[7];
+    $a1[0] = QuickPickDialog$Style.NO_TREE;
+    $a1[1] = QuickPickDialog$Style.NEEDS_TO_MATCH;
+    $a1[2] = QuickPickDialog$Style.MULTI_SELECTION;
+    $a1[3] = QuickPickDialog$Style.SKIP_INITIAL_SEARCH;
+    $a1[4] = QuickPickDialog$Style.DELAY_SEARCH;
+    $a1[5] = QuickPickDialog$Style.WIDE_COLUMN;
+    $a1[6] = QuickPickDialog$Style.REVERSE_ORDER;
+    return $a1;
+}
+
+static void <clinit>() {
+    QuickPickDialog$Style.NO_TREE = new QuickPickDialog$Style("NO_TREE", 0);
+    QuickPickDialog$Style.NEEDS_TO_MATCH = new QuickPickDialog$Style("NEEDS_TO_MATCH", 1);
+    QuickPickDialog$Style.MULTI_SELECTION = new QuickPickDialog$Style("MULTI_SELECTION", 2);
+    QuickPickDialog$Style.SKIP_INITIAL_SEARCH = new QuickPickDialog$Style("SKIP_INITIAL_SEARCH", 3);
+    QuickPickDialog$Style.DELAY_SEARCH = new QuickPickDialog$Style("DELAY_SEARCH", 4);
+    QuickPickDialog$Style.WIDE_COLUMN = new QuickPickDialog$Style("WIDE_COLUMN", 5);
+    QuickPickDialog$Style.REVERSE_ORDER = new QuickPickDialog$Style("REVERSE_ORDER", 6);
+    QuickPickDialog$Style.$VALUES = QuickPickDialog$Style.$values();
+    return;
+}
+
+// ===== QuickPickDialog extends Object 
+private QuickPicker qp;
+private final List cols;
+private final Shell shell;
+private final EnumSet style;
+private Object rc;
+private int preferred_width;
+private int preferred_height;
+private int preferred_x;
+private int preferred_y;
+private String no_matching_items_found_text;
+public static final String DEFAULT_PROMPT = "Type to reduce the selection list";
+private String prompt_text;
+private boolean pick_completed;
+private boolean is_show_image;
+private Text text;
+
+public QuickPicker$DataHandler getStringDataHandler(Map p0, EnumSet p1) {
+    if (p1 == null) goto L63;
+    if (p1.contains(QuickPickDialog$Style.MULTI_SELECTION) == 0) goto L63;
+    System.err.println("WARNING: getStringDataHandler() can't return a Set<String>, but can handle menu actions.");
+    v3 = Thread.currentThread().getStackTrace();
+    v4 = v3.length;
+    v5 = 0;
+    L36:
+    if (v5 >= v4) goto L63;
+    v6 = v3[v5];
+    System.err.println(v6);
+    v5 += 1;
+    goto L36;
+    L63:
+    return new QuickPickDialog$1(this, p1, p0);
+}
+
+public static String pick(Shell p0, String p1, String p2, Map p3, EnumSet p4) {
+    v5 = new QuickPickDialog(p0, p1, p4);
+    return (String)v5.pick(p2, v5.getStringDataHandler(p3, p4), null, null, null);
+}
+
+public static String pick(Shell p0, String p1, String p2, Set p3, EnumSet p4, function.Consumer p5) {
+    v6 = new QuickPickDialog(p0, p1, p4);
+    v7 = new TreeMap();
+    v8 = p3.iterator();
+    L30:
+    if (v8.hasNext() == 0) goto L66;
+    v9 = (String)v8.next();
+    v7.put(v9, null);
+    goto L30;
+    L66:
+    if (p5 == null) goto L80;
+    p5.accept(v6);
+    L80:
+    return (String)v6.pick(p2, v6.getStringDataHandler(v7, p4), null, null, null);
+}
+
+public static String pick(Shell p0, String p1, String p2, Map p3, EnumSet p4, QuickPicker$MenuHandler p5, String p6, QuickPickDialog$BottomLeftButton p7) {
+    v8 = new QuickPickDialog(p0, p1, p4);
+    return (String)v8.pick(p2, v8.getStringDataHandler(p3, p4), p5, p6, p7);
+}
+
+public void addColumn(String p0, int p1, int p2) {
+    this.cols.add(new QuickPicker$Builder$ColInfo(p0, p1, p2));
+    return;
+}
+
+public void <init>(Shell p0, String p1, EnumSet p2) {
+    super.<init>();
+    this.cols = new ArrayList();
+    this.rc = null;
+    this.preferred_width = -1;
+    this.preferred_height = -1;
+    this.preferred_x = -1;
+    this.preferred_y = -1;
+    this.no_matching_items_found_text = null;
+    this.prompt_text = "Type to reduce the selection list";
+    this.pick_completed = 0;
+    this.is_show_image = 1;
+    this.style = p2;
+    if (p2 == null) goto L84;
+    if (p2.contains(QuickPickDialog$Style.NO_TREE) == 0) goto L84;
+    $s0 = 1;
+    goto L85;
+    L84:
+    $s0 = 0;
+    L85:
+    v4 = $s0;
+    $s0 = this;
+    $s1 = new Shell(?);
+    $s2 = new Shell(?);
+    $s3 = p0;
+    $s4 = 65536;
+    if (v4 == 0) goto L104;
+    $s0 = this;
+    $s1 = new Shell(?);
+    $s2 = new Shell(?);
+    $s3 = p0;
+    $s4 = 65536;
+    $s5 = 0;
+    goto L106;
+    L104:
+    $s5 = 48;
+    L106:
+    $s2.<init>($s3, ($s4 | $s5));
+    $s0.shell = $s1;
+    this.shell.setText(p1);
+    return;
+}
+
+public void setSize(int p0, int p1) {
+    this.preferred_width = p0;
+    this.preferred_height = p1;
+    return;
+}
+
+public void setLocation(int p0, int p1) {
+    this.preferred_x = p0;
+    this.preferred_y = p1;
+    return;
+}
+
+public void setNoMatchingItemsFoundMessage(String p0) {
+    this.no_matching_items_found_text = p0;
+    return;
+}
+
+public void setPromptMessage(String p0) {
+    this.prompt_text = p0;
+    return;
+}
+
+public Object pick(String p0, QuickPicker$DataHandler p1, QuickPicker$MenuHandler p2, String p3, QuickPickDialog$BottomLeftButton p4) {
+    if (this.pick_completed == 0) goto L17;
+    throw new RuntimeException("multiple calls of pick() are not allowed");
+    L17:
+    this.pick_completed = 1;
+    v6 = new layout.GridLayout();
+    $s0 = v6;
+    if (p3 == null) goto L42;
+    $s0 = v6;
+    $s1 = 2;
+    goto L43;
+    L42:
+    $s1 = 1;
+    L43:
+    $s0.numColumns = $s1;
+    v6.marginWidth = 10;
+    v6.marginHeight = 10;
+    v6.verticalSpacing = 5;
+    v6.horizontalSpacing = 5;
+    this.shell.setLayout(v6);
+    if (this.style == null) goto L104;
+    if (this.style.contains(QuickPickDialog$Style.NO_TREE) == 0) goto L104;
+    $s0 = 1;
+    goto L105;
+    L104:
+    $s0 = 0;
+    L105:
+    v7 = $s0;
+    if (this.prompt_text == null) goto L164;
+    v8 = new Label(this.shell, 0);
+    v8.setText(this.prompt_text);
+    v8.setForeground(this.shell.getDisplay().getSystemColor(16));
+    v8.setFont(MiSWT.getBiggerFont(-1, 2));
+    L164:
+    v8 = this.shell.getMonitor().getBounds();
+    if (p3 == null) goto L420;
+    v9 = new ScrolledComposite(this.shell, 512);
+    v10 = new Label(v9, 64);
+    v10.setForeground(MiSWT.getDarkerColor(this.shell.getBackground(), 0.4));
+    v10.setText(p3);
+    v10.setFont(MiSWT.changeFontSize(MiSWT.getMonospacedFont(), -1));
+    v9.setContent(v10);
+    v11 = v10.computeSize(-1, -1);
+    v12 = (int)((float)v8.width * 0.6000000238418579f);
+    if (v11.x <= v12) goto L296;
+    v11 = v10.computeSize(v12, -1);
+    L296:
+    v13 = new layout.GridData(1792);
+    v13.widthHint = Math.min(v12, ((v11.x * 105) / 100));
+    v13.heightHint = Math.min((int)((double)v8.height * 0.8), ((v11.y * 105) / 100));
+    v13.verticalSpan = 3;
+    v13.horizontalIndent = MiSWT.calcWidth(v10.getFont(), "w");
+    v13.verticalIndent = (v13.horizontalIndent / 2);
+    v13.verticalAlignment = 1;
+    v9.setLayoutData(v13);
+    v10.setSize(v11);
+    v9.setMinSize(v11);
+    L420:
+    v9 = new Composite(this.shell, 0);
+    v9.setLayoutData(new layout.GridData(768));
+    v6 = new layout.GridLayout(1, 0);
+    v6.horizontalSpacing = 0;
+    v6.verticalSpacing = 0;
+    v9.setLayout(v6);
+    this.text = new Text(v9, 2944);
+    this.text.setLayoutData(new layout.GridData(768));
+    this.text.setEditable(1);
+    if (this.style == null) goto L544;
+    if (this.style.contains(QuickPickDialog$Style.MULTI_SELECTION) == 0) goto L544;
+    $s0 = 2;
+    goto L545;
+    L544:
+    $s0 = 0;
+    L545:
+    v10 = $s0;
+    v11 = new Tree(this.shell, (67584 | v10));
+    v11.setLayoutData(new layout.GridData(1808));
+    v12 = new QuickPicker$Builder(this.text, v11).setData(p1).setMenuHandler(p2).setShowImage(this.is_show_image).setTypingHintMessage(null);
+    if (this.no_matching_items_found_text == null) goto L632;
+    v12.setMatchesNotFoundMessage(this.no_matching_items_found_text);
+    L632:
+    if (this.style == null) goto L709;
+    if (this.style.contains(QuickPickDialog$Style.DELAY_SEARCH) == 0) goto L661;
+    v12.setFilterDelay(333);
+    L661:
+    if (this.cols.isEmpty() == 0) goto L709;
+    if (this.style.contains(QuickPickDialog$Style.WIDE_COLUMN) == 0) goto L709;
+    v12.addColumn(null, 16384, (MiSWT.calcWidth(v11.getFont(), QuickPicker.$SAMPLE_COLUMN_STRING) * 2));
+    L709:
+    v13 = this.cols.iterator();
+    L720:
+    if (v13.hasNext() == 0) goto L766;
+    v14 = (QuickPicker$Builder$ColInfo)v13.next();
+    v12.addColumn(v14.header(), v14.style(), v14.width());
+    goto L720;
+    L766:
+    this.qp = v12.build();
+    if (v7 != 0) goto L977;
+    v13 = new Composite(this.shell, 0);
+    v14 = new layout.GridData();
+    v14.horizontalSpan = 2;
+    v14.horizontalAlignment = 4;
+    v14.grabExcessHorizontalSpace = 1;
+    v13.setLayoutData(v14);
+    $s0 = new RuntimeException(?)7;
+    $s1 = new RuntimeException(?)7;
+    if (p4 == null) goto L841;
+    $s0 = new RuntimeException(?)7;
+    $s1 = new RuntimeException(?)7;
+    $s2 = 2;
+    goto L842;
+    L841:
+    $s2 = 1;
+    L842:
+    $s1.<init>($s2, 0);
+    v15 = $s0;
+    v15.marginWidth = 0;
+    v15.marginRight = 0;
+    v13.setLayout(v15);
+    if (p4 == null) goto L926;
+    v15 = new Button(v13, 16777224);
+    v15.setLayoutData(new layout.GridData(544));
+    v15.addSelectionListener(SelectionListener.widgetSelectedAdapter(lambda[QuickPickDialog::lambda$pick$0](this, p4)));
+    p4.onCreate(v15);
+    L926:
+    v15 = new Button(v13, 16777224);
+    v15.setLayoutData(new layout.GridData(640));
+    v15.setText("Cancel");
+    v15.addSelectionListener(SelectionListener.widgetSelectedAdapter(lambda[QuickPickDialog::lambda$pick$1](this)));
+    L977:
+    if (v7 == 0) goto L987;
+    v11.dispose();
+    L987:
+    v13 = this.shell.computeSize(this.preferred_width, this.preferred_height);
+    if (v13.y >= 480) goto L1036;
+    if (this.preferred_height != -1) goto L1036;
+    if (v7 != 0) goto L1036;
+    v13.y = 480;
+    L1036:
+    if (this.preferred_x == -1) goto L1070;
+    if (this.preferred_y == -1) goto L1070;
+    this.shell.setLocation(this.preferred_x, this.preferred_y);
+    goto L1140;
+    L1070:
+    v13.x = Math.min((int)((double)v8.width * 0.95), v13.x);
+    v13.y = Math.min((int)((double)v8.height * 0.95), v13.y);
+    this.shell.setLocation(MiSWT.centerLoc(this.shell.getParent().getShell(), v13));
+    L1140:
+    this.shell.setSize(v13);
+    this.shell.setVisible(1);
+    this.shell.setFocus();
+    this.text.setFocus();
+    if (this.style == null) goto L1221;
+    if (this.style.contains(QuickPickDialog$Style.SKIP_INITIAL_SEARCH) == 0) goto L1221;
+    this.qp.setText(p0);
+    this.text.selectAll();
+    this.qp.updateTree("");
+    goto L1257;
+    L1221:
+    this.text.setText(p0);
+    if (p0.length() == this.text.getSelection().x) goto L1257;
+    this.text.setSelection(p0.length());
+    L1257:
+    if (this.shell.isDisposed() != 0) goto L1294;
+    if (this.shell.getDisplay().readAndDispatch() != 0) goto L1257;
+    this.shell.getDisplay().sleep();
+    goto L1257;
+    L1294:
+    return this.rc;
+}
+
+private void do_shell_dispose() {
+    this.shell.getDisplay().asyncExec(lambda[QuickPickDialog::lambda$do_shell_dispose$0](this));
+    return;
+}
+
+public void accepted(Object p0) {
+    this.rc = p0;
+    this.do_shell_dispose();
+    return;
+}
+
+public void cancel() {
+    this.accepted(null);
+    return;
+}
+
+public Shell getShell() {
+    return this.shell;
+}
+
+public void setShowImage(boolean p0) {
+    this.is_show_image = p0;
+    return;
+}
+
+public String getFilter() {
+    if (this.qp == null) goto L15;
+    return this.qp.getFilter();
+    L15:
+    return null;
+}
+
+private synthetic void lambda$do_shell_dispose$0() {
+    if (this.shell.isDisposed() != 0) goto L17;
+    this.shell.dispose();
+    L17:
+    return;
+}
+
+private synthetic void lambda$pick$1(SelectionEvent p0) {
+    this.do_shell_dispose();
+    return;
+}
+
+private synthetic void lambda$pick$0(QuickPickDialog$BottomLeftButton p0, SelectionEvent p1) {
+    v3 = this.text.getText();
+    this.rc = p0.onClick(this.qp, this.text);
+    if (this.rc == null) goto L40;
+    this.do_shell_dispose();
+    goto L68;
+    L40:
+    if (v3.equals(this.text.getText()) != 0) goto L68;
+    this.qp.updateTree(this.text.getText());
+    L68:
+    return;
+}

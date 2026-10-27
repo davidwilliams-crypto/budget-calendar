@@ -1,0 +1,246 @@
+// ===== HunspellSpeller extends Object implements StyledTextSpelling$Speller
+private static String hunspellCommand;
+private static String language;
+private static String personal_dictionary;
+private static boolean is_debug;
+private static String spellerInfo;
+static HunspellSpeller speller;
+private BufferedWriter hun_out;
+private BufferedReader hun_in;
+private Process hun_process;
+
+public static synchronized void setLanguage(String p0) {
+    HunspellSpeller.language = p0;
+    return;
+}
+
+public static void setDebug(boolean p0) {
+    HunspellSpeller.is_debug = p0;
+    return;
+}
+
+private static transient/varargs void DLOG(String p0, Object[] p1) {
+    if (HunspellSpeller.is_debug == 0) goto L29;
+    System.err.print("HunspellSpeller: ");
+    System.err.printf(p0, p1);
+    System.err.println();
+    L29:
+    return;
+}
+
+public static String getSpellerInfo() {
+    return HunspellSpeller.spellerInfo;
+}
+
+public static synchronized void setHunspellCommand(String p0) {
+    if (p0 != null) goto L101;
+    if (System.getProperty("os.name", "").contains("Windows") == 0) goto L105;
+    $a1 = new String[3];
+    $a1[0] = "c:/msys64/mingw64/bin/hunspell.exe";
+    $a1[1] = "c:/msys64/ucrt64/bin/hunspell.exe";
+    $a1[2] = "c:/msys64/mingw32/bin/hunspell.exe";
+    v1 = $a1;
+    v2 = v1.length;
+    v3 = 0;
+    L44:
+    if (v3 >= v2) goto L83;
+    v4 = v1[v3];
+    if (new File(v4).exists() == 0) goto L77;
+    HunspellSpeller.hunspellCommand = v4;
+    goto L83;
+    L77:
+    v3 += 1;
+    goto L44;
+    L83:
+    $a3 = new Object[1];
+    $a3[0] = HunspellSpeller.hunspellCommand;
+    HunspellSpeller.DLOG("auto detected: '%s'", $a3);
+    goto L105;
+    L101:
+    HunspellSpeller.hunspellCommand = p0;
+    L105:
+    return;
+}
+
+public static String getHunspellCommand() {
+    return HunspellSpeller.hunspellCommand;
+}
+
+public static void setPersonalDictionary(String p0) {
+    HunspellSpeller.personal_dictionary = p0;
+    return;
+}
+
+public static synchronized StyledTextSpelling$Speller getInstance() {
+    if (HunspellSpeller.speller == null) goto L10;
+    return HunspellSpeller.speller;
+    L10:
+    HunspellSpeller.speller = new HunspellSpeller();
+    goto L31;
+    // handler for [10,20) catch Exception
+    L23:
+    v0 = $ex;
+    v0.printStackTrace(System.err);
+    L31:
+    return HunspellSpeller.speller;
+}
+
+private void <init>() {
+    super.<init>();
+    return;
+}
+
+public void dispose() {
+    this.hun_process.destroy();
+    this.hun_in.close();
+    goto L18;
+    // handler for [7,14) catch IOException
+    L17:
+    v1 = $ex;
+    L18:
+    this.hun_out.close();
+    goto L29;
+    // handler for [18,25) catch IOException
+    L28:
+    v1 = $ex;
+    L29:
+    this.hun_process = null;
+    this.hun_in = null;
+    this.hun_out = null;
+    HunspellSpeller.speller = null;
+    return;
+}
+
+public void initialize() {
+    if (HunspellSpeller.personal_dictionary == null) goto L20;
+    v1 = new File(HunspellSpeller.personal_dictionary);
+    goto L35;
+    L20:
+    v1 = new File(System.getProperty("user.home"), "userdict");
+    L35:
+    if (v1.exists() != 0) goto L66;
+    v2 = v1.createNewFile();
+    if (v2 != 0) goto L66;
+    System.err.println(("failed to create " + v1.getAbsolutePath()));
+    L66:
+    $a3 = new String[6];
+    $a3[0] = HunspellSpeller.hunspellCommand;
+    $a3[1] = "-a";
+    $a3[2] = "-d";
+    $a3[3] = HunspellSpeller.language;
+    $a3[4] = "-p";
+    $a3[5] = v1.getAbsolutePath();
+    v2 = $a3;
+    v3 = Runtime.getRuntime();
+    this.hun_process = v3.exec(v2);
+    this.hun_out = new BufferedWriter(new OutputStreamWriter(this.hun_process.getOutputStream()));
+    this.hun_in = new BufferedReader(new InputStreamReader(this.hun_process.getInputStream()));
+    goto L185;
+    // handler for [110,169) catch Exception
+    L172:
+    v4 = $ex;
+    HunspellSpeller.spellerInfo = v4.getMessage();
+    throw v4;
+    L185:
+    v4 = new BufferedReader(new InputStreamReader(this.hun_process.getErrorStream()));
+    v5 = this.hun_in.readLine();
+    if (v5 != null) goto L258;
+    v5 = v4.readLine();
+    if (v5 != null) goto L238;
+    v5 = "failed to run hunspell";
+    L238:
+    HunspellSpeller.spellerInfo = ("Hunspeller Failed: " + v5);
+    throw new Exception(v5);
+    L258:
+    if (v5.contains("Ispell") != 0) goto L292;
+    if (v5.startsWith("@(#)") != 0) goto L292;
+    HunspellSpeller.spellerInfo = "Hunspeller: no valid speller identification received";
+    throw new Exception("Hunspeller: no valid speller identification received");
+    L292:
+    $a12 = new Object[2];
+    $a12[0] = HunspellSpeller.language;
+    $a12[1] = HunspellSpeller.hunspellCommand;
+    HunspellSpeller.spellerInfo = "%s: provided by %s".formatted($a12);
+    return;
+}
+
+public Set getSuggestions(String p0) {
+    v2 = null;
+    this.hun_out.write((p0 + "\n"));
+    this.hun_out.flush();
+    $a1 = new Object[0];
+    HunspellSpeller.DLOG(("wrote: " + p0), $a1);
+    L35:
+    $t2 = this.hun_in.readLine();
+    v3 = $t2;
+    if ($t2 == null) goto L275;
+    if (v3.isEmpty() == 0) goto L57;
+    goto L275;
+    L57:
+    switch (v3.charAt(0)) { 35: L99, 38: L127, 42: L96; default: L259 }
+    L96:
+    goto L259;
+    L99:
+    if (v3.contains(p0) != 0) goto L120;
+    System.err.println(("word '" + p0 + "' not found in response line '" + v3 + "'"));
+    L120:
+    v2 = Collections.emptySet();
+    goto L259;
+    L127:
+    v4 = v3.indexOf(32, 2);
+    v5 = v3.substring(2, v4).toLowerCase();
+    if (p0.toLowerCase().contains(v5) != 0) goto L173;
+    System.err.println(("word '" + p0 + "' not found in response line '" + v3 + "'"));
+    L173:
+    v6 = v3.indexOf(": ");
+    if (v6 == -1) goto L259;
+    v2 = new LinkedHashSet();
+    v6 += 2;
+    L198:
+    $t4 = v3.indexOf(", ", v6);
+    v7 = $t4;
+    if (-1 == $t4) goto L237;
+    v2.add(v3.substring(v6, v7));
+    v6 = (v7 + 2);
+    goto L198;
+    L237:
+    if (v6 == v3.length()) goto L259;
+    v2.add(v3.substring(v6));
+    L259:
+    $a5 = new Object[0];
+    HunspellSpeller.DLOG(("received: " + v3), $a5);
+    goto L35;
+    L275:
+    goto L286;
+    // handler for [2,275) catch IOException
+    L278:
+    v3 = $ex;
+    v3.printStackTrace(System.err);
+    L286:
+    return v2;
+}
+
+public void addWord(String p0) {
+    v2 = ("*" + p0 + "\n#\n");
+    this.hun_out.write(v2);
+    this.hun_out.flush();
+    $a1 = new Object[0];
+    HunspellSpeller.DLOG(("wrote: [" + v2 + "]"), $a1);
+    goto L46;
+    // handler for [0,35) catch IOException
+    L38:
+    v2 = $ex;
+    v2.printStackTrace(System.err);
+    L46:
+    return;
+}
+
+static void <clinit>() {
+    HunspellSpeller.hunspellCommand = "hunspell";
+    HunspellSpeller.language = "en_US";
+    HunspellSpeller.personal_dictionary = null;
+    HunspellSpeller.is_debug = 0;
+    HunspellSpeller.spellerInfo = "Hunspeller is NOT initialized";
+    HunspellSpeller.speller = null;
+    return;
+}

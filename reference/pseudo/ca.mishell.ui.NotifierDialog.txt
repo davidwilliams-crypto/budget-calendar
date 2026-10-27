@@ -1,0 +1,252 @@
+// ===== NotifierDialog$1 extends Object implements Listener
+final synthetic Shell val$_shell;
+
+ void <init>(Shell p0) {
+    this.val$_shell = p0;
+    super.<init>();
+    return;
+}
+
+public void handleEvent(Event p0) {
+    NotifierDialog._activeShells.remove(this.val$_shell);
+    return;
+}
+
+// ===== NotifierDialog$2 extends Object implements Listener
+final synthetic Shell val$_shell;
+
+ void <init>(Shell p0) {
+    this.val$_shell = p0;
+    super.<init>();
+    return;
+}
+
+public void handleEvent(Event p0) {
+    v2 = this.val$_shell.getClientArea();
+    v3 = new Image(Display.getDefault(), Math.max(1, v2.width), v2.height);
+    v4 = new GC(v3);
+    v4.setForeground(NotifierDialog._bgFgGradient);
+    v4.setBackground(NotifierDialog._bgBgGradient);
+    v4.fillGradientRectangle(v2.x, v2.y, v2.width, v2.height, 1);
+    v4.setLineWidth(2);
+    v4.setForeground(NotifierDialog._borderColor);
+    v4.drawRectangle((v2.x + 1), (v2.y + 1), (v2.width - 2), (v2.height - 2));
+    v4.dispose();
+    this.val$_shell.setBackgroundImage(v3);
+    if (NotifierDialog._oldImage == null) goto L147;
+    NotifierDialog._oldImage.dispose();
+    L147:
+    NotifierDialog._oldImage = v3;
+    goto L162;
+    // handler for [0,151) catch Exception
+    L154:
+    v2 = $ex;
+    v2.printStackTrace(System.err);
+    L162:
+    return;
+}
+
+// ===== NotifierDialog$3 extends Object implements Runnable
+final synthetic Shell val$_shell;
+
+ void <init>(Shell p0) {
+    this.val$_shell = p0;
+    super.<init>();
+    return;
+}
+
+public void run() {
+    if (this.val$_shell == null) goto L17;
+    if (this.val$_shell.isDisposed() == 0) goto L18;
+    L17:
+    return;
+    L18:
+    v1 = this.val$_shell.getAlpha();
+    v1 += 50;
+    if (v1 <= 225) goto L54;
+    this.val$_shell.setAlpha(225);
+    NotifierDialog.startTimer(this.val$_shell);
+    return;
+    L54:
+    this.val$_shell.setAlpha(v1);
+    Display.getDefault().timerExec(50, this);
+    goto L79;
+    // handler for [0,17) catch Exception
+    // handler for [18,53) catch Exception
+    // handler for [54,71) catch Exception
+    L74:
+    v1 = $ex;
+    v1.printStackTrace();
+    L79:
+    return;
+}
+
+// ===== NotifierDialog$4 extends Object implements Runnable
+final synthetic Shell val$_shell;
+
+ void <init>(Shell p0) {
+    this.val$_shell = p0;
+    super.<init>();
+    return;
+}
+
+public void run() {
+    if (this.val$_shell == null) goto L17;
+    if (this.val$_shell.isDisposed() == 0) goto L18;
+    L17:
+    return;
+    L18:
+    NotifierDialog.fadeOut(this.val$_shell);
+    goto L33;
+    // handler for [0,17) catch Exception
+    // handler for [18,25) catch Exception
+    L28:
+    v1 = $ex;
+    v1.printStackTrace();
+    L33:
+    return;
+}
+
+// ===== NotifierDialog$5 extends Object implements Runnable
+final synthetic Shell val$_shell;
+
+ void <init>(Shell p0) {
+    this.val$_shell = p0;
+    super.<init>();
+    return;
+}
+
+public void run() {
+    if (this.val$_shell == null) goto L17;
+    if (this.val$_shell.isDisposed() == 0) goto L18;
+    L17:
+    return;
+    L18:
+    v1 = this.val$_shell.getAlpha();
+    v1 += -20;
+    if (v1 > 0) goto L74;
+    this.val$_shell.setAlpha(0);
+    if (NotifierDialog._oldImage == null) goto L53;
+    NotifierDialog._oldImage.dispose();
+    L53:
+    this.val$_shell.dispose();
+    NotifierDialog._activeShells.remove(this.val$_shell);
+    return;
+    L74:
+    this.val$_shell.setAlpha(v1);
+    Display.getDefault().timerExec(50, this);
+    goto L102;
+    // handler for [0,17) catch Exception
+    // handler for [18,73) catch Exception
+    // handler for [74,91) catch Exception
+    L94:
+    v1 = $ex;
+    v1.printStackTrace(System.err);
+    L102:
+    return;
+}
+
+// ===== NotifierDialog extends Object 
+private static final int DISPLAY_TIME = 1500;
+private static final int FADE_TIMER = 50;
+private static final int FADE_IN_STEP = 50;
+private static final int FADE_OUT_STEP = 20;
+private static final int FINAL_ALPHA = 225;
+private static Color _titleFgColor;
+private static Color _fgColor;
+private static Color _bgFgGradient;
+private static Color _bgBgGradient;
+private static Color _borderColor;
+private static List _activeShells;
+private static Image _oldImage;
+private static Shell parent;
+
+public void <init>() {
+    super.<init>();
+    return;
+}
+
+public static void notify(Rectangle p0, String p1) {
+    v2 = new Shell(NotifierDialog.parent, 540684);
+    v2.setLayout(new layout.FillLayout());
+    v2.setForeground(NotifierDialog._fgColor);
+    v2.setBackgroundMode(1);
+    v2.addListener(12, new NotifierDialog$1(v2));
+    v3 = new Composite(v2, 0);
+    v4 = new layout.GridLayout(1, 0);
+    v4.marginLeft = 5;
+    v4.marginTop = 5;
+    v4.marginRight = 5;
+    v4.marginBottom = 5;
+    v3.setLayout(v4);
+    v2.addListener(11, new NotifierDialog$2(v2));
+    v5 = new CLabel(v3, 64);
+    v6 = v5.getFont();
+    v7 = v6.getFontData()[0];
+    v7.setStyle(1);
+    v5.setFont(new Font(Display.getCurrent(), v7));
+    v5.setLayoutData(new layout.GridData(16777216, 16777216, 0, 0));
+    v5.setForeground(NotifierDialog._fgColor);
+    v5.setText(p1);
+    v2.pack();
+    v9 = 0;
+    v10 = 0;
+    if (p0 == null) goto L218;
+    v8 = p0;
+    goto L229;
+    L218:
+    v8 = Display.getCurrent().getPrimaryMonitor().getClientArea();
+    L229:
+    v9 = (v8.x + ((v8.width - v2.getSize().x) / 2));
+    v10 = (v8.y + ((v8.height - v2.getSize().y) / 2));
+    if (NotifierDialog._activeShells.isEmpty() != 0) goto L389;
+    v11 = new ArrayList(NotifierDialog._activeShells);
+    Collections.reverse(v11);
+    v12 = v11.iterator();
+    L312:
+    if (v12.hasNext() == 0) goto L389;
+    v13 = (Shell)v12.next();
+    v14 = v13.getLocation();
+    v13.setLocation(v14.x, (v14.y - 80));
+    if ((v14.y - 80) >= 0) goto L386;
+    NotifierDialog._activeShells.remove(v13);
+    v13.dispose();
+    L386:
+    goto L312;
+    L389:
+    v2.setLocation(v9, v10);
+    v2.setAlpha(0);
+    v2.setVisible(1);
+    NotifierDialog._activeShells.add(v2);
+    NotifierDialog.fadeIn(v2);
+    return;
+}
+
+private static void fadeIn(Shell p0) {
+    v1 = new NotifierDialog$3(p0);
+    Display.getDefault().timerExec(50, v1);
+    return;
+}
+
+private static void startTimer(Shell p0) {
+    v1 = new NotifierDialog$4(p0);
+    Display.getDefault().timerExec(1500, v1);
+    return;
+}
+
+private static void fadeOut(Shell p0) {
+    v1 = new NotifierDialog$5(p0);
+    Display.getDefault().timerExec(50, v1);
+    return;
+}
+
+static void <clinit>() {
+    NotifierDialog._titleFgColor = new Color(Display.getCurrent(), 40, 73, 97);
+    NotifierDialog._fgColor = new Color(Display.getCurrent(), 0, 0, 0);
+    NotifierDialog._bgFgGradient = new Color(Display.getCurrent(), 247, 220, 111);
+    NotifierDialog._bgBgGradient = NotifierDialog._bgFgGradient;
+    NotifierDialog._borderColor = new Color(Display.getCurrent(), 178, 144, 127);
+    NotifierDialog._activeShells = new ArrayList();
+    NotifierDialog.parent = new Shell(Display.getCurrent(), 8);
+    return;
+}

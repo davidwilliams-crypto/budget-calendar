@@ -1,0 +1,19 @@
+// ===== Transaction extends Object 
+ Payment pmt;
+ double amount;
+ double balance;
+ char suffix;
+
+public void <init>() {
+    super.<init>();
+    return;
+}
+
+public String toString() {
+    $a1 = new Object[4];
+    $a1[0] = Double.valueOf(this.amount);
+    $a1[1] = Double.valueOf(this.balance);
+    $a1[2] = Character.valueOf(this.suffix);
+    $a1[3] = this.pmt.toString();
+    return String.format("amount=%.2f, balance=%.2f, suffix=%c pmt=%s", $a1);
+}

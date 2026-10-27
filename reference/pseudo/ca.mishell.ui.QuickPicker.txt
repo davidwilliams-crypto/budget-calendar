@@ -1,0 +1,793 @@
+// ===== QuickPicker$1 extends SelectionAdapter 
+final synthetic QuickPicker this$0;
+
+ void <init>(QuickPicker p0) {
+    Objects.requireNonNull(p0);
+    this.this$0 = p0;
+    super.<init>();
+    return;
+}
+
+public void widgetDefaultSelected(SelectionEvent p0) {
+    this.this$0.accept_tree_selection();
+    return;
+}
+
+public void widgetSelected(SelectionEvent p0) {
+    this.this$0.text.setFocus();
+    return;
+}
+
+// ===== QuickPicker$2 extends KeyAdapter 
+final synthetic QuickPicker this$0;
+
+ void <init>(QuickPicker p0) {
+    Objects.requireNonNull(p0);
+    this.this$0 = p0;
+    super.<init>();
+    return;
+}
+
+public void keyPressed(KeyEvent p0) {
+    if (262144 != (p0.stateMask & 262144)) goto L81;
+    if (p0.keyCode != 97) goto L81;
+    v2 = this.this$0.tree.getItems();
+    v3 = v2.length;
+    v4 = 0;
+    L38:
+    if (v4 >= v3) goto L76;
+    v5 = v2[v4];
+    if (v5.getData() == null) goto L70;
+    this.this$0.tree.select(v5);
+    L70:
+    v4 += 1;
+    goto L38;
+    L76:
+    p0.doit = 0;
+    L81:
+    return;
+}
+
+// ===== QuickPicker$3 extends KeyAdapter 
+final synthetic boolean val$is_multi_selection;
+final synthetic QuickPicker val$$this;
+final synthetic QuickPicker this$0;
+
+ void <init>(QuickPicker p0, boolean p1, QuickPicker p2) {
+    this.val$is_multi_selection = p1;
+    this.val$$this = p2;
+    Objects.requireNonNull(p0);
+    this.this$0 = p0;
+    super.<init>();
+    return;
+}
+
+public void keyPressed(KeyEvent p0) {
+    this.this$0.key_time = p0.time;
+    if ((p0.stateMask & SWT.MODIFIER_MASK) != 0) goto L26;
+    $s0 = 1;
+    goto L27;
+    L26:
+    $s0 = 0;
+    L27:
+    v2 = $s0;
+    if (v2 == 0) goto L599;
+    if (p0.keyCode == 16777217) goto L68;
+    if (p0.keyCode == 16777218) goto L68;
+    if (p0.keyCode == 16777222) goto L68;
+    if (p0.keyCode != 16777221) goto L324;
+    L68:
+    p0.doit = 0;
+    if (this.this$0.n_matches != 0) goto L84;
+    return;
+    L84:
+    if (this.this$0.tree.isDisposed() == 0) goto L98;
+    return;
+    L98:
+    if (this.this$0.tree.getSelectionCount() != 0) goto L129;
+    this.this$0.tree.select(this.this$0.top_item);
+    return;
+    L129:
+    v3 = this.this$0.tree.getSelection()[0];
+    switch (p0.keyCode) { 16777217: L196, 16777218: L200, 16777219: L239, 16777220: L239, 16777221: L204, 16777222: L222; default: L239 }
+    L196:
+    $s0 = -1;
+    goto L240;
+    L200:
+    $s0 = 1;
+    goto L240;
+    L204:
+    $s0 = (-this.this$0.get_num_lines(this.this$0.tree));
+    goto L240;
+    L222:
+    $s0 = this.this$0.get_num_lines(this.this$0.tree);
+    goto L240;
+    L239:
+    $s0 = 0;
+    L240:
+    v4 = (<?stack-underflow?> + $s0);
+    if (this.val$is_multi_selection == 0) goto L261;
+    this.this$0.tree.deselect(v3);
+    L261:
+    v4 = Math.max(this.this$0.top_item_index, Math.min(((this.this$0.top_item_index + this.this$0.n_matches) - 1), v4));
+    v5 = this.this$0.tree.getItem(v4);
+    this.this$0.tree.select(v5);
+    goto L599;
+    L324:
+    if (p0.keyCode != 13) goto L463;
+    p0.doit = 0;
+    if (this.this$0.requested_filters.isEmpty() == 0) goto L361;
+    if (this.this$0.delay_count <= 0) goto L372;
+    L361:
+    if (this.this$0.wait_request_completion() != 0) goto L372;
+    return;
+    L372:
+    if (this.this$0.last_matches_set != null) goto L393;
+    this.this$0.display.beep();
+    return;
+    L393:
+    if (this.this$0.tree.isDisposed() != 0) goto L427;
+    if (this.this$0.tree.getSelectionCount() <= 0) goto L427;
+    this.this$0.accept_tree_selection();
+    return;
+    L427:
+    this.this$0.data.acceptFuzzy(this.val$$this, this.this$0.text.getText(), this.this$0.last_matches_set);
+    goto L599;
+    L463:
+    if (p0.keyCode != 127) goto L599;
+    if (this.this$0.text.getSelectionCount() == 0) goto L599;
+    p0.doit = 0;
+    this.this$0.text.removeModifyListener(this.this$0.text_ml);
+    v3 = this.this$0.text.getSelection();
+    v4 = this.this$0.text.getText();
+    this.this$0.text.setText((v4.substring(0, v3.x) + v4.substring(v3.y)));
+    this.this$0.text.addModifyListener(this.this$0.text_ml);
+    this.this$0.text.setSelection(v3.x, v3.x);
+    L599:
+    return;
+}
+
+// ===== QuickPicker$4 extends Object implements ModifyListener
+private long last_event_time;
+final synthetic QuickPicker this$0;
+
+ void <init>(QuickPicker p0) {
+    Objects.requireNonNull(p0);
+    this.this$0 = p0;
+    super.<init>();
+    this.last_event_time = 0L;
+    return;
+}
+
+public void modifyText(ModifyEvent p0) {
+    if (this.this$0.text.isFocusControl() == 0) goto L110;
+    if ((long)p0.time == this.last_event_time) goto L110;
+    if (this.this$0.filter_delay_msec == 0) goto L50;
+    if (this.this$0.key_time == p0.time) goto L71;
+    L50:
+    this.this$0.request_matches(this.this$0.text.getText(), 1);
+    goto L110;
+    L71:
+    this.this$0.delay_count = (this.this$0.delay_count + 1);
+    this.this$0.text.getDisplay().timerExec(this.this$0.filter_delay_msec, lambda[QuickPicker$4::lambda$modifyText$0](this));
+    L110:
+    this.last_event_time = (long)p0.time;
+    return;
+}
+
+private synthetic void lambda$modifyText$0() {
+    this.this$0.delay_count = (this.this$0.delay_count - 1);
+    if (this.this$0.text.isDisposed() == 0) goto L27;
+    return;
+    L27:
+    if (this.this$0.delay_count >= 0) goto L47;
+    throw new RuntimeException("count is below zero!");
+    L47:
+    if (this.this$0.delay_count != 0) goto L75;
+    this.this$0.request_matches(this.this$0.text.getText(), 1);
+    L75:
+    return;
+}
+
+// ===== QuickPicker$Builder$ColInfo extends Record 
+private final String header;
+private final int style;
+private final int width;
+
+ void <init>(String p0, int p1, int p2) {
+    super.<init>();
+    this.header = p0;
+    this.style = p1;
+    this.width = p2;
+    return;
+}
+
+public final String toString() {
+    return indy toString(this);
+}
+
+public final int hashCode() {
+    return indy hashCode(this);
+}
+
+public final boolean equals(Object p0) {
+    return indy equals(this, p0);
+}
+
+public String header() {
+    return this.header;
+}
+
+public int style() {
+    return this.style;
+}
+
+public int width() {
+    return this.width;
+}
+
+// ===== QuickPicker$Builder extends Object 
+private final List cols;
+private final Text text;
+private final Tree tree;
+private QuickPicker$DataHandler data;
+private QuickPicker$MenuHandler menuHandler;
+private boolean is_show_image;
+private String msg_matches_not_found;
+private String msg_typing_hint;
+private String msg_too_many_items;
+private String msg_matching_error;
+private int filter_delay_msec;
+
+public void <init>(Text p0, Tree p1) {
+    super.<init>();
+    this.cols = new LinkedList();
+    this.is_show_image = 1;
+    this.msg_matches_not_found = "<no matching items found>";
+    this.msg_typing_hint = "<type to match items>";
+    this.msg_too_many_items = "<too many items, showing only some>";
+    this.msg_matching_error = "<matching error occurred>";
+    this.filter_delay_msec = 0;
+    this.text = p0;
+    this.tree = p1;
+    return;
+}
+
+public QuickPicker$Builder setData(QuickPicker$DataHandler p0) {
+    this.data = p0;
+    return this;
+}
+
+public QuickPicker$Builder setFilterDelay(int p0) {
+    if (p0 >= 0) goto L14;
+    throw new RuntimeException("Filter delay is negative");
+    L14:
+    this.filter_delay_msec = p0;
+    return this;
+}
+
+public QuickPicker$Builder setMenuHandler(QuickPicker$MenuHandler p0) {
+    this.menuHandler = p0;
+    return this;
+}
+
+public QuickPicker$Builder setMatchesNotFoundMessage(String p0) {
+    this.msg_matches_not_found = p0;
+    return this;
+}
+
+public QuickPicker$Builder setTypingHintMessage(String p0) {
+    this.msg_typing_hint = p0;
+    return this;
+}
+
+public QuickPicker$Builder setTooManyItemsMessage(String p0) {
+    this.msg_too_many_items = p0;
+    return this;
+}
+
+public QuickPicker$Builder setMatchingErrorMessage(String p0) {
+    this.msg_matching_error = p0;
+    return this;
+}
+
+public QuickPicker$Builder addColumn(String p0, int p1, int p2) {
+    this.cols.add(new QuickPicker$Builder$ColInfo(p0, p1, p2));
+    return this;
+}
+
+public QuickPicker$Builder setShowImage(boolean p0) {
+    this.is_show_image = p0;
+    return this;
+}
+
+public QuickPicker build() {
+    return new QuickPicker(this);
+}
+
+// ===== QuickPicker$DataHandler extends Object 
+
+public abstract void getMatches(String p0, QuickPicker$MatchesHandler p1);
+
+public Image getImage(Object p0) {
+    return null;
+}
+
+public abstract String[] getStrings(Object p0);
+
+public void acceptFuzzy(QuickPicker p0, String p1, Set p2) {
+    Display.getCurrent().beep();
+    return;
+}
+
+public abstract void accept(QuickPicker p0, Object p1);
+
+public void accept(QuickPicker p0, Set p1) {
+    System.err.println(("WARNING: Multiple-Selection is enabled, but accept(Set<T> set) is not provided by " + this.getClass().getName()));
+    Display.getCurrent().beep();
+    return;
+}
+
+// ===== QuickPicker$MatchesHandler extends Object 
+
+public abstract void handleResult(String p0, boolean p1, Set p2, boolean p3, String p4);
+
+// ===== QuickPicker$MenuHandler extends Object 
+
+public abstract void handleMenu(QuickPicker p0, Set p1);
+
+// ===== QuickPicker extends Object 
+static final String $SAMPLE_COLUMN_STRING;
+private String lastVal;
+private final ModifyListener text_ml;
+private final KeyAdapter text_kl;
+private KeyAdapter tree_kl;
+private final SelectionAdapter click_sa;
+private final int filter_delay_msec;
+private final QuickPicker$MenuHandler menuHandler;
+private final QuickPicker$DataHandler data;
+private final Display display;
+private final Tree tree;
+private final Text text;
+private final String msg_typing_hint;
+private final String msg_no_matches_found;
+private final String msg_too_many_items;
+private final String msg_matching_error_msg;
+private int key_time;
+private final Color default_color;
+private int delay_count;
+private String last_requested_filter;
+private final LinkedList requested_filters;
+private int n_matches;
+private TreeItem top_item;
+private int top_item_index;
+private Set last_matches_set;
+
+private void <init>(QuickPicker$Builder p0) {
+    super.<init>();
+    this.lastVal = null;
+    this.key_time = -1;
+    this.delay_count = 0;
+    this.last_requested_filter = null;
+    this.requested_filters = new LinkedList();
+    this.n_matches = 0;
+    this.last_matches_set = null;
+    v2 = this;
+    this.tree = p0.tree;
+    this.display = this.tree.getDisplay();
+    this.text = p0.text;
+    this.default_color = this.text.getForeground();
+    this.msg_typing_hint = p0.msg_typing_hint;
+    this.filter_delay_msec = p0.filter_delay_msec;
+    this.msg_no_matches_found = p0.msg_matches_not_found;
+    this.menuHandler = p0.menuHandler;
+    this.data = p0.data;
+    this.msg_too_many_items = p0.msg_too_many_items;
+    this.msg_matching_error_msg = p0.msg_matching_error;
+    v3 = new TreeColumn(this.tree, 16384);
+    v3.setWidth(1);
+    v3 = new TreeColumn(this.tree, 16384);
+    $s0 = v3;
+    if (p0.is_show_image == 0) goto L199;
+    $s0 = v3;
+    $s1 = MiSWT.calcWidth(this.tree.getFont(), "WW");
+    goto L200;
+    L199:
+    $s1 = 0;
+    L200:
+    $s0.setWidth($s1);
+    if (p0.cols.isEmpty() == 0) goto L252;
+    v4 = new TreeColumn(this.tree, 16384);
+    v4.setWidth(MiSWT.calcWidth(this.tree.getFont(), QuickPicker.$SAMPLE_COLUMN_STRING));
+    goto L416;
+    L252:
+    v4 = 0;
+    v5 = p0.cols.iterator();
+    L266:
+    if (v5.hasNext() == 0) goto L340;
+    v6 = (QuickPicker$Builder$ColInfo)v5.next();
+    v7 = new TreeColumn(this.tree, v6.style);
+    v7.setWidth(v6.width);
+    if (v6.header == null) goto L337;
+    v4 = 1;
+    v7.setText(v6.header);
+    L337:
+    goto L266;
+    L340:
+    if (v4 == 0) goto L416;
+    this.tree.setHeaderVisible(1);
+    v5 = this.tree.getShell().getBackground();
+    this.tree.setHeaderBackground(v5);
+    $s0 = this.tree;
+    if (MiSWT.isDarkColor(v5) == 0) goto L405;
+    $s0 = this.tree;
+    $s1 = new Color(240, 240, 240);
+    goto L413;
+    L405:
+    $s1 = MiSWT.getDarkerColor(v5, 0.75);
+    L413:
+    $s0.setHeaderForeground($s1);
+    L416:
+    $t8 = new QuickPicker$1(this);
+    this.click_sa = $t8;
+    this.tree.addSelectionListener($t8);
+    if (2 != (this.tree.getStyle() & 2)) goto L453;
+    $s0 = 1;
+    goto L454;
+    L453:
+    $s0 = 0;
+    L454:
+    v4 = $s0;
+    if (v4 == 0) goto L481;
+    $t10 = new QuickPicker$2(this);
+    this.tree_kl = $t10;
+    this.tree.addKeyListener($t10);
+    L481:
+    v5 = this;
+    this.tree.addMenuDetectListener(lambda[QuickPicker::lambda$new$0](this, v5));
+    $t12 = new QuickPicker$3(this, v4, v2);
+    this.text_kl = $t12;
+    this.text.addKeyListener($t12);
+    this.text_ml = new QuickPicker$4(this);
+    this.text.addModifyListener(this.text_ml);
+    this.add_info_item(this.msg_typing_hint);
+    return;
+}
+
+private boolean wait_request_completion() {
+    v1 = this.text.getText();
+    v2 = this.key_time;
+    this.request_matches(v1, 1);
+    v3 = this.text.getBackground();
+    this.text.setBackground(MiSWT.getAccentedColor(v3, 0.8));
+    L41:
+    if (this.text.isDisposed() != 0) goto L114;
+    if (this.display.readAndDispatch() == 0) goto L79;
+    if (v2 == this.key_time) goto L79;
+    this.text.setBackground(v3);
+    return 0;
+    L79:
+    if (this.requested_filters.isEmpty() != 0) goto L114;
+    if (this.requested_filters.contains(v1) != 0) goto L103;
+    goto L114;
+    L103:
+    this.display.sleep();
+    goto L41;
+    L114:
+    if (this.text.isDisposed() == 0) goto L126;
+    return 0;
+    L126:
+    if (this.last_requested_filter == null) goto L146;
+    if (v1.equals(this.last_requested_filter) != 0) goto L146;
+    return 0;
+    L146:
+    this.text.setBackground(v3);
+    return 1;
+}
+
+private void accept_tree_selection() {
+    v1 = this.get_tree_selection();
+    if (v1.size() <= 1) goto L27;
+    this.data.accept(this, v1);
+    return;
+    L27:
+    this.data.accept(this, v1.iterator().next());
+    return;
+}
+
+private Set get_tree_selection() {
+    v1 = this.tree.getSelection();
+    if (0 != v1.length) goto L18;
+    return Collections.emptySet();
+    L18:
+    v2 = new LinkedHashSet();
+    v3 = v1;
+    v4 = v3.length;
+    v5 = 0;
+    L35:
+    if (v5 >= v4) goto L75;
+    v6 = v3[v5];
+    v7 = v6.getData();
+    if (v7 == null) goto L69;
+    v2.add(v7);
+    L69:
+    v5 += 1;
+    goto L35;
+    L75:
+    return v2;
+}
+
+private int get_num_lines(Tree p0) {
+    return Math.max(1, (p0.getClientArea().height / Math.max(1, p0.getItemHeight())));
+}
+
+private void process_result(String p0, boolean p1, Set p2, boolean p3, String p4, boolean p5) {
+    if (this.text.isDisposed() == 0) goto L11;
+    return;
+    L11:
+    if (p1 != 0) goto L59;
+    if (this.tree.isDisposed() != 0) goto L58;
+    this.tree.removeAll();
+    $s0 = this;
+    if (p4 == null) goto L43;
+    $s0 = this;
+    $s1 = p4;
+    goto L47;
+    L43:
+    $s1 = this.msg_matching_error_msg;
+    L47:
+    $s0.add_info_item($s1);
+    this.tree.setEnabled(0);
+    L58:
+    return;
+    L59:
+    if (p5 == 0) goto L79;
+    if (this.text.getText().equals(p0) != 0) goto L79;
+    return;
+    L79:
+    this.last_matches_set = p2;
+    if (this.tree.isDisposed() != 0) goto L105;
+    this.populate_tree(p0, p2, p3, p4);
+    L105:
+    if (p5 == 0) goto L116;
+    this.update_text(p0, p2);
+    L116:
+    $s0 = this.text;
+    if (p2.isEmpty() == 0) goto L139;
+    $s0 = this.text;
+    $s1 = Display.getDefault().getSystemColor(3);
+    goto L143;
+    L139:
+    $s1 = this.default_color;
+    L143:
+    $s0.setForeground($s1);
+    return;
+}
+
+public void updateTree(String p0) {
+    this.last_requested_filter = null;
+    this.request_matches(p0, 0);
+    return;
+}
+
+public void updateTree() {
+    this.last_requested_filter = null;
+    this.request_matches(this.text.getText(), 0);
+    return;
+}
+
+public String getFilter() {
+    return this.last_requested_filter;
+}
+
+private void request_matches(String p0, boolean p1) {
+    if (this.last_requested_filter == null) goto L18;
+    if (this.last_requested_filter.equals(p0) != 0) goto L58;
+    L18:
+    this.last_requested_filter = p0;
+    this.requested_filters.remove(p0);
+    this.requested_filters.add(p0);
+    this.data.getMatches(p0, lambda[QuickPicker::lambda$request_matches$0](this, p1));
+    L58:
+    return;
+}
+
+public void setFilter(String p0) {
+    this.last_requested_filter = null;
+    this.request_matches(p0, 0);
+    this.setText(p0);
+    return;
+}
+
+public void setText(String p0) {
+    this.text.removeModifyListener(this.text_ml);
+    this.text.setText(p0);
+    this.text.setSelection(p0.length());
+    this.text.addModifyListener(this.text_ml);
+    return;
+}
+
+public int getCount() {
+    return this.n_matches;
+}
+
+private Object populate_tree(String p0, Set p1, boolean p2, String p3) {
+    this.tree.setRedraw(0);
+    this.tree.removeAll();
+    v5 = -1;
+    if (p2 == 0) goto L40;
+    $s0 = this;
+    if (p3 == null) goto L33;
+    $s0 = this;
+    $s1 = p3;
+    goto L37;
+    L33:
+    $s1 = this.msg_too_many_items;
+    L37:
+    $s0.add_info_item($s1);
+    L40:
+    v6 = null;
+    this.n_matches = 0;
+    this.top_item = null;
+    this.top_item_index = -1;
+    v7 = p1.iterator();
+    L66:
+    if (v7.hasNext() == 0) goto L252;
+    v8 = v7.next();
+    v9 = new TreeItem(this.tree, 0);
+    v9.setImage(1, this.data.getImage(v8));
+    v9.setData(v8);
+    v10 = 2;
+    v11 = this.data.getStrings(v8);
+    v12 = v11;
+    v13 = v12.length;
+    v14 = 0;
+    L151:
+    if (v14 >= v13) goto L213;
+    v15 = v12[v14];
+    $t2 = v10;  // value before increment
+    v10 += 1;
+    v9.setText($t2, v15);
+    if (v5 != -1) goto L207;
+    if (v15.equalsIgnoreCase(p0) == 0) goto L207;
+    v5 = this.tree.indexOf(v9);
+    v6 = v8;
+    L207:
+    v14 += 1;
+    goto L151;
+    L213:
+    if (this.n_matches != 0) goto L239;
+    this.top_item = v9;
+    this.top_item_index = this.tree.indexOf(v9);
+    L239:
+    this.n_matches = (this.n_matches + 1);
+    goto L66;
+    L252:
+    $s0 = this.tree;
+    if (p1.isEmpty() != 0) goto L269;
+    $s0 = this.tree;
+    $s1 = 1;
+    goto L270;
+    L269:
+    $s1 = 0;
+    L270:
+    $s0.setEnabled($s1);
+    if (this.text.getText().trim().isEmpty() == 0) goto L306;
+    if (p1.isEmpty() == 0) goto L306;
+    this.add_info_item(this.msg_typing_hint);
+    L306:
+    if (this.tree.getItemCount() != 0) goto L324;
+    this.add_info_item(this.msg_no_matches_found);
+    L324:
+    this.tree.setTopItem(this.tree.getItem(0));
+    if (v5 == -1) goto L361;
+    this.tree.setSelection(this.tree.getItem(v5));
+    L361:
+    this.tree.setRedraw(1);
+    return v6;
+}
+
+private void add_info_item(String p0) {
+    if (p0 == null) goto L61;
+    if (p0.isBlank() != 0) goto L61;
+    v2 = new TreeItem(this.tree, 0);
+    v2.setImage(1, null);
+    v2.setFont(MiSWT.getBiggerFont(-1, 2));
+    v2.setForeground(this.tree.getDisplay().getSystemColor(15));
+    v2.setText(2, p0);
+    L61:
+    return;
+}
+
+public void removeListeners() {
+    this.text.removeKeyListener(this.text_kl);
+    this.text.removeModifyListener(this.text_ml);
+    this.tree.removeSelectionListener(this.click_sa);
+    if (this.tree_kl == null) goto L51;
+    this.tree.removeKeyListener(this.tree_kl);
+    L51:
+    return;
+}
+
+private void update_text(String p0, Set p1) {
+    if (p0.equals(this.lastVal) == 0) goto L22;
+    if (p0.isEmpty() != 0) goto L22;
+    $s0 = 1;
+    goto L23;
+    L22:
+    $s0 = 0;
+    L23:
+    v3 = $s0;
+    if (v3 == 0) goto L40;
+    p0 = p0.substring(0, (p0.length() - 1));
+    L40:
+    this.lastVal = p0;
+    if (p1.isEmpty() != 0) goto L214;
+    if (p0.isEmpty() != 0) goto L214;
+    this.text.removeModifyListener(this.text_ml);
+    v4 = this.data.getStrings(p1.iterator().next());
+    v5 = v4.length;
+    v6 = 0;
+    L102:
+    if (v6 >= v5) goto L200;
+    v7 = v4[v6];
+    if (v7.startsWith(p0) != 0) goto L140;
+    if (v7.toUpperCase().startsWith(p0.toUpperCase()) == 0) goto L168;
+    L140:
+    this.text.setText(v7);
+    this.text.setSelection(p0.length(), v7.length());
+    goto L200;
+    L168:
+    if (v3 == 0) goto L194;
+    this.text.setText(p0);
+    this.text.setSelection(p0.length());
+    goto L200;
+    L194:
+    v6 += 1;
+    goto L102;
+    L200:
+    this.text.addModifyListener(this.text_ml);
+    goto L272;
+    L214:
+    if (p0.length() == this.text.getText().length()) goto L272;
+    this.text.removeModifyListener(this.text_ml);
+    this.text.setText(p0);
+    this.text.setSelection(p0.length());
+    this.text.addModifyListener(this.text_ml);
+    L272:
+    return;
+}
+
+private synthetic void lambda$request_matches$0(boolean p0, String p1, boolean p2, Set p3, boolean p4, String p5) {
+    if (this.display.isDisposed() != 0) goto L32;
+    this.display.asyncExec(lambda[QuickPicker::lambda$request_matches$1](this, p1, p2, p3, p4, p5, p0));
+    L32:
+    return;
+}
+
+private synthetic void lambda$request_matches$1(String p0, boolean p1, Set p2, boolean p3, String p4, boolean p5) {
+    this.process_result(p0, p1, p2, p3, p4, p5);
+    v7 = (this.requested_filters.indexOf(p0) + 1);
+    v8 = 0;
+    L28:
+    if (v8 >= v7) goto L49;
+    this.requested_filters.remove();
+    v8 += 1;
+    goto L28;
+    L49:
+    return;
+}
+
+private synthetic void lambda$new$0(QuickPicker p0, MenuDetectEvent p1) {
+    if (this.menuHandler == null) goto L32;
+    v3 = this.get_tree_selection();
+    if (v3.isEmpty() != 0) goto L32;
+    this.menuHandler.handleMenu(p0, v3);
+    L32:
+    return;
+}
+
+static void <clinit>() {
+    QuickPicker.$SAMPLE_COLUMN_STRING = "Ww".repeat(15);
+    return;
+}

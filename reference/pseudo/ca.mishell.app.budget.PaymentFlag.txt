@@ -1,0 +1,28 @@
+// ===== PaymentFlag extends Object 
+public static final char FLAG_NONE = 94;
+public static final char FLAG_PAID = 59;
+public static final char FLAG_IMPORTANT = 35;
+public int date;
+public char value;
+
+public void <init>() {
+    super.<init>();
+    this.value = 94;
+    return;
+}
+
+public String toString() {
+    $s0 = this.date;
+    if (this.value != 94) goto L18;
+    $s0 = this.date;
+    $s1 = "(none)";
+    goto L34;
+    L18:
+    if (this.value != 59) goto L32;
+    $s1 = "(paid)";
+    goto L34;
+    L32:
+    $s1 = "(important)";
+    L34:
+    return ("[" + $s0 + ": " + $s1 + "]");
+}

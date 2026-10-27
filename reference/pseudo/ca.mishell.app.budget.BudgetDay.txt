@@ -1,0 +1,182 @@
+// ===== BudgetDay extends Object 
+public double opening_balance;
+public double closing_balance;
+public double adjustment_diff;
+public boolean closing_balance_adjusted;
+public boolean sorted;
+ ArrayList transactions;
+ ArrayList restorable;
+ ArrayList regulars;
+private static final Comparator comparator;
+
+public void <init>() {
+    super.<init>();
+    this.sorted = 0;
+    return;
+}
+
+public double getClosingBalance(boolean p0) {
+    if (p0 == 0) goto L9;
+    return this.closing_balance;
+    L9:
+    if (this.closing_balance <= 0.0) goto L29;
+    return (double)(int)(this.closing_balance + 0.05000000074505806);
+    L29:
+    return (double)(int)(this.closing_balance - 0.05000000074505806);
+}
+
+public double getUnadjustedBalance() {
+    if (this.closing_balance_adjusted == 0) goto L19;
+    $s0 = (this.closing_balance - this.adjustment_diff);
+    goto L23;
+    L19:
+    $s0 = this.closing_balance;
+    L23:
+    return $s0;
+}
+
+public void add(Payment p0, double p1, char p2) {
+    v5 = new Transaction();
+    v5.pmt = p0;
+    v5.amount = p1;
+    v5.suffix = p2;
+    if (this.transactions != null) goto L47;
+    this.transactions = new ArrayList(5);
+    L47:
+    this.remove(p0);
+    this.transactions.add(v5);
+    this.sorted = 0;
+    p0.calendarDays.add(this);
+    return;
+}
+
+public void addRegular(Payment p0, double p1, char p2) {
+    this.add(p0, p1, p2);
+    if (null != this.regulars) goto L28;
+    this.regulars = new ArrayList(5);
+    L28:
+    this.regulars.add(p0);
+    return;
+}
+
+public boolean hasTransactions() {
+    if (this.transactions == null) goto L11;
+    $s0 = 1;
+    goto L12;
+    L11:
+    $s0 = 0;
+    L12:
+    return $s0;
+}
+
+public Iterator transactionIterator() {
+    if (this.sorted != 0) goto L22;
+    Collections.sort(this.transactions, BudgetDay.comparator);
+    this.sorted = 1;
+    L22:
+    return this.transactions.iterator();
+}
+
+public Transaction get(Payment p0) {
+    if (this.transactions == null) goto L47;
+    v2 = this.transactions.iterator();
+    L15:
+    if (v2.hasNext() == 0) goto L47;
+    v3 = (Transaction)v2.next();
+    if (p0 != v3.pmt) goto L44;
+    return v3;
+    L44:
+    goto L15;
+    L47:
+    return null;
+}
+
+public boolean isRestorable(Payment p0) {
+    if (this.restorable == null) goto L36;
+    v2 = this.restorable.iterator();
+    L15:
+    if (v2.hasNext() == 0) goto L36;
+    if (p0 != v2.next()) goto L15;
+    return 1;
+    L36:
+    return 0;
+}
+
+public boolean remove(Payment p0) {
+    if (this.transactions == null) goto L48;
+    v2 = this.transactions.iterator();
+    L15:
+    if (v2.hasNext() == 0) goto L48;
+    if (p0 != (Transaction)v2.next().pmt) goto L15;
+    v2.remove();
+    return 1;
+    L48:
+    return 0;
+}
+
+public boolean removeRestorable(Payment p0) {
+    if (this.restorable == null) goto L45;
+    v2 = this.restorable.iterator();
+    L15:
+    if (v2.hasNext() == 0) goto L45;
+    if (p0 != (Payment)v2.next()) goto L15;
+    v2.remove();
+    return 1;
+    L45:
+    return 0;
+}
+
+public void addRestorable(Payment p0) {
+    if (null != this.restorable) goto L19;
+    this.restorable = new ArrayList();
+    L19:
+    if (this.restorable.contains(p0) != 0) goto L48;
+    this.restorable.add(p0);
+    p0.calendarDays.add(this);
+    L48:
+    return;
+}
+
+public Payment[] getRestorable() {
+    if (null == this.restorable) goto L41;
+    if (this.restorable.size() <= 0) goto L41;
+    $a1 = new Payment[this.restorable.size()];
+    v1 = $a1;
+    return ([Lca.mishell.app.budget.Payment;)this.restorable.toArray(v1);
+    L41:
+    return null;
+}
+
+public ArrayList getRegulars() {
+    return this.regulars;
+}
+
+public boolean removeRegular(Payment p0) {
+    if (this.regulars == null) goto L16;
+    return this.regulars.remove(p0);
+    L16:
+    return 0;
+}
+
+private static synthetic int lambda$static$0(Transaction p0, Transaction p1) {
+    if (p0.pmt.disabled != p1.pmt.disabled) goto L61;
+    if (p0.amount >= 0.0) goto L48;
+    if (p1.amount >= 0.0) goto L48;
+    return (-Double.compare(p1.amount, p0.amount));
+    L48:
+    return (-Double.compare(p0.amount, p1.amount));
+    L61:
+    if (p0.pmt.disabled == 0) goto L85;
+    if (p1.pmt.disabled != 0) goto L85;
+    $s0 = 1;
+    goto L86;
+    L85:
+    $s0 = -1;
+    L86:
+    return $s0;
+}
+
+static void <clinit>() {
+    BudgetDay.comparator = lambda[BudgetDay::lambda$static$0]();
+    return;
+}

@@ -1,0 +1,2834 @@
+// ===== Expression$ExpressionException extends Exception 
+private static final long serialVersionUID = 7224902417778024797L;
+private final int location;
+final synthetic Expression this$0;
+
+public void <init>(Expression p0, String p1, int p2) {
+    Objects.requireNonNull(p0);
+    this.this$0 = p0;
+    super.<init>(p0.error_info(("ERROR: " + p1), p2));
+    this.location = p2;
+    return;
+}
+
+public void <init>(Expression p0, String p1, int p2, Throwable p3) {
+    Objects.requireNonNull(p0);
+    this.this$0 = p0;
+    super.<init>(p0.error_info(p1, p2), p3);
+    this.location = p2;
+    return;
+}
+
+private void <init>(Expression p0, Exception p1, Expression$Token p2) {
+    Objects.requireNonNull(p0);
+    this.this$0 = p0;
+    super.<init>(p0.error_info(("ERROR: in " + p2.name + "(), cause: " + p1.getMessage() + "\n"), p2.location));
+    this.location = p2.location;
+    if (Expression.is_debug == 0) goto L65;
+    p0.L().log(logging.Level.FINE, p1, lambda[Expression$ExpressionException::lambda$new$0]());
+    L65:
+    return;
+}
+
+public int getLocation() {
+    return this.location;
+}
+
+private static synthetic String lambda$new$0() {
+    return "cause";
+}
+
+// ===== Expression$Function extends Object 
+
+public abstract void invoke(Expression$VarValue p0, Expression$VarValue[] p1);
+
+// ===== Expression$FunctionProvider extends Object 
+
+public abstract Expression$Function resolveFunction(String p0, int p1);
+
+// ===== Expression$ParsingScope extends Enum 
+public static final enum Expression$ParsingScope SUBEXPRESSION;
+public static final enum Expression$ParsingScope FUNCTION_CALL;
+public static final enum Expression$ParsingScope EXPRESSION;
+private static final synthetic Expression$ParsingScope[] $VALUES;
+
+public static Expression$ParsingScope[] values() {
+    return ([Lca.mishell.misc.Expression$ParsingScope;)Expression$ParsingScope.$VALUES.clone();
+}
+
+public static Expression$ParsingScope valueOf(String p0) {
+    return (Expression$ParsingScope)Enum.valueOf(Expression$ParsingScope, p0);
+}
+
+private void <init>(String p0, int p1) {
+    super.<init>(p0, p1);
+    return;
+}
+
+private static synthetic Expression$ParsingScope[] $values() {
+    $a1 = new Expression$ParsingScope[3];
+    $a1[0] = Expression$ParsingScope.SUBEXPRESSION;
+    $a1[1] = Expression$ParsingScope.FUNCTION_CALL;
+    $a1[2] = Expression$ParsingScope.EXPRESSION;
+    return $a1;
+}
+
+static void <clinit>() {
+    Expression$ParsingScope.SUBEXPRESSION = new Expression$ParsingScope("SUBEXPRESSION", 0);
+    Expression$ParsingScope.FUNCTION_CALL = new Expression$ParsingScope("FUNCTION_CALL", 1);
+    Expression$ParsingScope.EXPRESSION = new Expression$ParsingScope("EXPRESSION", 2);
+    Expression$ParsingScope.$VALUES = Expression$ParsingScope.$values();
+    return;
+}
+
+// ===== Expression$Stats extends Object 
+final synthetic Expression this$0;
+
+public void <init>(Expression p0) {
+    Objects.requireNonNull(p0);
+    this.this$0 = p0;
+    super.<init>();
+    return;
+}
+
+public Set getVars() {
+    return Collections.unmodifiableSet(this.this$0.input_vars.keySet());
+}
+
+public Set getFuncs() {
+    return Collections.unmodifiableSet(this.this$0.parsedFuncs.keySet());
+}
+
+public Set getHitVars() {
+    v1 = new HashSet();
+    this.this$0.input_vars.forEach(lambda[Expression$Stats::lambda$getHitVars$0](v1));
+    return Collections.unmodifiableSet(v1);
+}
+
+public Set getHitFuncs() {
+    v1 = new HashSet();
+    this.this$0.parsedFuncs.forEach(lambda[Expression$Stats::lambda$getHitFuncs$0](v1));
+    return Collections.unmodifiableSet(v1);
+}
+
+private static synthetic void lambda$getHitFuncs$0(Set p0, String p1, Expression$Token p2) {
+    if (p2.n == 0) goto L15;
+    p0.add(p1);
+    L15:
+    return;
+}
+
+private static synthetic void lambda$getHitVars$0(Set p0, String p1, Expression$Var p2) {
+    if (p2.cached_value.isSet() == 0) goto L18;
+    p0.add(p1);
+    L18:
+    return;
+}
+
+// ===== Expression$Token extends Object 
+ int nesting_level;
+final Expression$Type type;
+final int location;
+final Expression$VarValue parsed_value;
+private final Expression$VarValue scratch;
+ String name;
+ regex.Pattern pattern;
+ Expression$Var var;
+ Expression$Token spanRef;
+ Expression$Function f;
+ Expression$VarValue[] args;
+ int n;
+static final synthetic boolean $assertionsDisabled;
+final synthetic Expression this$0;
+
+ void <init>(Expression p0, Expression$Type p1, int p2) {
+    Objects.requireNonNull(p0);
+    this.this$0 = p0;
+    super.<init>();
+    this.nesting_level = p0.nesting;
+    this.type = p1;
+    this.location = p2;
+    switch (p1.ordinal()) { 32: L99, 33: L72, 34: L72, 35: L72, 36: L72; default: L119 }
+    L72:
+    this.parsed_value = new Expression$VarValue(this);
+    this.scratch = new Expression$VarValue(this);
+    goto L129;
+    L99:
+    this.parsed_value = null;
+    this.scratch = new Expression$VarValue(this);
+    goto L129;
+    L119:
+    this.parsed_value = null;
+    this.scratch = null;
+    L129:
+    return;
+}
+
+public String toString() {
+    switch (this.type.ordinal()) { 1: L352, 2: L352, 3: L602, 4: L602, 5: L602, 6: L602, 7: L602, 8: L602, 9: L602, 10: L602, 11: L602, 12: L602, 13: L602, 14: L602, 15: L602, 16: L602, 17: L602, 18: L602, 19: L602, 20: L602, 21: L602, 22: L602, 23: L408, 24: L337, 25: L602, 26: L602, 27: L602, 28: L602, 29: L602, 30: L602, 31: L602, 32: L195, 33: L276, 34: L233, 35: L377, 36: L214, 37: L176, 38: L176, 39: L322; default: L602 }
+    L176:
+    $s0 = (String.valueOf(this.type) + ": span length=" + this.n);
+    goto L609;
+    L195:
+    $s0 = (String.valueOf(this.type) + this.name + "()");
+    goto L609;
+    L214:
+    $s0 = (String.valueOf(this.type) + this.name);
+    goto L609;
+    L233:
+    if (Expression$Token.$assertionsDisabled != 0) goto L254;
+    if (this.parsed_value != null) goto L254;
+    throw new AssertionError();
+    L254:
+    $s0 = (String.valueOf(this.type) + this.parsed_value.toString());
+    goto L609;
+    L276:
+    if (Expression$Token.$assertionsDisabled != 0) goto L297;
+    if (this.parsed_value != null) goto L297;
+    throw new AssertionError();
+    L297:
+    $s0 = (String.valueOf(this.type) + Expression.encodeString(this.parsed_value.s));
+    goto L609;
+    L322:
+    $s0 = (String.valueOf(this.type) + " # start of arguments");
+    goto L609;
+    L337:
+    $s0 = (String.valueOf(this.type) + " # next argument");
+    goto L609;
+    L352:
+    $s0 = (String.valueOf(this.type) + " pattern = " + Expression.encodeString(this.pattern.toString()));
+    goto L609;
+    L377:
+    if (Expression$Token.$assertionsDisabled != 0) goto L398;
+    if (this.parsed_value != null) goto L398;
+    throw new AssertionError();
+    L398:
+    $s0 = this.parsed_value.toString();
+    goto L609;
+    L408:
+    switch (this.n) { 0: L562, 37: L547, 38: L537, 42: L527, 43: L512, 45: L517, 47: L522, 60: L552, 62: L557, 94: L542, 124: L532; default: L567 }
+    L512:
+    $s0 = " += ";
+    goto L588;
+    L517:
+    $s0 = " -= ";
+    goto L588;
+    L522:
+    $s0 = " /= ";
+    goto L588;
+    L527:
+    $s0 = " *= ";
+    goto L588;
+    L532:
+    $s0 = " |= ";
+    goto L588;
+    L537:
+    $s0 = " &= ";
+    goto L588;
+    L542:
+    $s0 = " ^= ";
+    goto L588;
+    L547:
+    $s0 = " %= ";
+    goto L588;
+    L552:
+    $s0 = " <<= ";
+    goto L588;
+    L557:
+    $s0 = " >>= ";
+    goto L588;
+    L562:
+    $s0 = "=";
+    goto L588;
+    L567:
+    throw new Error(this.this$0.error_info("INTERNAL ERROR: bad assignment", this.location));
+    L588:
+    v1 = $s0;
+    $s0 = (this.name + v1);
+    goto L609;
+    L602:
+    $s0 = this.type.id;
+    L609:
+    return $s0;
+}
+
+ boolean isMathOp() {
+    if ((this.type.flags & 1) != 1) goto L17;
+    $s0 = 1;
+    goto L18;
+    L17:
+    $s0 = 0;
+    L18:
+    return $s0;
+}
+
+ boolean isCompOp() {
+    if ((this.type.flags & 2) != 2) goto L17;
+    $s0 = 1;
+    goto L18;
+    L17:
+    $s0 = 0;
+    L18:
+    return $s0;
+}
+
+public Expression$ExpressionException getExpressionException(String p0) {
+    return new Expression$ExpressionException(this.this$0, p0, this.location);
+}
+
+static void <clinit>() {
+    if (Expression.desiredAssertionStatus() != 0) goto L12;
+    $s0 = 1;
+    goto L13;
+    L12:
+    $s0 = 0;
+    L13:
+    Expression$Token.$assertionsDisabled = $s0;
+    return;
+}
+
+// ===== Expression$Type extends Enum 
+public static final enum Expression$Type POWER;
+public static final enum Expression$Type REGEX;
+public static final enum Expression$Type NREGEX;
+public static final enum Expression$Type MULTIPLY;
+public static final enum Expression$Type DIV;
+public static final enum Expression$Type MODULO;
+public static final enum Expression$Type PLUS;
+public static final enum Expression$Type MINUS;
+public static final enum Expression$Type LEFT_SHIFT;
+public static final enum Expression$Type RIGHT_SHIFT;
+public static final enum Expression$Type GT;
+public static final enum Expression$Type GE;
+public static final enum Expression$Type LE;
+public static final enum Expression$Type LT;
+public static final enum Expression$Type EQ;
+public static final enum Expression$Type NE;
+public static final enum Expression$Type NOT_LIKE;
+public static final enum Expression$Type LIKE;
+public static final enum Expression$Type BIT_AND;
+public static final enum Expression$Type BIT_XOR;
+public static final enum Expression$Type BIT_OR;
+public static final enum Expression$Type LOGIC_AND;
+public static final enum Expression$Type LOGIC_OR;
+public static final enum Expression$Type ASSIGNMENT;
+public static final enum Expression$Type NEXT_ARG;
+public static final enum Expression$Type DISCARD_RESULT;
+public static final enum Expression$Type OPEN_BRACE;
+public static final enum Expression$Type CLOSE_BRACE;
+public static final enum Expression$Type LOGIC_NOT;
+public static final enum Expression$Type UNARY_MINUS;
+public static final enum Expression$Type UNARY_PLUS;
+public static final enum Expression$Type BIT_NOT;
+public static final enum Expression$Type FUNC;
+public static final enum Expression$Type STRING;
+public static final enum Expression$Type NUMBER;
+public static final enum Expression$Type LIST;
+public static final enum Expression$Type VARIABLE;
+public static final enum Expression$Type LOGICAL_OR_SPAN;
+public static final enum Expression$Type LOGICAL_AND_SPAN;
+public static final enum Expression$Type ARGS_START;
+private final String id;
+private final int flags;
+private final int weight;
+private static final synthetic Expression$Type[] $VALUES;
+
+public static Expression$Type[] values() {
+    return ([Lca.mishell.misc.Expression$Type;)Expression$Type.$VALUES.clone();
+}
+
+public static Expression$Type valueOf(String p0) {
+    return (Expression$Type)Enum.valueOf(Expression$Type, p0);
+}
+
+ boolean isOperator() {
+    if (this.weight == -1) goto L12;
+    $s0 = 1;
+    goto L13;
+    L12:
+    $s0 = 0;
+    L13:
+    return $s0;
+}
+
+ int getWeight() {
+    if (this.weight != -1) goto L25;
+    throw new Error(("INTERNAL ERROR: getWeight() is called on a non operator: " + this.id));
+    L25:
+    return this.weight;
+}
+
+private void <init>(String p0, int p1, String p2) {
+    super.<init>(p0, p1);
+    this.id = p2;
+    this.flags = 0;
+    this.weight = -1;
+    return;
+}
+
+private void <init>(String p0, int p1, String p2, int p3, int p4) {
+    super.<init>(p0, p1);
+    this.id = p2;
+    this.flags = p4;
+    this.weight = p3;
+    return;
+}
+
+private void <init>(String p0, int p1, String p2, int p3) {
+    super.<init>(p0, p1);
+    this.id = p2;
+    this.flags = 0;
+    this.weight = p3;
+    return;
+}
+
+public String toString() {
+    return this.id;
+}
+
+private static synthetic Expression$Type[] $values() {
+    $a1 = new Expression$Type[40];
+    $a1[0] = Expression$Type.POWER;
+    $a1[1] = Expression$Type.REGEX;
+    $a1[2] = Expression$Type.NREGEX;
+    $a1[3] = Expression$Type.MULTIPLY;
+    $a1[4] = Expression$Type.DIV;
+    $a1[5] = Expression$Type.MODULO;
+    $a1[6] = Expression$Type.PLUS;
+    $a1[7] = Expression$Type.MINUS;
+    $a1[8] = Expression$Type.LEFT_SHIFT;
+    $a1[9] = Expression$Type.RIGHT_SHIFT;
+    $a1[10] = Expression$Type.GT;
+    $a1[11] = Expression$Type.GE;
+    $a1[12] = Expression$Type.LE;
+    $a1[13] = Expression$Type.LT;
+    $a1[14] = Expression$Type.EQ;
+    $a1[15] = Expression$Type.NE;
+    $a1[16] = Expression$Type.NOT_LIKE;
+    $a1[17] = Expression$Type.LIKE;
+    $a1[18] = Expression$Type.BIT_AND;
+    $a1[19] = Expression$Type.BIT_XOR;
+    $a1[20] = Expression$Type.BIT_OR;
+    $a1[21] = Expression$Type.LOGIC_AND;
+    $a1[22] = Expression$Type.LOGIC_OR;
+    $a1[23] = Expression$Type.ASSIGNMENT;
+    $a1[24] = Expression$Type.NEXT_ARG;
+    $a1[25] = Expression$Type.DISCARD_RESULT;
+    $a1[26] = Expression$Type.OPEN_BRACE;
+    $a1[27] = Expression$Type.CLOSE_BRACE;
+    $a1[28] = Expression$Type.LOGIC_NOT;
+    $a1[29] = Expression$Type.UNARY_MINUS;
+    $a1[30] = Expression$Type.UNARY_PLUS;
+    $a1[31] = Expression$Type.BIT_NOT;
+    $a1[32] = Expression$Type.FUNC;
+    $a1[33] = Expression$Type.STRING;
+    $a1[34] = Expression$Type.NUMBER;
+    $a1[35] = Expression$Type.LIST;
+    $a1[36] = Expression$Type.VARIABLE;
+    $a1[37] = Expression$Type.LOGICAL_OR_SPAN;
+    $a1[38] = Expression$Type.LOGICAL_AND_SPAN;
+    $a1[39] = Expression$Type.ARGS_START;
+    return $a1;
+}
+
+static void <clinit>() {
+    Expression$Type.POWER = new Expression$Type("POWER", 0, "**", 100, 1);
+    Expression$Type.REGEX = new Expression$Type("REGEX", 1, "=~", 100, 4);
+    Expression$Type.NREGEX = new Expression$Type("NREGEX", 2, "!=~", 100, 4);
+    Expression$Type.MULTIPLY = new Expression$Type("MULTIPLY", 3, "*", 70, 1);
+    Expression$Type.DIV = new Expression$Type("DIV", 4, "/", 70, 1);
+    Expression$Type.MODULO = new Expression$Type("MODULO", 5, "%", 70, 1);
+    Expression$Type.PLUS = new Expression$Type("PLUS", 6, "+", 60, 1);
+    Expression$Type.MINUS = new Expression$Type("MINUS", 7, "-", 60, 1);
+    Expression$Type.LEFT_SHIFT = new Expression$Type("LEFT_SHIFT", 8, "<<", 55, 1);
+    Expression$Type.RIGHT_SHIFT = new Expression$Type("RIGHT_SHIFT", 9, ">>", 55, 1);
+    Expression$Type.GT = new Expression$Type("GT", 10, ">", 50, 2);
+    Expression$Type.GE = new Expression$Type("GE", 11, ">=", 50, 2);
+    Expression$Type.LE = new Expression$Type("LE", 12, "<=", 50, 2);
+    Expression$Type.LT = new Expression$Type("LT", 13, "<", 50, 2);
+    Expression$Type.EQ = new Expression$Type("EQ", 14, "==", 40, 2);
+    Expression$Type.NE = new Expression$Type("NE", 15, "!=", 40, 2);
+    Expression$Type.NOT_LIKE = new Expression$Type("NOT_LIKE", 16, "!=#", 40);
+    Expression$Type.LIKE = new Expression$Type("LIKE", 17, "=#", 40);
+    Expression$Type.BIT_AND = new Expression$Type("BIT_AND", 18, "&", 36, 1);
+    Expression$Type.BIT_XOR = new Expression$Type("BIT_XOR", 19, "^", 35, 1);
+    Expression$Type.BIT_OR = new Expression$Type("BIT_OR", 20, "|", 34, 1);
+    Expression$Type.LOGIC_AND = new Expression$Type("LOGIC_AND", 21, "&&", 30);
+    Expression$Type.LOGIC_OR = new Expression$Type("LOGIC_OR", 22, "||", 20);
+    Expression$Type.ASSIGNMENT = new Expression$Type("ASSIGNMENT", 23, "=", 10);
+    Expression$Type.NEXT_ARG = new Expression$Type("NEXT_ARG", 24, ",", 0);
+    Expression$Type.DISCARD_RESULT = new Expression$Type("DISCARD_RESULT", 25, ",", 0);
+    Expression$Type.OPEN_BRACE = new Expression$Type("OPEN_BRACE", 26, "(");
+    Expression$Type.CLOSE_BRACE = new Expression$Type("CLOSE_BRACE", 27, ")");
+    Expression$Type.LOGIC_NOT = new Expression$Type("LOGIC_NOT", 28, "!");
+    Expression$Type.UNARY_MINUS = new Expression$Type("UNARY_MINUS", 29, "-");
+    Expression$Type.UNARY_PLUS = new Expression$Type("UNARY_PLUS", 30, "+");
+    Expression$Type.BIT_NOT = new Expression$Type("BIT_NOT", 31, "~", 1000);
+    Expression$Type.FUNC = new Expression$Type("FUNC", 32, "\u222e");
+    Expression$Type.STRING = new Expression$Type("STRING", 33, "\u24e2");
+    Expression$Type.NUMBER = new Expression$Type("NUMBER", 34, "\u2460");
+    Expression$Type.LIST = new Expression$Type("LIST", 35, "\u2026");
+    Expression$Type.VARIABLE = new Expression$Type("VARIABLE", 36, "\u24cb");
+    Expression$Type.LOGICAL_OR_SPAN = new Expression$Type("LOGICAL_OR_SPAN", 37, "\u2225");
+    Expression$Type.LOGICAL_AND_SPAN = new Expression$Type("LOGICAL_AND_SPAN", 38, "\u2227");
+    Expression$Type.ARGS_START = new Expression$Type("ARGS_START", 39, "@0");
+    Expression$Type.$VALUES = Expression$Type.$values();
+    return;
+}
+
+// ===== Expression$UnresolvedSymbolException extends Error 
+private static final long serialVersionUID = -7886710317093557932L;
+final synthetic Expression this$0;
+
+ void <init>(Expression p0, Expression$Token p1) {
+    Objects.requireNonNull(p0);
+    this.this$0 = p0;
+    $a1 = new Object[1];
+    $a1[0] = p1.name;
+    super.<init>(p0.error_info("ERROR: unresolved symbol '%s'".formatted($a1), p1.location));
+    return;
+}
+
+// ===== Expression$Var extends Object 
+public final boolean is_temp_var;
+ Expression$Variable variable;
+final Expression$VarValue cached_value;
+
+public void <init>(Expression p0, Expression$Token p1, boolean p2) {
+    Objects.requireNonNull(p0);
+    super.<init>();
+    this.is_temp_var = p2;
+    this.cached_value = new Expression$VarValue(p1);
+    return;
+}
+
+public String toString() {
+    return this.cached_value.toString();
+}
+
+// ===== Expression$VarValue extends Object 
+private java.math.BigDecimal d;
+private String s;
+private List l;
+private String varName;
+private Boolean b;
+private final Expression$Token t;
+
+ void <init>(Expression$Token p0) {
+    super.<init>();
+    this.d = null;
+    this.s = null;
+    this.l = null;
+    this.varName = null;
+    this.b = null;
+    this.t = p0;
+    return;
+}
+
+public String getName() {
+    return this.varName;
+}
+
+public void setDecimal(java.math.BigDecimal p0) {
+    this.d = p0;
+    this.b = null;
+    this.s = null;
+    this.l = null;
+    return;
+}
+
+public void setDouble(double p0) {
+    this.setDecimal(java.math.BigDecimal.valueOf(p0));
+    return;
+}
+
+public Expression$VarValue setBool(boolean p0) {
+    this.b = Boolean.valueOf(p0);
+    this.d = null;
+    this.s = null;
+    this.l = null;
+    return this;
+}
+
+public void setString(String p0) {
+    this.d = null;
+    this.l = null;
+    this.s = p0;
+    this.b = null;
+    return;
+}
+
+public void setList(List p0) {
+    this.l = p0;
+    this.s = null;
+    this.d = null;
+    this.b = null;
+    return;
+}
+
+public void unset() {
+    this.d = null;
+    this.s = null;
+    this.l = null;
+    this.b = null;
+    return;
+}
+
+ Expression$VarValue set(Expression$VarValue p0) {
+    this.d = p0.d;
+    this.s = p0.s;
+    this.l = p0.l;
+    this.b = p0.b;
+    return this;
+}
+
+public boolean isSet() {
+    if (this.s != null) goto L28;
+    if (this.d != null) goto L28;
+    if (this.l != null) goto L28;
+    if (this.b == null) goto L32;
+    L28:
+    $s0 = 1;
+    goto L33;
+    L32:
+    $s0 = 0;
+    L33:
+    return $s0;
+}
+
+public boolean isNumber() {
+    if (this.d == null) goto L11;
+    $s0 = 1;
+    goto L12;
+    L11:
+    $s0 = 0;
+    L12:
+    return $s0;
+}
+
+public boolean isBoolean() {
+    if (this.b == null) goto L11;
+    $s0 = 1;
+    goto L12;
+    L11:
+    $s0 = 0;
+    L12:
+    return $s0;
+}
+
+public boolean isString() {
+    if (this.s == null) goto L11;
+    $s0 = 1;
+    goto L12;
+    L11:
+    $s0 = 0;
+    L12:
+    return $s0;
+}
+
+public boolean isList() {
+    if (this.l == null) goto L11;
+    $s0 = 1;
+    goto L12;
+    L11:
+    $s0 = 0;
+    L12:
+    return $s0;
+}
+
+public List getList() {
+    if (this.isList() == 0) goto L12;
+    return this.l;
+    L12:
+    throw this.t.getExpressionException("value is not a list of strings");
+}
+
+public java.math.BigDecimal getDecimal() {
+    if (this.isNumber() == 0) goto L12;
+    return this.d;
+    L12:
+    throw this.t.getExpressionException("value is not a number");
+}
+
+public double getDouble() {
+    if (this.isNumber() == 0) goto L15;
+    return this.d.doubleValue();
+    L15:
+    throw this.t.getExpressionException("value is not a number");
+}
+
+public String getString() {
+    if (this.isString() == 0) goto L12;
+    return this.s;
+    L12:
+    throw this.t.getExpressionException("value is not a string");
+}
+
+public boolean getBoolean() {
+    if (this.b == null) goto L15;
+    return this.b.booleanValue();
+    L15:
+    if (this.s == null) goto L38;
+    if (this.s.isBlank() != 0) goto L36;
+    $s0 = 1;
+    goto L37;
+    L36:
+    $s0 = 0;
+    L37:
+    return $s0;
+    L38:
+    if (this.isNumber() == 0) goto L64;
+    if (this.d.compareTo(java.math.BigDecimal.ZERO) == 0) goto L62;
+    $s0 = 1;
+    goto L63;
+    L62:
+    $s0 = 0;
+    L63:
+    return $s0;
+    L64:
+    if (this.isList() == 0) goto L89;
+    if (this.l.isEmpty() != 0) goto L87;
+    $s0 = 1;
+    goto L88;
+    L87:
+    $s0 = 0;
+    L88:
+    return $s0;
+    L89:
+    return 0;
+}
+
+public void throwArgumentError(String p0) {
+    throw this.t.getExpressionException(p0);
+}
+
+public Object get() {
+    if (this.isNumber() == 0) goto L12;
+    return this.d;
+    L12:
+    if (this.isBoolean() == 0) goto L24;
+    return this.b;
+    L24:
+    if (this.isString() == 0) goto L36;
+    return this.s;
+    L36:
+    if (this.isList() == 0) goto L53;
+    return this.l.toArray();
+    L53:
+    $a1 = new Object[1];
+    $a1[0] = this.t.name;
+    throw this.t.getExpressionException("undefined variable '%s'".formatted($a1));
+}
+
+public String toString() {
+    if (this.varName == null) goto L19;
+    $s0 = ("{" + this.varName + " = ");
+    goto L21;
+    L19:
+    $s0 = "{";
+    L21:
+    v1 = $s0;
+    if (this.isBoolean() == 0) goto L50;
+    $s0 = v1;
+    if (this.getBoolean() == 0) goto L42;
+    $s0 = v1;
+    $s1 = "TRUE";
+    goto L44;
+    L42:
+    $s1 = "FALSE";
+    L44:
+    return ($s0 + $s1 + "}");
+    L50:
+    if (this.isNumber() == 0) goto L71;
+    return (v1 + this.d.toPlainString() + "}");
+    L71:
+    if (this.isString() == 0) goto L92;
+    return (v1 + Expression.encodeString(this.s) + "}");
+    L92:
+    if (this.isList() == 0) goto L188;
+    v2 = new StringBuilder();
+    v2.append("{");
+    v3 = 0;
+    v4 = this.l.iterator();
+    L127:
+    if (v4.hasNext() == 0) goto L176;
+    v5 = (String)v4.next();
+    if (v3 == 0) goto L160;
+    v2.append(", ");
+    L160:
+    v2.append(Expression.encodeString(v5));
+    v3 += 1;
+    goto L127;
+    L176:
+    v2.append("}");
+    return v2.toString();
+    L188:
+    return (v1 + "<no-value>}");
+}
+
+// ===== Expression$Variable extends Object 
+
+public abstract void storeInto(Expression$VarValue p0);
+
+// ===== Expression$VariableProvider extends Object 
+
+public abstract Expression$Variable resolveVariable(String p0);
+
+// ===== Expression extends Object 
+public static boolean is_debug;
+private final java.math.MathContext mc;
+private final DecimalFormat parseFmt;
+private static final int TYPE_IS_MATH = 1;
+private static final int TYPE_IS_COMP = 2;
+private static final int TYPE_HAS_NO_RIGHT_SIDE = 4;
+private final String expression;
+private final char[] chars;
+private int where;
+private final List commands;
+private static final char $SPACE = 32;
+private final ParsePosition parsePos;
+private int nesting;
+private final Stack reduce_stack;
+private static final String syntax = "BNF-ish syntax:\n<expr> : [!] '(' <expr> ')'          # grouping, '!' negates the Boolean result of expression\n       | <comp>\n       | <expr> || <expr>            # Logical OR,\n       | <expr> && <expr>            # Logical AND\n       | name = <expr>\t\t\t\t  # assignment, and result\n       | (<name> = <expr>[,<name> = <expr>[,..]]) # last assignment is the result\n       ;\n\n<expr> is combination of:\n\n<text> : \"<chars>\" | '<chars>';                # text can have \\\" and \\' to escape quotes\n<name> : JAVA-kind-of-identifier;\n<num>  : <digit>[<digit|,|.>[...]];             # see DecimalFormat.parse(String), and\n                                                # NOTE1 below\n<date> : `YYYY-MMM-DD`|`YYYY-MM-DD`;            # results in YYYYMMDD number\n<list> : '{'<text>'[<,;> <text> [<,;>...]]'}'   # list of strings\n<math> : [( '+' | '-' )] <name|func|num>\n       | <math> <mathOp> <math>\n       | <math> ** <math2>;                     # math in power math2, math2 must be an int\n<mathOp> : + - * / % | & ^;\n\n<func> : <name>(<arg1> [<,|;> <arg2> [...]])\nNOTE1: Numbers can have ',', so a call like this func(10,10) will be called with\njust one argument '1010', as opposed two arguments. If two arguments are needed\nuse \"10, 10\", or \"10;10\"\n\nUse '0' as FALSE, and '1' as TRUE.\n\n<arg#> : <math>\n<comp> : <math> [!=|==] (<math>|<text>|<list>)  # [not] equals, string or a number.\n       | (<name>|<text>) [!]=# (<text>|<list>)  # [not] contains in text or list\n       | <name> [!]=~ <java-regex-text>         # [not] match JAVA REGEX expression\n       | math (>|<|>=|<=) math                  # numeric comparison: greater, less,\n                                                # greater equal, less equal than\n\t   ;\nString and REGEX comparisons are case INSENSITIVE.\n\nList comparisons, are read like:\n   name == {'a','b','c'}   # the list contains var\n   name != {'a','b','c'}   # the list doesn't contain var\n\nPrecedence, from the highest to lowest:\n    * / % + - > < >= <= [!]=# [!]=~ & ^ | = != && ||\n";
+private final Stack stack;
+private final Map input_vars;
+private final Map parsedFuncs;
+private final Map temp_vars;
+private Expression$Stats stats;
+private Expression$VarValue result;
+static final synthetic boolean $assertionsDisabled;
+
+private logging.Logger L() {
+    return logging.Logger.getGlobal();
+}
+
+private static boolean containsIgnoreCase(String p0, String p1) {
+    v2 = p1.length();
+    if (v2 != 0) goto L11;
+    return 1;
+    L11:
+    v3 = Character.toLowerCase(p1.charAt(0));
+    v4 = Character.toUpperCase(v3);
+    v5 = (p0.length() - v2);
+    L34:
+    if (v5 < 0) goto L81;
+    v6 = p0.charAt(v5);
+    if (v6 == v3) goto L60;
+    if (v6 != v4) goto L75;
+    L60:
+    if (p0.regionMatches(1, v5, p1, 0, v2) == 0) goto L75;
+    return 1;
+    L75:
+    v5 += -1;
+    goto L34;
+    L81:
+    return 0;
+}
+
+private String error_info(String p0, int p1) {
+    v3 = new StringBuilder((this.chars.length * 3));
+    v3.append("\n'");
+    v4 = 0;
+    v5 = 0;
+    L28:
+    if (v5 >= this.chars.length) goto L118;
+    if (this.chars[v5] != 10) goto L82;
+    if (v5 < p1) goto L66;
+    v3.append("...");
+    goto L118;
+    L66:
+    v3.append(10);
+    v4 = (v5 + 1);
+    goto L112;
+    L82:
+    $s0 = v3;
+    if (Character.isWhitespace(this.chars[v5]) == 0) goto L101;
+    $s0 = v3;
+    $s1 = 32;
+    goto L108;
+    L101:
+    $s1 = this.chars[v5];
+    L108:
+    $s0.append($s1);
+    L112:
+    v5 += 1;
+    goto L28;
+    L118:
+    v3.append("'\n");
+    $s0 = v3;
+    $s1 = String.valueOf(32);
+    $s2 = 0;
+    $s3 = p1;
+    if (v4 != 0) goto L142;
+    $s0 = v3;
+    $s1 = String.valueOf(32);
+    $s2 = 0;
+    $s3 = p1;
+    $s4 = 1;
+    goto L143;
+    L142:
+    $s4 = 0;
+    L143:
+    $s0.append($s1.repeat(Math.max($s2, (($s3 + $s4) - v4))));
+    v3.append("^");
+    v3.append(p0);
+    return v3.toString();
+}
+
+protected void log_command_list() {
+    this.L().fine(("___#___'" + this.expression.replaceAll("\\s", " ") + "':"));
+    v1 = 0;
+    v2 = this.commands.iterator();
+    L35:
+    if (v2.hasNext() == 0) goto L122;
+    v3 = (Expression$Token)v2.next();
+    $a1 = new Object[2];
+    $t2 = v1;  // value before increment
+    v1 += 1;
+    $a1[0] = Integer.valueOf($t2);
+    $a1[1] = Integer.valueOf(v3.nesting_level);
+    v4 = ("%2d #%2d: ".formatted($a1) + String.valueOf(32).repeat(Math.max(0, v3.location)) + "^" + String.valueOf(v3));
+    this.L().fine(v4);
+    goto L35;
+    L122:
+    return;
+}
+
+private String sub_string(int p0, int p1) {
+    $a1 = new char[(p1 - p0)];
+    v3 = $a1;
+    v4 = 0;
+    v5 = p0;
+    L12:
+    if (v5 >= p1) goto L38;
+    v3[v4] = this.chars[v5];
+    v4 += 1;
+    v5 += 1;
+    goto L12;
+    L38:
+    return new String(v3);
+}
+
+private void assert_have_more_chars() {
+    if (this.where < this.chars.length) goto L54;
+    if (this.commands.isEmpty() == 0) goto L39;
+    throw new Expression$ExpressionException(this, "empty expression", this.where);
+    L39:
+    throw new Expression$ExpressionException(this, "unexpected end of expression", this.where);
+    L54:
+    return;
+}
+
+private void skip_whitespaces() {
+    L0:
+    if (this.where >= this.chars.length) goto L40;
+    if (Character.isWhitespace(this.chars[this.where]) == 0) goto L40;
+    this.where = (this.where + 1);
+    goto L0;
+    L40:
+    return;
+}
+
+private String get_string(char p0) {
+    v2 = this.where;
+    v3 = new StringBuilder(((this.chars.length - this.where) + 1));
+    L25:
+    if (this.where >= this.chars.length) goto L179;
+    if (this.chars[this.where] == p0) goto L179;
+    v4 = this.chars[this.where];
+    if (92 != v4) goto L159;
+    if ((this.where + 1) >= this.chars.length) goto L159;
+    if (this.chars[(this.where + 1)] == 32) goto L130;
+    if (this.chars[(this.where + 1)] == 34) goto L130;
+    if (this.chars[(this.where + 1)] != 39) goto L159;
+    L130:
+    v3.append(this.chars[(this.where + 1)]);
+    this.where = (this.where + 2);
+    goto L176;
+    L159:
+    v3.append(v4);
+    this.where = (this.where + 1);
+    L176:
+    goto L25;
+    L179:
+    if (this.where != this.chars.length) goto L203;
+    throw new Expression$ExpressionException(this, "unterminated string", v2);
+    L203:
+    return v3.toString();
+}
+
+private static int date_component(String p0) {
+    return Integer.parseInt(p0);
+    // handler for [0,4) catch NumberFormatException
+    L5:
+    v1 = $ex;
+    return 0;
+}
+
+private static int decode_month(String p0) {
+    v1 = p0.length();
+    v2 = new SimpleDateFormat("M".repeat(v1));
+    v3 = new SimpleCalendar(2000, 0, 1);
+    v4 = 0;
+    L35:
+    if (v4 >= 12) goto L94;
+    v5 = v2.format(v3.getTime());
+    if (v1 >= v5.length()) goto L70;
+    v5 = v5.substring(0, v1);
+    L70:
+    if (p0.equalsIgnoreCase(v5) == 0) goto L82;
+    return v4;
+    L82:
+    v3.addMonths(1);
+    v4 += 1;
+    goto L35;
+    L94:
+    return -1;
+}
+
+private java.math.BigDecimal decode_date(String p0, int p1) {
+    v3 = p0.split("-");
+    if (v3.length != 3) goto L221;
+    $a1 = new int[3];
+    $a1[0] = Expression.date_component(v3[0]);
+    $a1[1] = Expression.date_component(v3[1]);
+    $a1[2] = Expression.date_component(v3[2]);
+    v4 = $a1;
+    if (v4[0] == 0) goto L95;
+    if (v4[1] == 0) goto L95;
+    if (v4[2] == 0) goto L95;
+    return java.math.BigDecimal.valueOf((long)new SimpleCalendar(v4[0], (v4[1] - 1), v4[2]).get());
+    L95:
+    v5 = 0;
+    v6 = 0;
+    v7 = 0;
+    v8 = 0;
+    L107:
+    if (v8 >= v4.length) goto L184;
+    v9 = v4[v8];
+    if (v9 != 0) goto L139;
+    v6 = Expression.decode_month(v3[v8]);
+    goto L178;
+    L139:
+    if (v9 <= 999) goto L162;
+    if (v9 >= 2100) goto L162;
+    v5 = v9;
+    goto L178;
+    L162:
+    if (v9 <= 0) goto L178;
+    if (v9 >= 32) goto L178;
+    v7 = v9;
+    L178:
+    v8 += 1;
+    goto L107;
+    L184:
+    if (v5 == 0) goto L221;
+    if (v6 == -1) goto L221;
+    if (v7 == 0) goto L221;
+    return java.math.BigDecimal.valueOf((long)new SimpleCalendar(v5, v6, v7).get());
+    L221:
+    throw new Expression$ExpressionException(this, "invalid date expression. Use `YYYY-MM-DD`. See help for details", p1);
+}
+
+private Expression$Token regex_token(Expression$Type p0, int p1) {
+    this.skip_whitespaces();
+    this.assert_have_more_chars();
+    if (this.chars[this.where] == 34) goto L51;
+    if (this.chars[this.where] == 39) goto L51;
+    throw new Expression$ExpressionException(this, "unexpected input in place of a pattern string", this.where);
+    L51:
+    this.where = (this.where + 1);
+    v3 = this.get_string(this.chars[(this.where - 1)]);
+    v4 = new Expression$Token(this, p0, p1);
+    v4.pattern = regex.Pattern.compile(v3, 2);
+    goto L123;
+    // handler for [89,99) catch regex.PatternSyntaxException
+    L102:
+    v5 = $ex;
+    throw new Expression$ExpressionException(this, "REGEX compilation failed", v4.location, v5);
+    L123:
+    return v4;
+}
+
+private Expression$Token next_token() {
+    this.skip_whitespaces();
+    this.assert_have_more_chars();
+    v1 = this.where;
+    v2 = null;
+    v3 = this.chars[this.where];
+    if ((this.where + 1) >= this.chars.length) goto L53;
+    $s0 = this.chars[(this.where + 1)];
+    goto L54;
+    L53:
+    $s0 = 0;
+    L54:
+    v4 = $s0;
+    if (v3 != 33) goto L233;
+    if (v4 != 61) goto L125;
+    if ((this.where + 2) >= this.chars.length) goto L125;
+    if (this.chars[(this.where + 2)] != 35) goto L125;
+    this.where = (this.where + 2);
+    v2 = new Expression$Token(this, Expression$Type.NOT_LIKE, v1);
+    goto L2050;
+    L125:
+    if (v4 != 61) goto L184;
+    if ((this.where + 2) >= this.chars.length) goto L184;
+    if (this.chars[(this.where + 2)] != 126) goto L184;
+    this.where = (this.where + 3);
+    v2 = this.regex_token(Expression$Type.NREGEX, v1);
+    goto L2050;
+    L184:
+    if (v4 != 61) goto L217;
+    this.where = (this.where + 1);
+    v2 = new Expression$Token(this, Expression$Type.NE, v1);
+    goto L2050;
+    L217:
+    v2 = new Expression$Token(this, Expression$Type.LOGIC_NOT, v1);
+    goto L2050;
+    L233:
+    if (v3 != 42) goto L272;
+    if (v4 != 42) goto L272;
+    this.where = (this.where + 1);
+    v2 = new Expression$Token(this, Expression$Type.POWER, v1);
+    goto L2050;
+    L272:
+    if (v3 == 62) goto L284;
+    if (v3 != 60) goto L389;
+    L284:
+    if (v4 != v3) goto L320;
+    if (v3 != 62) goto L302;
+    $s0 = Expression$Type.RIGHT_SHIFT;
+    goto L305;
+    L302:
+    $s0 = Expression$Type.LEFT_SHIFT;
+    L305:
+    v5 = $s0;
+    this.where = (this.where + 1);
+    goto L374;
+    L320:
+    if (v4 != 61) goto L357;
+    if (v3 != 62) goto L339;
+    $s0 = Expression$Type.GE;
+    goto L342;
+    L339:
+    $s0 = Expression$Type.LE;
+    L342:
+    v5 = $s0;
+    this.where = (this.where + 1);
+    goto L374;
+    L357:
+    if (v3 != 62) goto L369;
+    $s0 = Expression$Type.GT;
+    goto L372;
+    L369:
+    $s0 = Expression$Type.LT;
+    L372:
+    v5 = $s0;
+    L374:
+    v2 = new Expression$Token(this, v5, v1);
+    goto L2050;
+    L389:
+    if (v3 != 126) goto L411;
+    v2 = new Expression$Token(this, Expression$Type.BIT_NOT, v1);
+    goto L2050;
+    L411:
+    if (v3 != 61) goto L450;
+    if (v4 != 61) goto L450;
+    this.where = (this.where + 1);
+    v2 = new Expression$Token(this, Expression$Type.EQ, v1);
+    goto L2050;
+    L450:
+    if (v3 != 61) goto L485;
+    if (v4 != 126) goto L485;
+    this.where = (this.where + 2);
+    v2 = this.regex_token(Expression$Type.REGEX, v1);
+    goto L2050;
+    L485:
+    if (v3 != 61) goto L524;
+    if (v4 != 35) goto L524;
+    this.where = (this.where + 1);
+    v2 = new Expression$Token(this, Expression$Type.LIKE, v1);
+    goto L2050;
+    L524:
+    if (v3 != 94) goto L546;
+    v2 = new Expression$Token(this, Expression$Type.BIT_XOR, v1);
+    goto L2050;
+    L546:
+    if (v3 != 124) goto L601;
+    if (v4 != 124) goto L585;
+    this.where = (this.where + 1);
+    v2 = new Expression$Token(this, Expression$Type.LOGIC_OR, v1);
+    goto L2050;
+    L585:
+    v2 = new Expression$Token(this, Expression$Type.BIT_OR, v1);
+    goto L2050;
+    L601:
+    if (v3 != 38) goto L656;
+    if (v4 != 38) goto L640;
+    this.where = (this.where + 1);
+    v2 = new Expression$Token(this, Expression$Type.LOGIC_AND, v1);
+    goto L2050;
+    L640:
+    v2 = new Expression$Token(this, Expression$Type.BIT_AND, v1);
+    goto L2050;
+    L656:
+    if (v3 == 44) goto L668;
+    if (v3 != 59) goto L684;
+    L668:
+    v2 = new Expression$Token(this, Expression$Type.NEXT_ARG, v1);
+    goto L2050;
+    L684:
+    if (v3 != 40) goto L706;
+    v2 = new Expression$Token(this, Expression$Type.OPEN_BRACE, v1);
+    goto L2050;
+    L706:
+    if (v3 != 41) goto L728;
+    v2 = new Expression$Token(this, Expression$Type.CLOSE_BRACE, v1);
+    goto L2050;
+    L728:
+    if (v3 != 43) goto L750;
+    v2 = new Expression$Token(this, Expression$Type.PLUS, v1);
+    goto L2050;
+    L750:
+    if (v3 != 45) goto L772;
+    v2 = new Expression$Token(this, Expression$Type.MINUS, v1);
+    goto L2050;
+    L772:
+    if (v3 != 42) goto L794;
+    v2 = new Expression$Token(this, Expression$Type.MULTIPLY, v1);
+    goto L2050;
+    L794:
+    if (v3 != 37) goto L816;
+    v2 = new Expression$Token(this, Expression$Type.MODULO, v1);
+    goto L2050;
+    L816:
+    if (v3 != 47) goto L838;
+    v2 = new Expression$Token(this, Expression$Type.DIV, v1);
+    goto L2050;
+    L838:
+    if (v3 == 34) goto L850;
+    if (v3 != 39) goto L890;
+    L850:
+    this.where = (this.where + 1);
+    v2 = new Expression$Token(this, Expression$Type.STRING, (v1 + 1));
+    v2.parsed_value.setString(this.get_string(v3));
+    goto L2050;
+    L890:
+    if (v3 != 96) goto L945;
+    this.where = (this.where + 1);
+    v2 = new Expression$Token(this, Expression$Type.NUMBER, this.where);
+    v2.parsed_value.setDecimal(this.decode_date(this.get_string(v3), v2.location));
+    goto L2050;
+    L945:
+    if (v3 != 123) goto L1148;
+    v5 = new LinkedList();
+    L960:
+    this.where = (this.where + 1);
+    this.skip_whitespaces();
+    this.assert_have_more_chars();
+    if (this.chars[this.where] == 39) goto L1006;
+    if (this.chars[this.where] != 34) goto L1107;
+    L1006:
+    v6 = this.chars[this.where];
+    this.where = (this.where + 1);
+    this.assert_have_more_chars();
+    v5.add(this.get_string(v6));
+    this.where = (this.where + 1);
+    this.assert_have_more_chars();
+    this.skip_whitespaces();
+    if (this.chars[this.where] != 125) goto L1080;
+    goto L1123;
+    L1080:
+    if (this.chars[this.where] == 44) goto L1104;
+    this.where = (this.where - 1);
+    L1104:
+    goto L960;
+    L1107:
+    throw new Expression$ExpressionException(this, "unexpected list input, only strings are allowed", this.where);
+    L1123:
+    v2 = new Expression$Token(this, Expression$Type.LIST, v1);
+    v2.parsed_value.setList(v5);
+    goto L2050;
+    L1148:
+    if (Character.isJavaIdentifierStart(v3) == 0) goto L1551;
+    v5 = new StringBuilder(((this.chars.length - this.where) + 1));
+    L1176:
+    v6 = this.chars[this.where];
+    v5.append(v6);
+    if ((this.where + 1) == this.chars.length) goto L1242;
+    if (Character.isJavaIdentifierPart(this.chars[(this.where + 1)]) != 0) goto L1229;
+    goto L1242;
+    L1229:
+    this.where = (this.where + 1);
+    goto L1176;
+    L1242:
+    v6 = v5.toString();
+    v7 = (this.where + 1);
+    L1257:
+    if (v7 >= this.chars.length) goto L1286;
+    if (Character.isWhitespace(this.chars[v7]) == 0) goto L1286;
+    v7 += 1;
+    goto L1257;
+    L1286:
+    if (v7 >= this.chars.length) goto L1525;
+    if ((v7 + 1) >= this.chars.length) goto L1320;
+    $s0 = this.chars[(v7 + 1)];
+    goto L1321;
+    L1320:
+    $s0 = 0;
+    L1321:
+    v8 = $s0;
+    v9 = this.chars[v7];
+    if (v9 != 40) goto L1361;
+    v2 = new Expression$Token(this, Expression$Type.FUNC, v1);
+    this.where = v7;
+    goto L1525;
+    L1361:
+    if (v8 != 61) goto L1410;
+    if (-1 == "+-*/&|^%".indexOf(v9)) goto L1410;
+    v2 = new Expression$Token(this, Expression$Type.ASSIGNMENT, v1);
+    v2.n = v9;
+    this.where = (v7 + 1);
+    goto L1525;
+    L1410:
+    if (v9 == 60) goto L1424;
+    if (v9 != 62) goto L1487;
+    L1424:
+    if (v8 != v9) goto L1487;
+    if ((v7 + 2) >= this.chars.length) goto L1487;
+    if (this.chars[(v7 + 2)] != 61) goto L1487;
+    v2 = new Expression$Token(this, Expression$Type.ASSIGNMENT, v1);
+    v2.n = v9;
+    this.where = (v7 + 2);
+    goto L1525;
+    L1487:
+    if (v9 != 61) goto L1525;
+    if (-1 != "=~#".indexOf(v8)) goto L1525;
+    v2 = new Expression$Token(this, Expression$Type.ASSIGNMENT, v1);
+    this.where = v7;
+    L1525:
+    if (v2 != null) goto L1542;
+    v2 = new Expression$Token(this, Expression$Type.VARIABLE, v1);
+    L1542:
+    v2.name = v6;
+    goto L2050;
+    L1551:
+    if (v3 != 48) goto L1752;
+    if (-1 == "XxBb".indexOf(v4)) goto L1752;
+    if (v4 == 98) goto L1583;
+    if (v4 != 66) goto L1587;
+    L1583:
+    $s0 = 1;
+    goto L1588;
+    L1587:
+    $s0 = 0;
+    L1588:
+    v5 = $s0;
+    if (v5 == 0) goto L1601;
+    $s0 = "01";
+    goto L1604;
+    L1601:
+    $s0 = "0123456789AaBbCcDdEeFf";
+    L1604:
+    v6 = $s0;
+    this.where = (this.where + 1);
+    v7 = (this.where + 1);
+    L1624:
+    if (v7 >= this.chars.length) goto L1656;
+    if (-1 == v6.indexOf(this.chars[v7])) goto L1656;
+    v7 += 1;
+    goto L1624;
+    L1656:
+    if ((this.where + 1) != v7) goto L1680;
+    throw new Expression$ExpressionException(this, "incomplete HEX/BIN value", v1);
+    L1680:
+    $s0 = new Expression$Token(?)4;
+    $s1 = new Expression$Token(?)4;
+    $s2 = this.sub_string((this.where + 1), v7);
+    if (v5 == 0) goto L1705;
+    $s0 = new Expression$Token(?)4;
+    $s1 = new Expression$Token(?)4;
+    $s2 = this.sub_string((this.where + 1), v7);
+    $s3 = 2;
+    goto L1707;
+    L1705:
+    $s3 = 16;
+    L1707:
+    $s1.<init>($s2, $s3);
+    v8 = $s0;
+    v2 = new Expression$Token(this, Expression$Type.NUMBER, v1);
+    v2.parsed_value.setDecimal(new java.math.BigDecimal(v8));
+    this.where = (v7 - 1);
+    goto L2050;
+    L1752:
+    this.parsePos.setIndex(this.where);
+    v5 = (java.math.BigDecimal)this.parseFmt.parse(this.expression, this.parsePos);
+    if (v5 != null) goto L1804;
+    throw new Expression$ExpressionException(this, "unexpected input", this.where);
+    L1804:
+    this.where = (this.parsePos.getIndex() - 1);
+    if (this.parsePos.getIndex() >= this.chars.length) goto L2028;
+    switch (this.chars[this.parsePos.getIndex()]) { 66: L1975, 75: L1920, 77: L1947, 84: L2003, 98: L1975, 107: L1920, 109: L1947, 116: L2003; default: L2028 }
+    L1920:
+    v5 = v5.multiply(java.math.BigDecimal.TEN.pow(3));
+    this.where = (this.where + 1);
+    goto L2028;
+    L1947:
+    v5 = v5.multiply(java.math.BigDecimal.TEN.pow(6));
+    this.where = (this.where + 1);
+    goto L2028;
+    L1975:
+    v5 = v5.multiply(java.math.BigDecimal.TEN.pow(9));
+    this.where = (this.where + 1);
+    goto L2028;
+    L2003:
+    v5 = v5.multiply(java.math.BigDecimal.TEN.pow(12));
+    this.where = (this.where + 1);
+    L2028:
+    v2 = new Expression$Token(this, Expression$Type.NUMBER, v1);
+    v2.parsed_value.setDecimal(v5);
+    L2050:
+    this.where = (this.where + 1);
+    this.skip_whitespaces();
+    if (Expression.is_debug == 0) goto L2114;
+    $a39 = new Object[3];
+    $a39[0] = Integer.valueOf(v2.location);
+    $a39[1] = Integer.valueOf(v2.nesting_level);
+    $a39[2] = v2.toString();
+    this.L().fine("@ %2d #%2d:  %s".formatted($a39));
+    L2114:
+    return v2;
+}
+
+private int parse(Expression$ParsingScope p0) {
+    v2 = new Stack();
+    v5 = 0;
+    this.nesting = (this.nesting + 1);
+    L21:
+    v3 = null;
+    v6 = this.next_token();
+    if (v6.type != Expression$Type.MINUS) goto L66;
+    v3 = new Expression$Token(this, Expression$Type.UNARY_MINUS, v6.location);
+    v6 = this.next_token();
+    goto L160;
+    L66:
+    if (v6.type != Expression$Type.PLUS) goto L103;
+    v3 = new Expression$Token(this, Expression$Type.UNARY_PLUS, v6.location);
+    v6 = this.next_token();
+    goto L160;
+    L103:
+    if (v6.type != Expression$Type.BIT_NOT) goto L126;
+    v3 = v6;
+    v6 = this.next_token();
+    goto L160;
+    L126:
+    if (v6.type != Expression$Type.LOGIC_NOT) goto L160;
+    v3 = new Expression$Token(this, Expression$Type.LOGIC_NOT, v6.location);
+    v6 = this.next_token();
+    L160:
+    if (v6.type != Expression$Type.OPEN_BRACE) goto L261;
+    v7 = this.commands.size();
+    this.parse(Expression$ParsingScope.SUBEXPRESSION);
+    if ((v7 + 1) != this.commands.size()) goto L258;
+    v8 = (Expression$Token)this.commands.get(v7);
+    v8.nesting_level = this.nesting;
+    if (Expression.is_debug == 0) goto L258;
+    this.L().fine(("### DROPPED LEVEL: " + String.valueOf(v8) + " to " + this.nesting));
+    L258:
+    goto L579;
+    L261:
+    if (v6.type != Expression$Type.CLOSE_BRACE) goto L321;
+    if (p0 != Expression$ParsingScope.FUNCTION_CALL) goto L321;
+    if (v2.isEmpty() == 0) goto L321;
+    if ((Expression$Token)this.commands.get((this.commands.size() - 1)).type == Expression$Type.NEXT_ARG) goto L321;
+    goto L962;
+    L321:
+    if (v6.type != Expression$Type.FUNC) goto L392;
+    this.commands.add(new Expression$Token(this, Expression$Type.ARGS_START, v6.location));
+    v7 = this.parse(Expression$ParsingScope.FUNCTION_CALL);
+    $a6 = new Expression$VarValue[v7];
+    v6.args = $a6;
+    this.commands.add(v6);
+    goto L579;
+    L392:
+    if (v6.type != Expression$Type.ASSIGNMENT) goto L467;
+    if (v6.n == 0) goto L457;
+    v7 = new Expression$Token(this, Expression$Type.VARIABLE, v6.location);
+    v7.name = v6.name;
+    v7.nesting_level = -1;
+    this.commands.add(v7);
+    L457:
+    v2.push(v6);
+    goto L21;
+    L467:
+    if (v6.type == Expression$Type.NUMBER) goto L489;
+    if (v6.type != Expression$Type.VARIABLE) goto L504;
+    L489:
+    this.commands.add(v6);
+    goto L579;
+    L504:
+    if (v6.type == Expression$Type.STRING) goto L526;
+    if (v6.type != Expression$Type.LIST) goto L562;
+    L526:
+    if (v3 == null) goto L547;
+    throw new Expression$ExpressionException(this, "invalid expression", v6.location);
+    L547:
+    this.commands.add(v6);
+    goto L579;
+    L562:
+    throw new Expression$ExpressionException(this, "unexpected input", v6.location);
+    L579:
+    if (v5 != 0) goto L587;
+    v5 = 1;
+    L587:
+    if (v3 == null) goto L602;
+    this.commands.add(v3);
+    L602:
+    this.skip_whitespaces();
+    if (this.where != this.chars.length) goto L644;
+    if (p0 != Expression$ParsingScope.EXPRESSION) goto L628;
+    goto L962;
+    L628:
+    throw new Expression$ExpressionException(this, "incomplete expression", this.where);
+    L644:
+    v4 = this.next_token();
+    if ((v4.type.flags & 4) == 4) goto L667;
+    goto L677;
+    L667:
+    v2.push(v4);
+    goto L602;
+    L677:
+    if (v4.type != Expression$Type.CLOSE_BRACE) goto L715;
+    if (p0 == Expression$ParsingScope.EXPRESSION) goto L698;
+    goto L962;
+    L698:
+    throw new Expression$ExpressionException(this, "unexpected closing brace", v4.location);
+    L715:
+    if (v4.type != Expression$Type.NEXT_ARG) goto L760;
+    if (p0 == Expression$ParsingScope.FUNCTION_CALL) goto L754;
+    v4 = new Expression$Token(this, Expression$Type.DISCARD_RESULT, v4.location);
+    goto L788;
+    L754:
+    v5 += 1;
+    goto L788;
+    L760:
+    if (v4.type.isOperator() != 0) goto L788;
+    throw new Expression$ExpressionException(this, "unexpected input in place of an operator", v4.location);
+    L788:
+    if (v2.empty() != 0) goto L861;
+    v7 = (Expression$Token)v2.pop();
+    if (v7.type.getWeight() < v4.type.getWeight()) goto L848;
+    this.end_span(v7);
+    this.commands.add(v7);
+    this.do_reduce();
+    goto L858;
+    L848:
+    v2.push(v7);
+    goto L861;
+    L858:
+    goto L788;
+    L861:
+    if (v4.type == Expression$Type.LOGIC_OR) goto L883;
+    if (v4.type != Expression$Type.LOGIC_AND) goto L894;
+    L883:
+    v4.spanRef = this.start_span(v4);
+    L894:
+    if (v4.type == Expression$Type.DISCARD_RESULT) goto L916;
+    if (v4.type != Expression$Type.NEXT_ARG) goto L952;
+    L916:
+    if (Expression.$assertionsDisabled != 0) goto L937;
+    if (v2.isEmpty() != 0) goto L937;
+    throw new AssertionError();
+    L937:
+    this.commands.add(v4);
+    goto L959;
+    L952:
+    v2.push(v4);
+    L959:
+    goto L21;
+    L962:
+    if (v2.isEmpty() != 0) goto L1003;
+    v6 = (Expression$Token)v2.pop();
+    this.end_span(v6);
+    this.commands.add(v6);
+    this.do_reduce();
+    goto L962;
+    L1003:
+    this.nesting = (this.nesting - 1);
+    return v5;
+}
+
+private boolean is_number(Expression$Token p0, java.math.BigDecimal p1) {
+    if (p0.type != Expression$Type.NUMBER) goto L28;
+    if (p0.parsed_value.d.compareTo(p1) != 0) goto L28;
+    $s0 = 1;
+    goto L29;
+    L28:
+    $s0 = 0;
+    L29:
+    return $s0;
+}
+
+private void do_reduce() {
+    if (this.commands.size() >= 3) goto L14;
+    return;
+    L14:
+    v1 = (Expression$Token)this.commands.get((this.commands.size() - 1));
+    v2 = (Expression$Token)this.commands.get((this.commands.size() - 2));
+    v3 = (Expression$Token)this.commands.get((this.commands.size() - 3));
+    if (v3.nesting_level == v2.nesting_level) goto L98;
+    return;
+    L98:
+    if (v1.isMathOp() == 0) goto L944;
+    if (v1.type != Expression$Type.MULTIPLY) goto L284;
+    if (v3.type != Expression$Type.VARIABLE) goto L136;
+    if (this.is_number(v2, java.math.BigDecimal.ZERO) != 0) goto L157;
+    L136:
+    if (this.is_number(v3, java.math.BigDecimal.ZERO) == 0) goto L284;
+    if (v2.type != Expression$Type.VARIABLE) goto L284;
+    L157:
+    v4 = 0;
+    L160:
+    if (v4 >= 2) goto L193;
+    this.commands.remove((this.commands.size() - 1));
+    v4 += 1;
+    goto L160;
+    L193:
+    if (Expression.is_debug == 0) goto L226;
+    this.L().fine(("### REDUCED: " + String.valueOf(v3) + " " + String.valueOf(v1.type) + " " + String.valueOf(v2) + " -> ZERO"));
+    L226:
+    v4 = new Expression$Token(this, Expression$Type.NUMBER, v3.location);
+    v4.parsed_value.setDecimal(java.math.BigDecimal.ZERO);
+    this.commands.set((this.commands.size() - 1), v4);
+    this.do_reduce();
+    goto L1282;
+    L284:
+    if (v1.type != Expression$Type.MULTIPLY) goto L336;
+    if (v3.type != Expression$Type.VARIABLE) goto L315;
+    if (this.is_number(v2, java.math.BigDecimal.ONE) != 0) goto L450;
+    L315:
+    if (this.is_number(v3, java.math.BigDecimal.ONE) == 0) goto L336;
+    if (v2.type == Expression$Type.VARIABLE) goto L450;
+    L336:
+    if (v1.type != Expression$Type.DIV) goto L367;
+    if (v3.type != Expression$Type.VARIABLE) goto L367;
+    if (this.is_number(v2, java.math.BigDecimal.ONE) != 0) goto L450;
+    L367:
+    if (v1.type != Expression$Type.MINUS) goto L398;
+    if (v3.type != Expression$Type.VARIABLE) goto L398;
+    if (this.is_number(v2, java.math.BigDecimal.ZERO) != 0) goto L450;
+    L398:
+    if (v1.type != Expression$Type.PLUS) goto L551;
+    if (v3.type != Expression$Type.VARIABLE) goto L429;
+    if (this.is_number(v2, java.math.BigDecimal.ZERO) != 0) goto L450;
+    L429:
+    if (this.is_number(v3, java.math.BigDecimal.ZERO) == 0) goto L551;
+    if (v2.type != Expression$Type.VARIABLE) goto L551;
+    L450:
+    v4 = 0;
+    L453:
+    if (v4 >= 3) goto L486;
+    this.commands.remove((this.commands.size() - 1));
+    v4 += 1;
+    goto L453;
+    L486:
+    if (Expression.is_debug == 0) goto L519;
+    this.L().fine(("### REDUCED: " + String.valueOf(v3) + " " + String.valueOf(v1.type) + " " + String.valueOf(v2) + " -> NOOP"));
+    L519:
+    $s0 = this.commands;
+    if (v3.type != Expression$Type.VARIABLE) goto L537;
+    $s0 = this.commands;
+    $s1 = v3;
+    goto L538;
+    L537:
+    $s1 = v2;
+    L538:
+    $s0.add($s1);
+    this.do_reduce();
+    goto L1282;
+    L551:
+    if (v2.type != Expression$Type.NUMBER) goto L1282;
+    if (v3.type != Expression$Type.NUMBER) goto L722;
+    v4 = 0;
+    L574:
+    if (v4 >= 2) goto L607;
+    this.commands.remove((this.commands.size() - 1));
+    v4 += 1;
+    goto L574;
+    L607:
+    this.reduce_stack.push(v3.scratch.set(v3.parsed_value));
+    this.reduce_stack.push(v2.scratch.set(v2.parsed_value));
+    this.calc(this.reduce_stack, v1);
+    v4 = (Expression$VarValue)this.reduce_stack.pop();
+    if (Expression.is_debug == 0) goto L705;
+    this.L().fine(("### REDUCED: " + String.valueOf(v3) + " " + String.valueOf(v1.type) + " " + String.valueOf(v2) + " -> " + String.valueOf(v4)));
+    L705:
+    v3.parsed_value.set(v4);
+    this.do_reduce();
+    goto L1282;
+    L722:
+    if (this.commands.size() < 4) goto L1282;
+    if (v3.isMathOp() == 0) goto L1282;
+    if (v3.type.getWeight() > v1.type.getWeight()) goto L1282;
+    v3 = (Expression$Token)this.commands.get((this.commands.size() - 4));
+    if (v3.type != Expression$Type.NUMBER) goto L1282;
+    v4 = 0;
+    L796:
+    if (v4 >= 2) goto L829;
+    this.commands.remove((this.commands.size() - 1));
+    v4 += 1;
+    goto L796;
+    L829:
+    this.reduce_stack.push(v3.scratch.set(v3.parsed_value));
+    this.reduce_stack.push(v2.scratch.set(v2.parsed_value));
+    this.calc(this.reduce_stack, v1);
+    v4 = (Expression$VarValue)this.reduce_stack.pop();
+    if (Expression.is_debug == 0) goto L927;
+    this.L().fine(("### REDUCED: " + String.valueOf(v3) + " " + String.valueOf(v1.type) + " " + String.valueOf(v2) + " -> " + String.valueOf(v4)));
+    L927:
+    v3.parsed_value.set(v4);
+    this.do_reduce();
+    goto L1282;
+    L944:
+    if (v1.isCompOp() == 0) goto L1282;
+    v4 = null;
+    if (v3.type != v2.type) goto L1187;
+    if (v3.type != Expression$Type.VARIABLE) goto L1090;
+    if (v3.name.equals(v2.name) == 0) goto L1090;
+    v4 = new Expression$Token(this, Expression$Type.NUMBER, v3.location);
+    switch (v1.type.ordinal()) { 10: L1060, 11: L1056, 12: L1056, 13: L1060, 14: L1056, 15: L1060; default: L1064 }
+    L1056:
+    $s0 = 1;
+    goto L1083;
+    L1060:
+    $s0 = 0;
+    goto L1083;
+    L1064:
+    throw new Error(this.error_info("not a comparison", v1.location));
+    L1083:
+    <?stack-underflow?>.setBool($s0);
+    goto L1187;
+    L1090:
+    if (v3.type != Expression$Type.NUMBER) goto L1187;
+    this.reduce_stack.push(v3.scratch.set(v3.parsed_value));
+    this.reduce_stack.push(v2.scratch.set(v2.parsed_value));
+    this.calc(this.reduce_stack, v1);
+    v4 = new Expression$Token(this, Expression$Type.NUMBER, v3.location);
+    v4.parsed_value.setBool((Expression$VarValue)this.reduce_stack.pop().getBoolean());
+    L1187:
+    if (v4 == null) goto L1282;
+    v5 = 0;
+    L1195:
+    if (v5 >= 3) goto L1228;
+    this.commands.remove((this.commands.size() - 1));
+    v5 += 1;
+    goto L1195;
+    L1228:
+    this.commands.add(v4);
+    if (Expression.is_debug == 0) goto L1278;
+    this.L().fine(("### REDUCED: " + String.valueOf(v3) + " " + String.valueOf(v1.type) + " " + String.valueOf(v2) + " -> " + String.valueOf(v4)));
+    L1278:
+    this.do_reduce();
+    L1282:
+    return;
+}
+
+private Expression$Token start_span(Expression$Token p0) {
+    $s0 = new Expression$Token(?);
+    $s1 = new Expression$Token(?);
+    $s2 = this;
+    if (p0.type != Expression$Type.LOGIC_OR) goto L21;
+    $s0 = new Expression$Token(?);
+    $s1 = new Expression$Token(?);
+    $s2 = this;
+    $s3 = Expression$Type.LOGICAL_OR_SPAN;
+    goto L24;
+    L21:
+    $s3 = Expression$Type.LOGICAL_AND_SPAN;
+    L24:
+    $s1.<init>($s2, $s3, p0.location);
+    v2 = $s0;
+    this.commands.add(v2);
+    v2.n = this.commands.size();
+    return v2;
+}
+
+private void end_span(Expression$Token p0) {
+    if (p0.spanRef == null) goto L33;
+    p0.spanRef.n = ((this.commands.size() - p0.spanRef.n) + 1);
+    L33:
+    return;
+}
+
+public static String getSyntaxDescription() {
+    return "BNF-ish syntax:\n<expr> : [!] '(' <expr> ')'          # grouping, '!' negates the Boolean result of expression\n       | <comp>\n       | <expr> || <expr>            # Logical OR,\n       | <expr> && <expr>            # Logical AND\n       | name = <expr>\t\t\t\t  # assignment, and result\n       | (<name> = <expr>[,<name> = <expr>[,..]]) # last assignment is the result\n       ;\n\n<expr> is combination of:\n\n<text> : \"<chars>\" | '<chars>';                # text can have \\\" and \\' to escape quotes\n<name> : JAVA-kind-of-identifier;\n<num>  : <digit>[<digit|,|.>[...]];             # see DecimalFormat.parse(String), and\n                                                # NOTE1 below\n<date> : `YYYY-MMM-DD`|`YYYY-MM-DD`;            # results in YYYYMMDD number\n<list> : '{'<text>'[<,;> <text> [<,;>...]]'}'   # list of strings\n<math> : [( '+' | '-' )] <name|func|num>\n       | <math> <mathOp> <math>\n       | <math> ** <math2>;                     # math in power math2, math2 must be an int\n<mathOp> : + - * / % | & ^;\n\n<func> : <name>(<arg1> [<,|;> <arg2> [...]])\nNOTE1: Numbers can have ',', so a call like this func(10,10) will be called with\njust one argument '1010', as opposed two arguments. If two arguments are needed\nuse \"10, 10\", or \"10;10\"\n\nUse '0' as FALSE, and '1' as TRUE.\n\n<arg#> : <math>\n<comp> : <math> [!=|==] (<math>|<text>|<list>)  # [not] equals, string or a number.\n       | (<name>|<text>) [!]=# (<text>|<list>)  # [not] contains in text or list\n       | <name> [!]=~ <java-regex-text>         # [not] match JAVA REGEX expression\n       | math (>|<|>=|<=) math                  # numeric comparison: greater, less,\n                                                # greater equal, less equal than\n\t   ;\nString and REGEX comparisons are case INSENSITIVE.\n\nList comparisons, are read like:\n   name == {'a','b','c'}   # the list contains var\n   name != {'a','b','c'}   # the list doesn't contain var\n\nPrecedence, from the highest to lowest:\n    * / % + - > < >= <= [!]=# [!]=~ & ^ | = != && ||\n";
+}
+
+public static Expression$VarValue calculate(String p0, Expression$VariableProvider p1, Expression$FunctionProvider p2) {
+    return Expression.calculate(p0, p1, p2, java.math.MathContext.DECIMAL128);
+}
+
+public static Expression$VarValue calculate(String p0, Expression$VariableProvider p1, Expression$FunctionProvider p2, java.math.MathContext p3) {
+    v4 = null;
+    p0 = p0.strip();
+    if (p0.isEmpty() != 0) goto L122;
+    if (Character.isJavaIdentifierStart(p0.charAt(0)) == 0) goto L122;
+    v5 = 1;
+    L29:
+    if (v5 >= p0.length()) goto L122;
+    v6 = p0.charAt(v5);
+    v5 += 1;
+    if (Character.isJavaIdentifierPart(v6) != 0) goto L119;
+    L57:
+    if (Character.isWhitespace(v6) == 0) goto L88;
+    if (v5 >= p0.length()) goto L88;
+    v6 = p0.charAt(v5);
+    v5 += 1;
+    goto L57;
+    L88:
+    if (v6 != 61) goto L122;
+    v4 = p0.substring(0, (v5 - 1)).strip();
+    p0 = p0.substring(v5);
+    goto L122;
+    L119:
+    goto L29;
+    L122:
+    v5 = new Expression(p0, p1, p2, p3);
+    v6 = v5.evaluate();
+    v6.varName = v4;
+    return v6;
+}
+
+public static Expression$VarValue calculate(String p0) {
+    return Expression.calculate(p0, null, null, java.math.MathContext.DECIMAL128);
+}
+
+public void <init>(String p0, Expression$VariableProvider p1, Expression$FunctionProvider p2) {
+    super.<init>(p0, p1, p2, java.math.MathContext.DECIMAL128);
+    return;
+}
+
+public void <init>(String p0, Expression$VariableProvider p1, Expression$FunctionProvider p2, java.math.MathContext p3) {
+    super.<init>();
+    this.parseFmt = new DecimalFormat();
+    this.parseFmt.setParseBigDecimal(1);
+    this.where = 0;
+    this.parsePos = new ParsePosition(0);
+    this.nesting = 0;
+    this.reduce_stack = new Stack();
+    this.stack = new Stack();
+    this.input_vars = new HashMap();
+    this.parsedFuncs = new HashMap();
+    this.temp_vars = new HashMap();
+    this.result = null;
+    this.expression = p0;
+    this.chars = p0.toCharArray();
+    this.commands = new ArrayList();
+    this.mc = p3;
+    this.parse(Expression$ParsingScope.EXPRESSION);
+    if (this.commands.isEmpty() == 0) goto L167;
+    throw new Expression$ExpressionException(this, "empty expression", 0);
+    L167:
+    if (Expression.is_debug == 0) goto L183;
+    this.L().fine("calling evaluate() to determine if result is constant");
+    L183:
+    this.evaluate();
+    if (this.temp_vars.isEmpty() == 0) goto L289;
+    this.commands.clear();
+    v5 = new Expression$Token(this, Expression$Type.NUMBER, 0);
+    v5.nesting_level = 1;
+    v5.parsed_value.set(this.result);
+    this.commands.add(v5);
+    if (Expression.is_debug == 0) goto L288;
+    $a11 = new Object[2];
+    $a11[0] = p0;
+    $a11[1] = this.getSimplified();
+    this.L().fine("### reduced '%s' -> '%s'.".formatted($a11));
+    L288:
+    return;
+    L289:
+    if (Expression.is_debug == 0) goto L316;
+    $a12 = new Object[1];
+    $a12[0] = p0;
+    this.L().fine("### unable to reduce '%s', detected side effects".formatted($a12));
+    L316:
+    goto L348;
+    // handler for [167,288) catch Expression$UnresolvedSymbolException
+    // handler for [289,316) catch Expression$UnresolvedSymbolException
+    L319:
+    v5 = $ex;
+    if (Expression.is_debug == 0) goto L348;
+    $a13 = new Object[1];
+    $a13[0] = p0;
+    this.L().fine("### unable to reduce '%s' due to unresolved symbol".formatted($a13));
+    L348:
+    v5 = this.commands.iterator();
+    L359:
+    if (v5.hasNext() == 0) goto L721;
+    v6 = (Expression$Token)v5.next();
+    if (v6.type != Expression$Type.ASSIGNMENT) goto L401;
+    this.ensure_temp_var(v6);
+    goto L718;
+    L401:
+    if (v6.type != Expression$Type.VARIABLE) goto L589;
+    v6.var = (Expression$Var)this.temp_vars.get(v6.name);
+    if (v6.var != null) goto L718;
+    v7 = (Expression$Var)this.input_vars.get(v6.name);
+    if (v7 != null) goto L579;
+    if (p1 != null) goto L487;
+    throw new Expression$ExpressionException(this, "no VARIABLES provided, or declared in the expression", v6.location);
+    L487:
+    v7 = new Expression$Var(this, v6, 0);
+    v7.variable = p1.resolveVariable(v6.name);
+    if (Expression.$assertionsDisabled != 0) goto L538;
+    if (v7.variable != null) goto L538;
+    throw new AssertionError();
+    L538:
+    this.input_vars.put(v6.name, v7);
+    goto L579;
+    // handler for [500,555) catch Exception
+    L558:
+    v8 = $ex;
+    throw new Expression$ExpressionException(this, v8.getMessage(), v6.location);
+    L579:
+    v6.var = v7;
+    goto L718;
+    L589:
+    if (v6.type != Expression$Type.FUNC) goto L718;
+    if (p2 != null) goto L621;
+    throw new Expression$ExpressionException(this, "no FUNCTIONS provided", v6.location);
+    L621:
+    $s0 = v6;
+    $s1 = p2;
+    $s2 = v6.name;
+    if (v6.args != null) goto L641;
+    $s0 = v6;
+    $s1 = p2;
+    $s2 = v6.name;
+    $s3 = 0;
+    goto L647;
+    L641:
+    $s3 = v6.args.length;
+    L647:
+    $s0.f = $s1.resolveFunction($s2, $s3);
+    if (Expression.$assertionsDisabled != 0) goto L677;
+    if (v6.f != null) goto L677;
+    throw new AssertionError();
+    L677:
+    this.parsedFuncs.put(v6.name, v6);
+    goto L718;
+    // handler for [621,694) catch Exception
+    L697:
+    v7 = $ex;
+    throw new Expression$ExpressionException(this, v7.getMessage(), v6.location);
+    L718:
+    goto L359;
+    L721:
+    return;
+}
+
+ void ensure_temp_var(Expression$Token p0) {
+    p0.var = (Expression$Var)this.temp_vars.get(p0.name);
+    if (p0.var != null) goto L79;
+    v2 = new Expression$Var(this, p0, 1);
+    v2.cached_value.varName = p0.name;
+    v2.variable = lambda[Expression::lambda$ensure_temp_var$0](v2);
+    this.temp_vars.put(p0.name, v2);
+    p0.var = v2;
+    L79:
+    return;
+}
+
+public boolean hasTempVars() {
+    if (this.temp_vars.isEmpty() != 0) goto L16;
+    $s0 = 1;
+    goto L17;
+    L16:
+    $s0 = 0;
+    L17:
+    return $s0;
+}
+
+private void log_stack(String p0, Stack p1) {
+    if (p1.isEmpty() == 0) goto L24;
+    v3 = new StringBuilder(("Stack " + p0 + " EMPTY!"));
+    goto L56;
+    L24:
+    v3 = new StringBuilder(("Stack " + p0 + " { "));
+    p1.forEach(lambda[Expression::lambda$log_stack$0](v3));
+    v3.append("}");
+    L56:
+    this.L().fine(v3.toString());
+    return;
+}
+
+private boolean calc(Stack p0, Expression$Token p1) {
+    if (Expression.is_debug == 0) goto L30;
+    this.log_stack("on enter ", p0);
+    this.L().fine((" OP: " + p1.toString()));
+    L30:
+    v4 = null;
+    if (p1.type != Expression$Type.FUNC) goto L54;
+    v4 = this.call_func(p0, p1);
+    goto L2585;
+    L54:
+    if (p1.type != Expression$Type.ASSIGNMENT) goto L535;
+    v4 = (Expression$VarValue)p0.pop();
+    if (p1.n == 0) goto L493;
+    v5 = (Expression$VarValue)p0.pop();
+    if (v5.isString() == 0) goto L129;
+    if (p1.n != 43) goto L129;
+    v4.setString((v5.s + v5.s));
+    goto L493;
+    L129:
+    this.assert_var_is_number(v4);
+    this.assert_var_is_number(v5);
+    switch (p1.n) { 37: L288, 38: L349, 42: L304, 43: L236, 45: L252, 47: L268, 60: L407, 62: L439, 94: L320, 124: L378; default: L471 }
+    L236:
+    $s0 = v5.d.add(v4.d);
+    goto L490;
+    L252:
+    $s0 = v5.d.subtract(v4.d);
+    goto L490;
+    L268:
+    $s0 = v5.d.divide(v4.d, this.mc);
+    goto L490;
+    L288:
+    $s0 = v5.d.remainder(v4.d);
+    goto L490;
+    L304:
+    $s0 = v5.d.multiply(v4.d);
+    goto L490;
+    L320:
+    $s0 = new java.math.BigDecimal(v5.d.toBigIntegerExact().xor(v4.d.toBigIntegerExact()));
+    goto L490;
+    L349:
+    $s0 = new java.math.BigDecimal(v5.d.toBigIntegerExact().and(v4.d.toBigIntegerExact()));
+    goto L490;
+    L378:
+    $s0 = new java.math.BigDecimal(v5.d.toBigIntegerExact().or(v4.d.toBigIntegerExact()));
+    goto L490;
+    L407:
+    $s0 = new java.math.BigDecimal(v5.d.toBigIntegerExact().shiftLeft(v4.d.toBigIntegerExact().intValue()));
+    goto L490;
+    L439:
+    $s0 = new java.math.BigDecimal(v5.d.toBigIntegerExact().shiftRight(v4.d.toBigIntegerExact().intValue()));
+    goto L490;
+    L471:
+    throw new Error(this.error_info("INTERNAL ERROR: unexpected assignment type", p1.location));
+    L490:
+    <?stack-underflow?>.d = $s0;
+    L493:
+    v4.varName = p1.name;
+    this.ensure_temp_var(p1);
+    (Expression$Var)this.temp_vars.get(p1.name).cached_value.set(v4);
+    goto L2585;
+    L535:
+    if (p1.type == Expression$Type.REGEX) goto L555;
+    if (p1.type != Expression$Type.NREGEX) goto L622;
+    L555:
+    v5 = (Expression$VarValue)p0.pop();
+    this.assert_var_is_string(v5);
+    v6 = p1.pattern.matcher(v5.s).matches();
+    $s0 = v5;
+    if (p1.type != Expression$Type.REGEX) goto L603;
+    $s0 = v5;
+    $s1 = 1;
+    goto L604;
+    L603:
+    $s1 = 0;
+    L604:
+    if ($s1 != v6) goto L613;
+    $s1 = 1;
+    goto L614;
+    L613:
+    $s1 = 0;
+    L614:
+    v4 = $s0.setBool($s1);
+    goto L2585;
+    L622:
+    v5 = (Expression$VarValue)p0.pop();
+    if (p1.type != Expression$Type.LOGIC_NOT) goto L717;
+    $s0 = v5;
+    if (v5.getBoolean() != 0) goto L655;
+    $s0 = v5;
+    $s1 = 1;
+    goto L656;
+    L655:
+    $s1 = 0;
+    L656:
+    v4 = $s0.setBool($s1);
+    if (Expression.is_debug == 0) goto L2585;
+    $a7 = new Object[2];
+    $s0 = this.L();
+    $s1 = "## ! %s  -->  %s";
+    $s2 = $a7;
+    $s3 = $a7;
+    $s4 = 0;
+    if (v4.getBoolean() != 0) goto L692;
+    $s0 = this.L();
+    $s1 = "## ! %s  -->  %s";
+    $s2 = $a7;
+    $s3 = $a7;
+    $s4 = 0;
+    $s5 = 1;
+    goto L693;
+    L692:
+    $s5 = 0;
+    L693:
+    $s3[$s4] = Boolean.valueOf($s5);
+    $s2[1] = Boolean.valueOf(v4.getBoolean());
+    $s0.fine($s1.formatted($s2));
+    goto L2585;
+    L717:
+    if (p1.type != Expression$Type.BIT_NOT) goto L829;
+    this.assert_var_is_number(v5);
+    v4 = v5;
+    v6 = v4.d;
+    v4.d = new java.math.BigDecimal(v4.d.toBigIntegerExact().not());
+    if (Expression.is_debug == 0) goto L826;
+    v7 = Long.toUnsignedString(v4.d.toBigIntegerExact().longValueExact(), 16);
+    $a9 = new Object[3];
+    $a9[0] = v6;
+    $a9[1] = v4.d;
+    $a9[2] = v7;
+    this.L().fine("## -(%s)  -->  (u64)%s -> 0x%s".formatted($a9));
+    L826:
+    goto L2585;
+    L829:
+    if (p1.type == Expression$Type.UNARY_MINUS) goto L849;
+    if (p1.type != Expression$Type.UNARY_PLUS) goto L928;
+    L849:
+    this.assert_var_is_number(v5);
+    v4 = v5;
+    if (p1.type != Expression$Type.UNARY_MINUS) goto L2585;
+    v6 = v4.d;
+    v4.d = v4.d.negate();
+    if (Expression.is_debug == 0) goto L925;
+    $a10 = new Object[2];
+    $a10[0] = v6;
+    $a10[1] = v4.d;
+    this.L().fine("## -(%s)  -->  %s".formatted($a10));
+    L925:
+    goto L2585;
+    L928:
+    v6 = (Expression$VarValue)p0.pop();
+    v3 = v6.toString();
+    switch (p1.type.ordinal()) { 0: L1210, 1: L2519, 2: L2519, 3: L1210, 4: L1210, 5: L1210, 6: L1210, 7: L1210, 8: L1210, 9: L1210, 10: L1210, 11: L1210, 12: L1210, 13: L1210, 14: L1128, 15: L1128, 16: L2397, 17: L2283, 18: L1210, 19: L1210, 20: L1210, 21: L1056, 22: L1056; default: L2519 }
+    L1056:
+    if (p1.type != Expression$Type.LOGIC_OR) goto L1097;
+    $s0 = v6;
+    if (v5.getBoolean() != 0) goto L1084;
+    $s0 = v6;
+    if (v6.getBoolean() == 0) goto L1088;
+    $s0 = v6;
+    L1084:
+    $s1 = 1;
+    goto L1089;
+    L1088:
+    $s1 = 0;
+    L1089:
+    v4 = $s0.setBool($s1);
+    goto L2538;
+    L1097:
+    $s0 = v6;
+    if (v5.getBoolean() == 0) goto L1119;
+    $s0 = v6;
+    if (v6.getBoolean() == 0) goto L1119;
+    $s0 = v6;
+    $s1 = 1;
+    goto L1120;
+    L1119:
+    $s1 = 0;
+    L1120:
+    v4 = $s0.setBool($s1);
+    goto L2538;
+    L1128:
+    if (v6.isBoolean() == 0) goto L1210;
+    if (v5.isBoolean() == 0) goto L1210;
+    if (p1.type != Expression$Type.EQ) goto L1182;
+    $s0 = v6;
+    if (v6.getBoolean() != v5.getBoolean()) goto L1173;
+    $s0 = v6;
+    $s1 = 1;
+    goto L1174;
+    L1173:
+    $s1 = 0;
+    L1174:
+    v4 = $s0.setBool($s1);
+    goto L2538;
+    L1182:
+    $s0 = v6;
+    if (v6.getBoolean() == v5.getBoolean()) goto L1201;
+    $s0 = v6;
+    $s1 = 1;
+    goto L1202;
+    L1201:
+    $s1 = 0;
+    L1202:
+    v4 = $s0.setBool($s1);
+    goto L2538;
+    L1210:
+    if (v6.isString() == 0) goto L1351;
+    if (v5.isString() == 0) goto L1351;
+    if (p1.type != Expression$Type.PLUS) goto L1263;
+    v4 = v6;
+    v4.setString((v6.s + v5.s));
+    goto L2538;
+    L1263:
+    if (p1.type != Expression$Type.LT) goto L1307;
+    v4 = v6;
+    $s0 = v4;
+    if (v6.s.compareToIgnoreCase(v5.s) >= 0) goto L1299;
+    $s0 = v4;
+    $s1 = 1;
+    goto L1300;
+    L1299:
+    $s1 = 0;
+    L1300:
+    $s0.setBool($s1);
+    goto L2538;
+    L1307:
+    if (p1.type != Expression$Type.GT) goto L1351;
+    v4 = v6;
+    $s0 = v4;
+    if (v6.s.compareToIgnoreCase(v5.s) <= 0) goto L1343;
+    $s0 = v4;
+    $s1 = 1;
+    goto L1344;
+    L1343:
+    $s1 = 0;
+    L1344:
+    $s0.setBool($s1);
+    goto L2538;
+    L1351:
+    if (v6.isNumber() == 0) goto L1997;
+    if (v5.isNumber() == 0) goto L1997;
+    v4 = v6;
+    switch (p1.type.ordinal()) { 0: L1585, 1: L1978, 2: L1978, 3: L1518, 4: L1560, 5: L1539, 6: L1476, 7: L1497, 8: L1718, 9: L1755, 10: L1792, 11: L1854, 12: L1885, 13: L1823, 14: L1916, 15: L1947, 16: L1978, 17: L1978, 18: L1650, 19: L1616, 20: L1684; default: L1978 }
+    L1476:
+    v4.d = v4.d.add(v5.d);
+    goto L2262;
+    L1497:
+    v4.d = v4.d.subtract(v5.d);
+    goto L2262;
+    L1518:
+    v4.d = v4.d.multiply(v5.d);
+    goto L2262;
+    L1539:
+    v4.d = v4.d.remainder(v5.d);
+    goto L2262;
+    L1560:
+    v4.d = v4.d.divide(v5.d, this.mc);
+    goto L2262;
+    L1585:
+    v4.d = v4.d.pow(v5.d.toBigIntegerExact().intValueExact(), this.mc);
+    goto L2262;
+    L1616:
+    v4.d = new java.math.BigDecimal(v4.d.toBigIntegerExact().xor(v5.d.toBigIntegerExact()));
+    goto L2262;
+    L1650:
+    v4.d = new java.math.BigDecimal(v4.d.toBigIntegerExact().and(v5.d.toBigIntegerExact()));
+    goto L2262;
+    L1684:
+    v4.d = new java.math.BigDecimal(v4.d.toBigIntegerExact().or(v5.d.toBigIntegerExact()));
+    goto L2262;
+    L1718:
+    v4.d = new java.math.BigDecimal(v4.d.toBigIntegerExact().shiftLeft(v5.d.toBigIntegerExact().intValue()));
+    goto L2262;
+    L1755:
+    v4.d = new java.math.BigDecimal(v4.d.toBigIntegerExact().shiftRight(v5.d.toBigIntegerExact().intValue()));
+    goto L2262;
+    L1792:
+    $s0 = v6;
+    if (v6.d.compareTo(v5.d) <= 0) goto L1814;
+    $s0 = v6;
+    $s1 = 1;
+    goto L1815;
+    L1814:
+    $s1 = 0;
+    L1815:
+    v4 = $s0.setBool($s1);
+    goto L2262;
+    L1823:
+    $s0 = v6;
+    if (v6.d.compareTo(v5.d) >= 0) goto L1845;
+    $s0 = v6;
+    $s1 = 1;
+    goto L1846;
+    L1845:
+    $s1 = 0;
+    L1846:
+    v4 = $s0.setBool($s1);
+    goto L2262;
+    L1854:
+    $s0 = v6;
+    if (v6.d.compareTo(v5.d) < 0) goto L1876;
+    $s0 = v6;
+    $s1 = 1;
+    goto L1877;
+    L1876:
+    $s1 = 0;
+    L1877:
+    v4 = $s0.setBool($s1);
+    goto L2262;
+    L1885:
+    $s0 = v6;
+    if (v6.d.compareTo(v5.d) > 0) goto L1907;
+    $s0 = v6;
+    $s1 = 1;
+    goto L1908;
+    L1907:
+    $s1 = 0;
+    L1908:
+    v4 = $s0.setBool($s1);
+    goto L2262;
+    L1916:
+    $s0 = v6;
+    if (v6.d.compareTo(v5.d) != 0) goto L1938;
+    $s0 = v6;
+    $s1 = 1;
+    goto L1939;
+    L1938:
+    $s1 = 0;
+    L1939:
+    v4 = $s0.setBool($s1);
+    goto L2262;
+    L1947:
+    $s0 = v6;
+    if (v6.d.compareTo(v5.d) == 0) goto L1969;
+    $s0 = v6;
+    $s1 = 1;
+    goto L1970;
+    L1969:
+    $s1 = 0;
+    L1970:
+    v4 = $s0.setBool($s1);
+    goto L2262;
+    L1978:
+    throw new Error(this.error_info("INTERNAL ERROR: unhandled operation", p1.location));
+    L1997:
+    if (p1.type == Expression$Type.NE) goto L2017;
+    if (p1.type != Expression$Type.EQ) goto L2262;
+    L2017:
+    this.assert_var_is_string(v6);
+    if (v5.isList() == 0) goto L2174;
+    if (p1.type != Expression$Type.EQ) goto L2103;
+    v7 = 0;
+    v8 = v5.l.iterator();
+    L2056:
+    if (v8.hasNext() == 0) goto L2100;
+    v9 = (String)v8.next();
+    if (v6.s.equalsIgnoreCase(v9) == 0) goto L2097;
+    v7 = 1;
+    goto L2100;
+    L2097:
+    goto L2056;
+    L2100:
+    goto L2162;
+    L2103:
+    v7 = 1;
+    v8 = v5.l.iterator();
+    L2118:
+    if (v8.hasNext() == 0) goto L2162;
+    v9 = (String)v8.next();
+    if (v6.s.equalsIgnoreCase(v9) == 0) goto L2159;
+    v7 = 0;
+    goto L2162;
+    L2159:
+    goto L2118;
+    L2162:
+    v4 = v6.setBool(v7);
+    goto L2262;
+    L2174:
+    switch (p1.type.ordinal()) { 14: L2208, 15: L2231; default: L2262 }
+    L2208:
+    v4 = v6.setBool(v6.s.equalsIgnoreCase(v5.s));
+    goto L2262;
+    L2231:
+    $s0 = v6;
+    if (v6.s.equalsIgnoreCase(v5.s) != 0) goto L2253;
+    $s0 = v6;
+    $s1 = 1;
+    goto L2254;
+    L2253:
+    $s1 = 0;
+    L2254:
+    v4 = $s0.setBool($s1);
+    goto L2262;
+    L2262:
+    if (v4 != null) goto L2538;
+    throw new Expression$ExpressionException(this, "invalid operands for this operator", p1.location);
+    L2283:
+    this.assert_var_is_string(v6);
+    if (v5.isList() == 0) goto L2368;
+    v7 = 0;
+    v8 = v5.l.iterator();
+    L2312:
+    if (v8.hasNext() == 0) goto L2356;
+    v9 = (String)v8.next();
+    if (Expression.containsIgnoreCase(v6.s, v9) == 0) goto L2353;
+    v7 = 1;
+    goto L2356;
+    L2353:
+    goto L2312;
+    L2356:
+    v4 = v6.setBool(v7);
+    goto L2538;
+    L2368:
+    this.assert_var_is_string(v5);
+    v4 = v6.setBool(Expression.containsIgnoreCase(v6.s, v5.s));
+    goto L2538;
+    L2397:
+    this.assert_var_is_string(v6);
+    if (v5.isList() == 0) goto L2482;
+    v7 = 1;
+    v8 = v5.l.iterator();
+    L2426:
+    if (v8.hasNext() == 0) goto L2470;
+    v9 = (String)v8.next();
+    if (Expression.containsIgnoreCase(v6.s, v9) == 0) goto L2467;
+    v7 = 0;
+    goto L2470;
+    L2467:
+    goto L2426;
+    L2470:
+    v4 = v6.setBool(v7);
+    goto L2538;
+    L2482:
+    this.assert_var_is_string(v5);
+    $s0 = v6;
+    if (Expression.containsIgnoreCase(v6.s, v5.s) != 0) goto L2510;
+    $s0 = v6;
+    $s1 = 1;
+    goto L2511;
+    L2510:
+    $s1 = 0;
+    L2511:
+    v4 = $s0.setBool($s1);
+    goto L2538;
+    L2519:
+    throw new Error(this.error_info("INTERNAL ERROR:unsupported operation", p1.location));
+    L2538:
+    if (Expression.is_debug == 0) goto L2585;
+    v4.varName = null;
+    $a19 = new Object[4];
+    $a19[0] = v3;
+    $a19[1] = p1;
+    $a19[2] = v5;
+    $a19[3] = v4;
+    this.L().fine("## %s %s %s  -->  %s".formatted($a19));
+    L2585:
+    if (p1.type == Expression$Type.ASSIGNMENT) goto L2601;
+    v4.varName = null;
+    L2601:
+    p0.push(v4);
+    if (Expression.is_debug == 0) goto L2629;
+    this.log_stack(("on exit, boolean result is " + v4.getBoolean() + "."), p0);
+    L2629:
+    return v4.getBoolean();
+}
+
+private Expression$VarValue call_func(Stack p0, Expression$Token p1) {
+    v3 = (p1.args.length - 1);
+    v4 = 0;
+    L11:
+    $t1 = (Expression$VarValue)p0.pop();
+    v5 = $t1;
+    if (null == $t1) goto L46;
+    v4 += 1;
+    if (v3 < 0) goto L11;
+    p1.args[v3] = v5;
+    v3 += -1;
+    goto L11;
+    L46:
+    if (v4 == p1.args.length) goto L81;
+    throw new Error(this.error_info(("INTERNAL ERROR: number of arguments doesn't match when invoking " + p1.name), p1.location));
+    L81:
+    if (p1.f != null) goto L98;
+    throw new Expression$UnresolvedSymbolException(this, p1);
+    L98:
+    p1.n = (p1.n + 1);
+    p1.scratch.unset();
+    p1.f.invoke(p1.scratch, p1.args);
+    if (p1.scratch.isSet() != 0) goto L164;
+    throw new Expression$ExpressionException(this, (p1.name + "() didn't return a value"), p1.location);
+    L164:
+    goto L186;
+    // handler for [98,164) catch Expression$ExpressionException
+    L167:
+    v6 = $ex;
+    throw v6;
+    // handler for [98,164) catch Exception
+    L172:
+    v6 = $ex;
+    throw new Expression$ExpressionException(this, v6, p1);
+    L186:
+    return p1.scratch;
+}
+
+private void assert_var_is_string(Expression$VarValue p0) {
+    if (p0.isString() != 0) goto L26;
+    throw new Expression$ExpressionException(this, "operand is NOT a string", p0.t.location);
+    L26:
+    return;
+}
+
+private void assert_var_is_number(Expression$VarValue p0) {
+    if (p0.isNumber() != 0) goto L26;
+    throw new Expression$ExpressionException(this, "operand is NOT a number", p0.t.location);
+    L26:
+    return;
+}
+
+public boolean isAlways(boolean p0) {
+    if (this.commands.size() != 1) goto L64;
+    v2 = (Expression$Token)this.commands.get(0);
+    if (v2.type == Expression$Type.VARIABLE) goto L64;
+    if (v2.type == Expression$Type.FUNC) goto L64;
+    if (v2.parsed_value.getBoolean() != p0) goto L62;
+    $s0 = 1;
+    goto L63;
+    L62:
+    $s0 = 0;
+    L63:
+    return $s0;
+    L64:
+    return 0;
+}
+
+public boolean isStatic() {
+    if (this.parsedFuncs.isEmpty() == 0) goto L28;
+    if (this.input_vars.isEmpty() == 0) goto L28;
+    $s0 = 1;
+    goto L29;
+    L28:
+    $s0 = 0;
+    L29:
+    return $s0;
+}
+
+public String getSimplified() {
+    v1 = new TreeSet(Comparator.comparingInt(lambda[Expression::lambda$getSimplified$0]()));
+    this.commands.forEach(lambda[Expression::lambda$getSimplified$1](v1));
+    v2 = new StringBuilder();
+    v3 = 1;
+    v4 = v1.iterator();
+    L49:
+    if (v4.hasNext() == 0) goto L510;
+    v5 = (Expression$Token)v4.next();
+    if (v3 == v5.nesting_level) goto L140;
+    if (v3 >= v5.nesting_level) goto L93;
+    $s0 = 1;
+    goto L94;
+    L93:
+    $s0 = -1;
+    L94:
+    v6 = $s0;
+    if (v3 >= v5.nesting_level) goto L111;
+    $s0 = "(";
+    goto L114;
+    L111:
+    $s0 = ")";
+    L114:
+    v7 = $s0;
+    L116:
+    if (v3 == v5.nesting_level) goto L140;
+    v2.append(v7);
+    v3 = (v3 + v6);
+    goto L116;
+    L140:
+    switch (v5.type.ordinal()) { 1: L441, 2: L441, 3: L493, 4: L493, 5: L493, 6: L493, 7: L493, 8: L493, 9: L493, 10: L493, 11: L493, 12: L493, 13: L493, 14: L493, 15: L493, 16: L493, 17: L493, 18: L493, 19: L493, 20: L493, 21: L493, 22: L493, 23: L468, 24: L435, 25: L435, 26: L493, 27: L493, 28: L476, 29: L482, 30: L482, 31: L328, 32: L404, 33: L334, 34: L348, 35: L468, 36: L396, 37: L322, 38: L316; default: L493 }
+    L316:
+    $s0 = " && ";
+    goto L503;
+    L322:
+    $s0 = " || ";
+    goto L503;
+    L328:
+    $s0 = "~";
+    goto L503;
+    L334:
+    $s0 = Expression.encodeString(v5.parsed_value.s);
+    goto L503;
+    L348:
+    if (v5.parsed_value.isBoolean() == 0) goto L382;
+    if (v5.parsed_value.getBoolean() == 0) goto L376;
+    $s0 = "1";
+    goto L503;
+    L376:
+    $s0 = "0";
+    goto L503;
+    L382:
+    $s0 = v5.parsed_value.d.toPlainString();
+    goto L503;
+    L396:
+    $s0 = v5.name;
+    goto L503;
+    L404:
+    $s0 = v5.name;
+    if (v5.args.length != 0) goto L424;
+    $s0 = v5.name;
+    $s1 = "()";
+    goto L427;
+    L424:
+    $s1 = "";
+    L427:
+    $s0 = ($s0 + $s1);
+    goto L503;
+    L435:
+    $s0 = ", ";
+    goto L503;
+    L441:
+    $s0 = (" " + v5.type.id + " " + Expression.encodeString(v5.pattern.toString()));
+    goto L503;
+    L468:
+    $s0 = v5.toString();
+    goto L503;
+    L476:
+    $s0 = "!";
+    goto L503;
+    L482:
+    $s0 = v5.type.id;
+    goto L503;
+    L493:
+    $s0 = (" " + String.valueOf(v5) + " ");
+    L503:
+    <?stack-underflow?>.append($s0);
+    goto L49;
+    L510:
+    if (v3 == 1) goto L529;
+    v2.append(")");
+    v3 += -1;
+    goto L510;
+    L529:
+    return v2.toString();
+}
+
+public Expression$Stats getStats() {
+    if (this.stats != null) goto L19;
+    this.stats = new Expression$Stats(this);
+    L19:
+    return this.stats;
+}
+
+public Expression$VarValue evaluate() {
+    v1 = 0;
+    this.stack.clear();
+    this.result = null;
+    this.input_vars.forEach(lambda[Expression::lambda$evaluate$0]());
+    this.temp_vars.forEach(lambda[Expression::lambda$evaluate$1]());
+    this.parsedFuncs.forEach(lambda[Expression::lambda$evaluate$2]());
+    v2 = 0;
+    L58:
+    if (v2 >= this.commands.size()) goto L687;
+    v3 = (Expression$Token)this.commands.get(v2);
+    if (v3.type == Expression$Type.LOGICAL_OR_SPAN) goto L105;
+    if (v3.type != Expression$Type.LOGICAL_AND_SPAN) goto L197;
+    L105:
+    if (v3.type != Expression$Type.LOGICAL_OR_SPAN) goto L119;
+    if (v1 != 0) goto L133;
+    L119:
+    if (v3.type != Expression$Type.LOGICAL_AND_SPAN) goto L681;
+    if (v1 != 0) goto L681;
+    L133:
+    if (Expression.is_debug == 0) goto L187;
+    $a1 = new Object[3];
+    $a1[0] = Integer.valueOf(v3.n);
+    $a1[1] = Integer.valueOf(v2);
+    $a1[2] = Integer.valueOf(((v2 + v3.n) - 1));
+    this.L().fine("### SKIPPED %d tokens [%d:%d]".formatted($a1));
+    L187:
+    v2 = (v2 + v3.n);
+    goto L681;
+    L197:
+    if (v3.type != Expression$Type.ARGS_START) goto L219;
+    this.stack.push(null);
+    goto L681;
+    L219:
+    if (v3.type != Expression$Type.NEXT_ARG) goto L254;
+    if (Expression.is_debug == 0) goto L681;
+    this.L().fine(("### skipped arg separator at " + v3.location));
+    goto L681;
+    L254:
+    if (v3.type != Expression$Type.DISCARD_RESULT) goto L320;
+    v4 = (Expression$VarValue)this.stack.pop();
+    if (Expression.is_debug == 0) goto L317;
+    $a2 = new Object[2];
+    $a2[0] = Integer.valueOf(v3.location);
+    $a2[1] = v4.toString();
+    this.L().fine("### discard at %d, %s".formatted($a2));
+    L317:
+    goto L681;
+    L320:
+    if (v3.type != Expression$Type.VARIABLE) goto L629;
+    v4 = (Expression$Var)this.temp_vars.get(v3.name);
+    if (v4 == null) goto L359;
+    v3.var = v4;
+    L359:
+    if (v3.var != null) goto L376;
+    throw new Expression$UnresolvedSymbolException(this, v3);
+    L376:
+    if (v3.var.cached_value.isSet() != 0) goto L577;
+    if (v3.var.is_temp_var == 0) goto L472;
+    v5 = (Expression$Var)this.input_vars.get(v3.name);
+    if (Expression.$assertionsDisabled != 0) goto L436;
+    if (v5 != null) goto L436;
+    throw new AssertionError();
+    L436:
+    v5.variable.storeInto(v3.var.cached_value);
+    v5.cached_value.set(v3.var.cached_value);
+    goto L491;
+    L472:
+    v3.var.variable.storeInto(v3.var.cached_value);
+    L491:
+    if (v3.var.cached_value.isSet() != 0) goto L534;
+    $a6 = new Object[1];
+    $a6[0] = v3.name;
+    throw new Expression$ExpressionException(this, "PROGRAMMING ERROR: '%s' is UNSET".formatted($a6), v3.location);
+    L534:
+    if (Expression.is_debug == 0) goto L577;
+    $a7 = new Object[2];
+    $a7[0] = v3.name;
+    $a7[1] = v3.var.cached_value.toString();
+    this.L().fine("RESOLVED '%s' -> %s".formatted($a7));
+    L577:
+    v3.scratch.varName = v3.name;
+    v3.scratch.set(v3.var.cached_value);
+    this.stack.add(v3.scratch);
+    v1 = v3.var.cached_value.getBoolean();
+    goto L681;
+    L629:
+    if (v3.parsed_value == null) goto L671;
+    v3.scratch.set(v3.parsed_value);
+    this.stack.add(v3.scratch);
+    v1 = v3.parsed_value.getBoolean();
+    goto L681;
+    L671:
+    v1 = this.calc(this.stack, v3);
+    L681:
+    v2 += 1;
+    goto L58;
+    L687:
+    if (this.stack.size() == 1) goto L714;
+    throw new Error(this.error_info("INTERNAL ERROR: Evaluation did NOT result in a SINGLE value.", 0));
+    L714:
+    this.result = (Expression$VarValue)this.stack.pop();
+    if (Expression.is_debug == 0) goto L749;
+    this.temp_vars.forEach(lambda[Expression::lambda$evaluate$3](this));
+    L749:
+    return this.result;
+}
+
+public Set getTempVars() {
+    v1 = new HashSet();
+    this.temp_vars.forEach(lambda[Expression::lambda$getTempVars$0](v1));
+    return Collections.unmodifiableSet(v1);
+}
+
+public static String encodeString(String p0) {
+    if (p0.contains("'") != 0) goto L17;
+    return ("'" + p0 + "'");
+    L17:
+    v1 = new StringBuilder("'");
+    v2 = 0;
+    L30:
+    if (v2 >= p0.length()) goto L69;
+    v3 = p0.charAt(v2);
+    if (v3 != 39) goto L57;
+    v1.append(92);
+    L57:
+    v1.append(v3);
+    v2 += 1;
+    goto L30;
+    L69:
+    v1.append("'");
+    return v1.toString();
+}
+
+public String toString() {
+    $a1 = new Object[2];
+    $a1[0] = this.expression;
+    $s0 = "'%s', result=%s";
+    $s1 = $a1;
+    $s2 = $a1;
+    $s3 = 1;
+    if (this.result != null) goto L29;
+    $s0 = "'%s', result=%s";
+    $s1 = $a1;
+    $s2 = $a1;
+    $s3 = 1;
+    $s4 = "(null)";
+    goto L36;
+    L29:
+    $s4 = this.result.toString();
+    L36:
+    $s2[$s3] = $s4;
+    return $s0.formatted($s1);
+}
+
+private static synthetic void lambda$getTempVars$0(HashSet p0, String p1, Expression$Var p2) {
+    if (p2.cached_value.isSet() == 0) goto L19;
+    p0.add(p2.cached_value);
+    L19:
+    return;
+}
+
+private synthetic void lambda$evaluate$3(String p0, Expression$Var p1) {
+    this.L().fine(("temporary variable: " + p1.toString()));
+    return;
+}
+
+private static synthetic void lambda$evaluate$2(String p0, Expression$Token p1) {
+    p1.n = 0;
+    return;
+}
+
+private static synthetic void lambda$evaluate$1(String p0, Expression$Var p1) {
+    p1.cached_value.unset();
+    return;
+}
+
+private static synthetic void lambda$evaluate$0(String p0, Expression$Var p1) {
+    p1.cached_value.unset();
+    return;
+}
+
+private static synthetic void lambda$getSimplified$1(Set p0, Expression$Token p1) {
+    if (p1.type == Expression$Type.ARGS_START) goto L26;
+    if (p1.nesting_level == -1) goto L26;
+    p0.add(p1);
+    L26:
+    return;
+}
+
+private static synthetic int lambda$getSimplified$0(Expression$Token p0) {
+    return p0.location;
+}
+
+private static synthetic void lambda$log_stack$0(StringBuilder p0, Expression$VarValue p1) {
+    if (p1 != null) goto L15;
+    p0.append("@0; ");
+    goto L27;
+    L15:
+    p0.append(p1).append("; ");
+    L27:
+    return;
+}
+
+private static synthetic void lambda$ensure_temp_var$0(Expression$Var p0, Expression$VarValue p1) {
+    p1.set(p0.cached_value);
+    return;
+}
+
+static void <clinit>() {
+    if (Expression.desiredAssertionStatus() != 0) goto L12;
+    $s0 = 1;
+    goto L13;
+    L12:
+    $s0 = 0;
+    L13:
+    Expression.$assertionsDisabled = $s0;
+    Expression.is_debug = 0;
+    return;
+}

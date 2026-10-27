@@ -1,0 +1,262 @@
+// ===== FileOps extends Object 
+static final synthetic boolean $assertionsDisabled;
+
+public void <init>() {
+    super.<init>();
+    return;
+}
+
+public static String getFileData(String p0, String p1) {
+    v2 = "";
+    v3 = new BufferedReader(new FileReader(p0));
+    L19:
+    $t3 = v3.readLine();
+    v4 = $t3;
+    if (null == $t3) goto L42;
+    v2 = (v2 + v4);
+    goto L19;
+    L42:
+    v3.close();
+    goto L62;
+    // handler for [3,46) catch FileNotFoundException
+    L49:
+    v3 = $ex;
+    v3.printStackTrace();
+    goto L62;
+    // handler for [3,46) catch IOException
+    L57:
+    v3 = $ex;
+    v3.printStackTrace();
+    L62:
+    if (v2.length() != 0) goto L71;
+    return p0;
+    L71:
+    return v2;
+}
+
+public static boolean copyFile(StyledTextStream p0, File p1, File p2) {
+    v3 = 0;
+    v4 = java.nio.ByteBuffer.allocateDirect(102400);
+    v5 = null;
+    v6 = null;
+    v7 = null;
+    v8 = null;
+    v5 = new FileInputStream(p1);
+    v7 = v5.getChannel();
+    goto L64;
+    // handler for [21,38) catch Exception
+    L41:
+    v9 = $ex;
+    p0.addError((p2.getAbsolutePath() + ": Unable to open: " + v9.getMessage() + "\n"));
+    return 0;
+    L64:
+    v6 = new FileOutputStream(p2);
+    v8 = v6.getChannel();
+    L81:
+    v4.clear();
+    v9 = v7.read(v4);
+    if (v9 != -1) goto L105;
+    goto L184;
+    L105:
+    if (v9 <= 0) goto L81;
+    v4.rewind();
+    v4.limit(v9);
+    v10 = v8.write(v4);
+    if (v10 == v9) goto L181;
+    v5.close();
+    goto L150;
+    // handler for [140,145) catch Exception
+    L148:
+    v11 = $ex;
+    L150:
+    v6.close();
+    goto L160;
+    // handler for [150,155) catch Exception
+    L158:
+    v11 = $ex;
+    L160:
+    p2.delete();
+    p0.addError((p2.getAbsolutePath() + ": Write failed\n"));
+    return 0;
+    L181:
+    goto L81;
+    L184:
+    v3 = 1;
+    goto L227;
+    // handler for [21,63) catch Exception
+    // handler for [64,180) catch Exception
+    // handler for [181,186) catch Exception
+    L189:
+    v9 = $ex;
+    p0.addError((p2.getAbsolutePath() + ": Unable to copy: " + v9.getMessage() + "\n"));
+    v6.close();
+    goto L220;
+    // handler for [210,215) catch Exception
+    L218:
+    v10 = $ex;
+    L220:
+    p2.delete();
+    return 0;
+    L227:
+    v5.close();
+    goto L237;
+    // handler for [227,232) catch Exception
+    L235:
+    v9 = $ex;
+    L237:
+    v6.close();
+    goto L254;
+    // handler for [237,242) catch Exception
+    L245:
+    v9 = $ex;
+    v3 = 0;
+    p2.delete();
+    L254:
+    return v3;
+}
+
+public static boolean copyFile(File p0, File p1) {
+    v2 = null;
+    v3 = null;
+    v4 = null;
+    v5 = null;
+    v6 = 0;
+    if (p1.exists() != 0) goto L25;
+    p1.createNewFile();
+    L25:
+    $t2 = new FileInputStream(p0);
+    v2 = $t2;
+    v4 = $t2.getChannel();
+    $t4 = new FileOutputStream(p1);
+    v3 = $t4;
+    v5 = $t4.getChannel();
+    v5.transferFrom(v4, 0L, v4.size());
+    v6 = 1;
+    goto L82;
+    // handler for [13,72) catch IOException
+    L75:
+    v7 = $ex;
+    v7.printStackTrace();
+    L82:
+    if (v2 == null) goto L98;
+    v2.close();
+    goto L98;
+    // handler for [86,90) catch Exception
+    L93:
+    v7 = $ex;
+    v6 = 0;
+    L98:
+    if (v3 == null) goto L114;
+    v3.close();
+    goto L114;
+    // handler for [102,106) catch Exception
+    L109:
+    v7 = $ex;
+    v6 = 0;
+    L114:
+    return v6;
+}
+
+static void close_stream(Object p0) {
+    if (p0 == null) goto L47;
+    if ((p0 instanceof FileInputStream) == 0) goto L21;
+    (FileInputStream)p0.close();
+    goto L28;
+    L21:
+    (FileOutputStream)p0.close();
+    L28:
+    goto L47;
+    // handler for [4,28) catch Exception
+    L31:
+    v1 = $ex;
+    System.err.println(("Failed to close a stream:" + String.valueOf(v1)));
+    L47:
+    return;
+}
+
+public static boolean compareFiles(File p0, File p1) {
+    v2 = 0;
+    v5 = null;
+    v6 = null;
+    v7 = null;
+    v9 = 0L;
+    v5 = new FileInputStream(p0);
+    v6 = new FileInputStream(p1);
+    v7 = v5.getChannel();
+    v8 = v6.getChannel();
+    v11 = java.nio.ByteBuffer.allocateDirect(262144);
+    v12 = java.nio.ByteBuffer.allocateDirect(262144);
+    L62:
+    v11.clear();
+    v3 = v7.read(v11);
+    goto L93;
+    // handler for [62,76) catch IOException
+    L79:
+    v13 = $ex;
+    FileOps.close_stream(v5);
+    FileOps.close_stream(v6);
+    return 0;
+    L93:
+    v12.clear();
+    v4 = v8.read(v12);
+    if (v3 != -1) goto L124;
+    if (v4 != -1) goto L124;
+    v2 = 1;
+    goto L183;
+    L124:
+    if (v3 == v4) goto L133;
+    goto L183;
+    L133:
+    v11.rewind();
+    v12.rewind();
+    v11.limit(v3);
+    v12.limit(v4);
+    if (v11.equals(v12) != 0) goto L173;
+    goto L183;
+    L173:
+    v9 = (v9 + (long)v3);
+    goto L62;
+    L183:
+    goto L204;
+    // handler for [14,92) catch Exception
+    // handler for [93,183) catch Exception
+    L186:
+    v11 = $ex;
+    System.err.println(("Unable to compare to dst: " + v11.getMessage()));
+    L204:
+    FileOps.close_stream(v5);
+    FileOps.close_stream(v6);
+    return v2;
+}
+
+public static boolean createCopyBackup(File p0, String p1, function.Consumer p2) {
+    if (FileOps.$assertionsDisabled != 0) goto L25;
+    if (p1 == null) goto L17;
+    if (p1.isBlank() == 0) goto L25;
+    L17:
+    throw new AssertionError();
+    L25:
+    v3 = new File((String.valueOf(p0.getAbsoluteFile()) + p1));
+    $a3 = new java.nio.file.CopyOption[1];
+    $a3[0] = java.nio.file.StandardCopyOption.REPLACE_EXISTING;
+    java.nio.file.Files.copy(p0.toPath(), v3.toPath(), $a3);
+    goto L83;
+    // handler for [46,68) catch IOException
+    L71:
+    v4 = $ex;
+    p2.accept(v4);
+    return 0;
+    L83:
+    return 1;
+}
+
+static void <clinit>() {
+    if (FileOps.desiredAssertionStatus() != 0) goto L12;
+    $s0 = 1;
+    goto L13;
+    L12:
+    $s0 = 0;
+    L13:
+    FileOps.$assertionsDisabled = $s0;
+    return;
+}

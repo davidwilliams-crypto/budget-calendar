@@ -1,0 +1,20 @@
+// ===== Note extends Object 
+public int date;
+public String note;
+
+public void <init>() {
+    super.<init>();
+    return;
+}
+
+public String toString() {
+    $s0 = this.date;
+    if (this.note != null) goto L16;
+    $s0 = this.date;
+    $s1 = "(null)";
+    goto L20;
+    L16:
+    $s1 = this.note;
+    L20:
+    return ("[" + $s0 + ": " + $s1 + "]");
+}

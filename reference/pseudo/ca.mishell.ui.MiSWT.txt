@@ -1,0 +1,1734 @@
+// ===== MiSWT$1 extends SelectionAdapter 
+final synthetic Shell val$ed;
+
+ void <init>(Shell p0) {
+    this.val$ed = p0;
+    super.<init>();
+    return;
+}
+
+public void widgetSelected(SelectionEvent p0) {
+    this.val$ed.dispose();
+    return;
+}
+
+// ===== MiSWT$10$1 extends SelectionAdapter 
+final synthetic MiSWT$Holder val$rv;
+
+ void <init>(MiSWT$10 p0, MiSWT$Holder p1) {
+    this.val$rv = p1;
+    Objects.requireNonNull(p0);
+    super.<init>();
+    return;
+}
+
+public void widgetSelected(SelectionEvent p0) {
+    v2 = (Shell)(MenuItem)p0.widget.getParent().getParent();
+    v3 = (SimpleCalendar)v2.getData();
+    v3.set(1, 1);
+    v3.set(2, (Integer)p0.widget.getData().intValue());
+    MiSWT.fill_pick_date(this.val$rv, v2, v3);
+    (MenuItem)p0.widget.getParent().dispose();
+    return;
+}
+
+// ===== MiSWT$10 extends SelectionAdapter 
+final synthetic SimpleDateFormat val$df;
+final synthetic MiSWT$Holder val$rv;
+
+ void <init>(SimpleDateFormat p0, MiSWT$Holder p1) {
+    this.val$df = p0;
+    this.val$rv = p1;
+    super.<init>();
+    return;
+}
+
+public void widgetSelected(SelectionEvent p0) {
+    v2 = (Shell)(Button)p0.widget.getParent().getParent();
+    v3 = (SimpleCalendar)v2.getData();
+    v4 = new SimpleCalendar(v3);
+    v4.set(1, 1);
+    v5 = new Menu(v2);
+    v5.setData(v3);
+    v7 = 0;
+    L62:
+    if (v7 >= 12) goto L140;
+    v6 = new MenuItem(v5, 0);
+    v4.set(2, v7);
+    v6.setText(this.val$df.format(v4.getTime()));
+    v6.setData(Integer.valueOf(v7));
+    v6.addSelectionListener(new MiSWT$10$1(this, this.val$rv));
+    v7 += 1;
+    goto L62;
+    L140:
+    v5.setVisible(1);
+    return;
+}
+
+// ===== MiSWT$11 extends SelectionAdapter 
+final synthetic MiSWT$Holder val$rv;
+
+ void <init>(MiSWT$Holder p0) {
+    this.val$rv = p0;
+    super.<init>();
+    return;
+}
+
+public void widgetSelected(SelectionEvent p0) {
+    v2 = (Shell)(Button)p0.widget.getParent().getParent();
+    v3 = (SimpleCalendar)v2.getData();
+    v3.add(2, 1);
+    MiSWT.fill_pick_date(this.val$rv, v2, v3);
+    return;
+}
+
+// ===== MiSWT$12 extends SelectionAdapter 
+final synthetic MiSWT$Holder val$rv;
+
+ void <init>(MiSWT$Holder p0) {
+    this.val$rv = p0;
+    super.<init>();
+    return;
+}
+
+public void widgetSelected(SelectionEvent p0) {
+    v2 = (Shell)(Button)p0.widget.getParent().getParent();
+    v3 = (SimpleCalendar)v2.getData();
+    v3.add(2, 12);
+    MiSWT.fill_pick_date(this.val$rv, v2, v3);
+    return;
+}
+
+// ===== MiSWT$13 extends SelectionAdapter 
+final synthetic MiSWT$Holder val$rv;
+
+ void <init>(MiSWT$Holder p0) {
+    this.val$rv = p0;
+    super.<init>();
+    return;
+}
+
+public void widgetSelected(SelectionEvent p0) {
+    v2 = (Shell)(Button)p0.widget.getParent().getParent();
+    v3 = new SimpleCalendar();
+    MiSWT.fill_pick_date(this.val$rv, v2, v3);
+    return;
+}
+
+// ===== MiSWT$14 extends MouseAdapter 
+final synthetic MiSWT$Holder val$rv;
+
+ void <init>(MiSWT$Holder p0) {
+    this.val$rv = p0;
+    super.<init>();
+    return;
+}
+
+public void mouseDown(MouseEvent p0) {
+    v2 = (Label)p0.widget.getParent();
+    v3 = (SimpleCalendar)v2.getData();
+    this.val$rv.value = new SimpleCalendar(v3);
+    (SimpleCalendar)this.val$rv.value.set(1, Integer.parseInt((Label)p0.widget.getText()));
+    v2.dispose();
+    return;
+}
+
+// ===== MiSWT$15 extends SelectionAdapter 
+final synthetic MiSWT$Holder val$rv;
+final synthetic StyledText val$text;
+final synthetic Shell val$editShell;
+
+ void <init>(MiSWT$Holder p0, StyledText p1, Shell p2) {
+    this.val$rv = p0;
+    this.val$text = p1;
+    this.val$editShell = p2;
+    super.<init>();
+    return;
+}
+
+public void widgetSelected(SelectionEvent p0) {
+    this.val$rv.value = this.val$text.getText().trim();
+    this.val$editShell.dispose();
+    return;
+}
+
+// ===== MiSWT$1RV extends Object 
+ String prompt_return_val;
+
+ void <init>() {
+    super.<init>();
+    this.prompt_return_val = null;
+    return;
+}
+
+// ===== MiSWT$1RetVal extends Object 
+ int ret;
+
+ void <init>() {
+    super.<init>();
+    this.ret = 256;
+    return;
+}
+
+// ===== MiSWT$1editInfo extends Object 
+ boolean accepted;
+
+ void <init>() {
+    super.<init>();
+    this.accepted = 0;
+    return;
+}
+
+// ===== MiSWT$2 extends SelectionAdapter 
+final synthetic Shell val$logShell;
+
+ void <init>(Shell p0) {
+    this.val$logShell = p0;
+    super.<init>();
+    return;
+}
+
+public void widgetSelected(SelectionEvent p0) {
+    this.val$logShell.dispose();
+    return;
+}
+
+// ===== MiSWT$3 extends SelectionAdapter 
+final synthetic MiSWT$1RetVal val$retval;
+final synthetic Shell val$ed;
+
+ void <init>(MiSWT$1RetVal p0, Shell p1) {
+    this.val$retval = p0;
+    this.val$ed = p1;
+    super.<init>();
+    return;
+}
+
+public void widgetSelected(SelectionEvent p0) {
+    this.val$retval.ret = 64;
+    this.val$ed.dispose();
+    return;
+}
+
+// ===== MiSWT$4 extends SelectionAdapter 
+final synthetic MiSWT$1RetVal val$retval;
+final synthetic Shell val$ed;
+
+ void <init>(MiSWT$1RetVal p0, Shell p1) {
+    this.val$retval = p0;
+    this.val$ed = p1;
+    super.<init>();
+    return;
+}
+
+public void widgetSelected(SelectionEvent p0) {
+    this.val$retval.ret = 128;
+    this.val$ed.dispose();
+    return;
+}
+
+// ===== MiSWT$5 extends MouseAdapter 
+final synthetic MiSWT$State val$state;
+final synthetic Shell val$ed;
+
+ void <init>(MiSWT$State p0, Shell p1) {
+    this.val$state = p0;
+    this.val$ed = p1;
+    super.<init>();
+    return;
+}
+
+public void mouseDown(MouseEvent p0) {
+    this.val$state.ret_string = (String)p0.widget.getData();
+    this.val$ed.dispose();
+    return;
+}
+
+// ===== MiSWT$6 extends SelectionAdapter 
+final synthetic MiSWT$1editInfo val$info;
+final synthetic Shell val$editShell;
+
+ void <init>(MiSWT$1editInfo p0, Shell p1) {
+    this.val$info = p0;
+    this.val$editShell = p1;
+    super.<init>();
+    return;
+}
+
+public void widgetSelected(SelectionEvent p0) {
+    this.val$info.accepted = 1;
+    this.val$editShell.dispose();
+    return;
+}
+
+// ===== MiSWT$7 extends SelectionAdapter 
+final synthetic Shell val$editShell;
+
+ void <init>(Shell p0) {
+    this.val$editShell = p0;
+    super.<init>();
+    return;
+}
+
+public void widgetSelected(SelectionEvent p0) {
+    this.val$editShell.dispose();
+    return;
+}
+
+// ===== MiSWT$8 extends SelectionAdapter 
+final synthetic MiSWT$Holder val$rv;
+
+ void <init>(MiSWT$Holder p0) {
+    this.val$rv = p0;
+    super.<init>();
+    return;
+}
+
+public void widgetSelected(SelectionEvent p0) {
+    v2 = (Shell)(Button)p0.widget.getParent().getParent();
+    v3 = (SimpleCalendar)v2.getData();
+    v3.add(2, -12);
+    MiSWT.fill_pick_date(this.val$rv, v2, v3);
+    return;
+}
+
+// ===== MiSWT$9 extends SelectionAdapter 
+final synthetic MiSWT$Holder val$rv;
+
+ void <init>(MiSWT$Holder p0) {
+    this.val$rv = p0;
+    super.<init>();
+    return;
+}
+
+public void widgetSelected(SelectionEvent p0) {
+    v2 = (Shell)(Button)p0.widget.getParent().getParent();
+    v3 = (SimpleCalendar)v2.getData();
+    v3.add(2, -1);
+    MiSWT.fill_pick_date(this.val$rv, v2, v3);
+    return;
+}
+
+// ===== MiSWT$EditNotesAttrs extends Object 
+private Font font;
+private String text_to_select;
+private function.Consumer setup;
+
+public void <init>() {
+    super.<init>();
+    return;
+}
+
+public MiSWT$EditNotesAttrs setFont(Font p0) {
+    this.font = p0;
+    return this;
+}
+
+public MiSWT$EditNotesAttrs setupStyledText(function.Consumer p0) {
+    this.setup = p0;
+    return this;
+}
+
+public MiSWT$EditNotesAttrs setTextToSelect(String p0) {
+    this.text_to_select = p0;
+    return this;
+}
+
+// ===== MiSWT$EditNotesContext extends Record 
+private final Shell notesShell;
+private final StyledText text;
+private final StyledTextSpelling spelling;
+private final MiSWT$Holder rv;
+private final Composite lowerLeftComposite;
+
+public void <init>(Shell p0, StyledText p1, StyledTextSpelling p2, MiSWT$Holder p3, Composite p4) {
+    super.<init>();
+    this.notesShell = p0;
+    this.text = p1;
+    this.spelling = p2;
+    this.rv = p3;
+    this.lowerLeftComposite = p4;
+    return;
+}
+
+public final String toString() {
+    return indy toString(this);
+}
+
+public final int hashCode() {
+    return indy hashCode(this);
+}
+
+public final boolean equals(Object p0) {
+    return indy equals(this, p0);
+}
+
+public Shell notesShell() {
+    return this.notesShell;
+}
+
+public StyledText text() {
+    return this.text;
+}
+
+public StyledTextSpelling spelling() {
+    return this.spelling;
+}
+
+public MiSWT$Holder rv() {
+    return this.rv;
+}
+
+public Composite lowerLeftComposite() {
+    return this.lowerLeftComposite;
+}
+
+// ===== MiSWT$Holder extends Object 
+public Object value;
+
+public void <init>(Object p0) {
+    super.<init>();
+    this.value = p0;
+    return;
+}
+
+// ===== MiSWT$State extends Object 
+ String ret_string;
+
+private void <init>() {
+    super.<init>();
+    this.ret_string = null;
+    return;
+}
+
+// ===== MiSWT extends Object 
+private static final String[] week_day_names;
+public static final boolean isRunningOnLinux;
+public static final boolean isRunningOnWindows;
+public static final boolean isRunningOnMac;
+private static Class lastClazz;
+private static String lastJarLocation;
+static GC gc;
+private static Shell hidden_shell;
+private static final char DOT = 46;
+private static Font monospaced;
+
+public void <init>() {
+    super.<init>();
+    return;
+}
+
+public static String color2hex(Color p0) {
+    v1 = p0.getRGB();
+    $a1 = new Object[3];
+    $a1[0] = Integer.valueOf(v1.red);
+    $a1[1] = Integer.valueOf(v1.green);
+    $a1[2] = Integer.valueOf(v1.blue);
+    return "#%02x%02x%02x".formatted($a1);
+}
+
+public static void setRedraw(Control p0, boolean p1) {
+    if (MiSWT.isRunningOnWindows == 0) goto L11;
+    p0.setRedraw(p1);
+    L11:
+    return;
+}
+
+public static Optional getRevision(Class p0) {
+    v1 = p0.getField("revision");
+    v2 = p0.getField("lastChangedDate");
+    return Optional.of(("r" + String.valueOf(v1.get(null)) + " [" + String.valueOf(v2.get(null)) + "]"));
+    // handler for [0,38) catch Exception
+    L39:
+    v1 = $ex;
+    v1.printStackTrace(System.err);
+    return Optional.empty();
+}
+
+public static synchronized String getJarLocation(Class p0) {
+    v1 = ("." + File.separator);
+    if (p0 != MiSWT.lastClazz) goto L20;
+    return MiSWT.lastJarLocation;
+    L20:
+    v2 = new File(p0.getProtectionDomain().getCodeSource().getLocation().toURI().getPath());
+    v1 = (v2.getParent() + File.separator);
+    MiSWT.lastClazz = p0;
+    MiSWT.lastJarLocation = v1;
+    goto L76;
+    // handler for [9,19) catch Exception
+    // handler for [20,65) catch Exception
+    L68:
+    v2 = $ex;
+    v2.printStackTrace(System.err);
+    L76:
+    return v1;
+}
+
+public static Point fixShellLocation(Display p0, Point p1, Point p2) {
+    v3 = 50;
+    v4 = p0.getBounds();
+    v4.x = (v4.x + v3);
+    v4.y = (v4.y + v3);
+    v4.height = (v4.height - (v3 * 2));
+    v4.width = (v4.width - (v3 * 2));
+    v5 = new Rectangle(p2.x, p2.y, p1.x, p1.y);
+    if (v4.intersects(v5) != 0) goto L97;
+    p2 = MiSWT.centerLoc(p1);
+    L97:
+    return p2;
+}
+
+public static int calcWidth(Font p0, String p1) {
+    MiSWT.gc.setFont(p0);
+    return MiSWT.gc.stringExtent(p1).x;
+}
+
+public static boolean isMonoFont(Font p0) {
+    MiSWT.gc.setFont(p0);
+    if (MiSWT.gc.getCharWidth(105) != MiSWT.gc.getCharWidth(119)) goto L30;
+    $s0 = 1;
+    goto L31;
+    L30:
+    $s0 = 0;
+    L31:
+    return $s0;
+}
+
+public static Point stringExtent(Font p0, String p1) {
+    MiSWT.gc.setFont(p0);
+    return MiSWT.gc.stringExtent(p1);
+}
+
+public static String prompt(Shell p0, Image p1, String p2, String p3, String p4, boolean p5, function.Function p6) {
+    v7 = new MiSWT$1RV();
+    v8 = new Shell(MiSWT.getShell(p0), 67680);
+    v8.setText(p2);
+    if (p1 == null) goto L40;
+    v8.setImage(p1);
+    L40:
+    v9 = new layout.GridLayout();
+    v9.marginWidth = 10;
+    v9.marginHeight = 10;
+    v9.verticalSpacing = 10;
+    v8.setLayout(v9);
+    v10 = new Label(v8, 64);
+    v10.setText(p3);
+    v11 = new Text(v8, 2048);
+    v11.setText(p4);
+    if (p5 == 0) goto L128;
+    v11.setEchoChar(42);
+    L128:
+    v11.setLayoutData(new layout.GridData(768));
+    v12 = lambda[MiSWT::lambda$prompt$0](v11, p6, v8, v7);
+    v11.addSelectionListener(SelectionListener.widgetDefaultSelectedAdapter(v12));
+    v13 = new Composite(v8, 0);
+    v14 = new layout.GridData();
+    v14.horizontalSpan = 1;
+    v14.horizontalAlignment = 3;
+    v13.setLayoutData(v14);
+    v15 = new layout.RowLayout();
+    v15.pack = 0;
+    v15.justify = 1;
+    v15.spacing = 10;
+    v13.setLayout(v15);
+    v16 = MiSWT.getButtonDim(v13, "--Cancel--");
+    v17 = new Button(v13, 16777224);
+    v17.setText("Ok");
+    v17.setLayoutData(new layout.RowData(v16.x, v16.y));
+    v17.addSelectionListener(SelectionListener.widgetSelectedAdapter(v12));
+    v18 = new Button(v13, 16777224);
+    v18.setText("Cancel");
+    v18.setLayoutData(new layout.RowData(v16.x, v16.y));
+    v18.addSelectionListener(new MiSWT$1(v8));
+    v13 = v8.computeSize(-1, -1);
+    v13.x = Math.max(v13.x, MiSWT.stringExtent(v11.getFont(), "This is a really long enough string to edit???").x);
+    v8.setLocation(MiSWT.getCenteredPosition(p0, v13));
+    v8.setSize(v13);
+    v8.setVisible(1);
+    v11.setFocus();
+    v11.setSelection(0, v11.getText().length());
+    v14 = p0.getDisplay();
+    L451:
+    if (v8.isDisposed() != 0) goto L476;
+    if (v14.readAndDispatch() != 0) goto L451;
+    v14.sleep();
+    goto L451;
+    L476:
+    return v7.prompt_return_val;
+}
+
+public static boolean isEmpty(String p0) {
+    if (p0 == null) goto L11;
+    if (p0.isBlank() == 0) goto L15;
+    L11:
+    $s0 = 1;
+    goto L16;
+    L15:
+    $s0 = 0;
+    L16:
+    return $s0;
+}
+
+public static void showError(Shell p0, String p1) {
+    p0 = MiSWT.getShell(p0);
+    v2 = new MessageBox(p0, 1);
+    v2.setText("Error");
+    v2.setMessage(p1);
+    v2.open();
+    return;
+}
+
+public static synchronized Shell getShell(Shell p0) {
+    if (p0 != null) goto L43;
+    v1 = Display.getDefault().getShells();
+    if (v1.length != 0) goto L39;
+    if (MiSWT.hidden_shell != null) goto L35;
+    MiSWT.hidden_shell = new Shell(Display.getDefault());
+    L35:
+    return MiSWT.hidden_shell;
+    L39:
+    p0 = v1[0];
+    L43:
+    return p0;
+}
+
+public static void showError(String p0) {
+    MiSWT.showError(null, p0);
+    return;
+}
+
+public static int showInfo(Shell p0, String p1, String p2, int p3) {
+    v4 = new MessageBox(MiSWT.getShell(p0), p3);
+    v4.setMessage(p2);
+    v4.setText(p1);
+    return v4.open();
+}
+
+public static void showWarning(Shell p0, String p1) {
+    MiSWT.showInfo(p0, "Warning", p1, 40);
+    return;
+}
+
+public static void showErrorMono(Shell p0, String p1) {
+    v2 = new Prompt(p0, null, "Error", null, null, p1, ((Prompt.PROMPT_NO_EDIT | Prompt.PROMPT_MULTILINE) | Prompt.PROMPT_MONOSPACED));
+    v3 = v2.getText();
+    v3.setForeground(p0.getDisplay().getSystemColor(3));
+    v2.open();
+    return;
+}
+
+public static Point computeLinkSize(Link p0) {
+    v1 = p0.computeSize(-1, -1);
+    $a1 = new int[1];
+    v2 = $a1;
+    p0.getText().lines().forEach(lambda[MiSWT::lambda$computeLinkSize$0](p0, v1, v2));
+    v1.y = Math.max(v1.y, v2[0]);
+    return v1;
+}
+
+public static void showStackTraceError(String p0) {
+    v1 = Display.getDefault();
+    v2 = new Shell(v1, 66800);
+    v2.setText("Error");
+    v2.setLayout(new layout.GridLayout());
+    v3 = new StyledText(v2, 2816);
+    v3.setText(p0);
+    v3.setEditable(0);
+    v3.setLayoutData(new layout.GridData(4, 4, 1, 1));
+    v4 = new Button(v2, 8);
+    v4.setText("Close");
+    v4.addSelectionListener(new MiSWT$2(v2));
+    v2.setSize(800, 400);
+    v2.open();
+    L118:
+    if (v2.isDisposed() != 0) goto L140;
+    if (v1.readAndDispatch() != 0) goto L118;
+    v1.sleep();
+    goto L118;
+    L140:
+    return;
+}
+
+public static void showError(Shell p0, String p1, Exception p2) {
+    v3 = new StringWriter();
+    v4 = new PrintWriter(v3);
+    p2.printStackTrace(v4);
+    v5 = (p1 + "\nError message:" + p2.getMessage() + "\nStack Trace:\n" + String.valueOf(v3.getBuffer()) + "\n");
+    MiSWT.showError(p0, v5);
+    return;
+}
+
+public static void showError(String p0, Exception p1) {
+    MiSWT.showError(null, p0, p1);
+    return;
+}
+
+public static void showInfo(Shell p0, String p1) {
+    if (p0 != null) goto L15;
+    v2 = Display.getCurrent().getShells();
+    p0 = v2[0];
+    L15:
+    v2 = new MessageBox(p0, 2);
+    v2.setText("Information");
+    v2.setMessage(p1);
+    v2.open();
+    return;
+}
+
+public static Point centerLoc(Composite p0, Point p1) {
+    if (p0 == null) goto L19;
+    if (p0.getVisible() == 0) goto L19;
+    v2 = p0.getBounds();
+    goto L107;
+    L19:
+    v3 = Display.getDefault();
+    if (v3.getMonitors().length != 1) goto L40;
+    v2 = v3.getBounds();
+    goto L107;
+    L40:
+    v4 = v3.getCursorLocation();
+    v2 = v3.getPrimaryMonitor().getBounds();
+    v5 = v3.getMonitors();
+    v6 = v5.length;
+    v7 = 0;
+    L68:
+    if (v7 >= v6) goto L107;
+    v8 = v5[v7];
+    if (v8.getBounds().contains(v4) == 0) goto L101;
+    v2 = v8.getBounds();
+    L101:
+    v7 += 1;
+    goto L68;
+    L107:
+    return new Point(Math.max(v2.x, (v2.x + ((v2.width - p1.x) / 2))), Math.max(v2.y, (v2.y + ((v2.height - p1.y) / 2))));
+}
+
+public static void centerShell(Shell p0) {
+    v1 = p0.computeSize(-1, -1);
+    p0.setLocation(MiSWT.centerLoc(null, v1));
+    p0.setSize(v1);
+    p0.setVisible(1);
+    p0.setFocus();
+    return;
+}
+
+public static boolean confirmYesNo(Shell p0, String p1) {
+    v2 = new MessageBox(MiSWT.getShell(p0), 196);
+    v2.setText("Confirmation");
+    v2.setMessage(p1);
+    if (64 != v2.open()) goto L40;
+    $s0 = 1;
+    goto L41;
+    L40:
+    $s0 = 0;
+    L41:
+    return $s0;
+}
+
+public static int dialogYesNoCancelAbort(Shell p0, String p1, String p2, int p3) {
+    p0 = MiSWT.getShell(p0);
+    v4 = new MiSWT$1RetVal();
+    v5 = new Shell(p0, 65568);
+    v5.setText(p1);
+    v6 = new layout.GridLayout();
+    v6.marginWidth = 10;
+    v6.marginHeight = 10;
+    v6.verticalSpacing = 10;
+    v5.setLayout(v6);
+    v7 = new Label(v5, 64);
+    v7.setText(p2);
+    v8 = new Composite(v5, 0);
+    v9 = new layout.GridData();
+    v9.horizontalSpan = 1;
+    v9.horizontalAlignment = 3;
+    v9.grabExcessHorizontalSpace = 1;
+    v8.setLayoutData(v9);
+    v10 = new layout.RowLayout();
+    v10.pack = 0;
+    v10.justify = 1;
+    v10.spacing = 10;
+    v8.setLayout(v10);
+    v11 = MiSWT.getButtonDim(v8, "--Cancel--");
+    v12 = new Button(v8, 16777224);
+    v12.setText("Yes");
+    v12.setLayoutData(new layout.RowData(v11.x, v11.y));
+    v12.addSelectionListener(new MiSWT$3(v4, v5));
+    v13 = new Button(v8, 16777224);
+    v13.setText("No");
+    v13.setLayoutData(new layout.RowData(v11.x, v11.y));
+    v13.addSelectionListener(new MiSWT$4(v4, v5));
+    v8 = v5.computeSize(-1, -1);
+    v8.x = Math.max(v8.x, MiSWT.stringExtent(v7.getFont(), "This is a somewhat reasonably long message, with a little gap").x);
+    v5.setLocation(MiSWT.getCenteredPosition(p0, v8));
+    v5.setSize(v8);
+    v5.setVisible(1);
+    v5.setFocus();
+    v9 = p0.getDisplay();
+    if (p3 == 0) goto L394;
+    v9.timerExec((p3 * 1000), lambda[MiSWT::lambda$dialogYesNoCancelAbort$0](v5, v4));
+    L394:
+    if (v5.isDisposed() != 0) goto L419;
+    if (v9.readAndDispatch() != 0) goto L394;
+    v9.sleep();
+    goto L394;
+    L419:
+    return v4.ret;
+}
+
+public static Point getCenteredPosition(Shell p0, Point p1) {
+    v2 = p0.getBounds();
+    p1.x = Math.min(p1.x, v2.width);
+    p1.y = Math.min(p1.y, v2.height);
+    return new Point((v2.x + ((v2.width - p1.x) / 2)), (v2.y + ((v2.height - p1.y) / 2)));
+}
+
+public static int confirmYesOrNO(Shell p0, String p1) {
+    return MiSWT.showInfo(p0, "Confirm", p1, 196);
+}
+
+public static Point getButtonDim(Composite p0, String p1) {
+    v2 = new Button(p0, 16777224);
+    v2.setText(p1);
+    v3 = v2.computeSize(-1, -1);
+    v2.dispose();
+    return v3;
+}
+
+public static Point getButtonDim(Composite p0, int p1) {
+    v2 = new Button(p0, 16777224);
+    v2.setText("We".repeat(((p1 / 2) + 1)));
+    v3 = v2.computeSize(-1, -1);
+    v2.dispose();
+    return v3;
+}
+
+public static String selectImage(Shell p0, String p1) {
+    v2 = new Shell(p0, 67680);
+    v3 = p0.getDisplay();
+    v2.setText("Select an image...");
+    v4 = new MiSWT$State();
+    v5 = new MiSWT$5(v4, v2);
+    v6 = new File(p1);
+    v7 = v6.listFiles();
+    if (v7 != null) goto L72;
+    $a5 = new File[0];
+    v7 = $a5;
+    L72:
+    Arrays.sort(v7);
+    v8 = new layout.GridLayout();
+    v8.marginWidth = 10;
+    v8.marginHeight = 10;
+    v8.horizontalSpacing = 6;
+    v8.verticalSpacing = 6;
+    v8.numColumns = ((int)Math.sqrt((double)v7.length) + 1);
+    v2.setLayout(v8);
+    v9 = v7;
+    v10 = v9.length;
+    v11 = 0;
+    L145:
+    if (v11 >= v10) goto L240;
+    v12 = v9[v11];
+    if (v12.isDirectory() != 0) goto L234;
+    v13 = v12.getName();
+    v14 = new Image(v3, (p1 + File.separator + v13));
+    v15 = new Label(v2, 8388608);
+    v15.setImage(v14);
+    v15.setData(v13);
+    v15.addMouseListener(v5);
+    goto L234;
+    // handler for [167,229) catch Exception
+    L232:
+    v13 = $ex;
+    L234:
+    v11 += 1;
+    goto L145;
+    L240:
+    v9 = v2.computeSize(-1, -1);
+    v2.setLocation(MiSWT.centerLoc(p0, v9));
+    v2.setSize(v9);
+    v2.setVisible(1);
+    v2.setFocus();
+    L274:
+    if (v2.isDisposed() != 0) goto L296;
+    if (v3.readAndDispatch() != 0) goto L274;
+    v3.sleep();
+    goto L274;
+    L296:
+    return v4.ret_string;
+}
+
+public static void clear_composite(Composite p0, int p1) {
+    v2 = p0.getChildren();
+    v3 = p1;
+    L7:
+    if (v3 >= v2.length) goto L25;
+    v2[v3].dispose();
+    v3 += 1;
+    goto L7;
+    L25:
+    return;
+}
+
+private static String removeDots(String p0) {
+    if (-1 == p0.indexOf(46)) goto L70;
+    v1 = p0.length();
+    $a1 = new char[v1];
+    v2 = $a1;
+    v3 = 0;
+    v4 = 0;
+    L24:
+    if (v4 >= v1) goto L59;
+    v5 = p0.charAt(v4);
+    if (v5 == 46) goto L53;
+    v2[v3] = v5;
+    v3 += 1;
+    L53:
+    v4 += 1;
+    goto L24;
+    L59:
+    return new String(v2, 0, v3);
+    L70:
+    return p0;
+}
+
+public static String sdate(int p0) {
+    v1 = new SimpleDateFormat("dd-MMM-yyyy");
+    v2 = new SimpleCalendar(p0);
+    return MiSWT.removeDots(v1.format(v2.getTime()));
+}
+
+public static String sdateMonth(int p0) {
+    v1 = new SimpleDateFormat("MMMMMMMMMMMM");
+    v2 = new SimpleCalendar(p0);
+    return v1.format(v2.getTime());
+}
+
+public static Point centerLoc(Point p0) {
+    v1 = Display.getCurrent().getBounds();
+    v2 = Math.min(p0.x, v1.width);
+    v3 = Math.min(p0.y, v1.height);
+    return new Point((v1.x + ((v1.width - v2) / 2)), (v1.y + ((v1.height - v3) / 2)));
+}
+
+public static boolean licenseAgreement(String p0, String p1, String p2) {
+    v3 = new MiSWT$1editInfo();
+    if (p1 != null) goto L104;
+    p1 = "";
+    v4 = new BufferedReader(new FileReader(p2));
+    v6 = new StringBuilder(p1);
+    L43:
+    $t5 = v4.readLine();
+    v5 = $t5;
+    if (null == $t5) goto L72;
+    v6.append(v5).append("\n");
+    goto L43;
+    L72:
+    p1 = v6.toString();
+    v4.close();
+    goto L104;
+    // handler for [16,83) catch Exception
+    L86:
+    v4 = $ex;
+    v5 = ("Unable to open '" + p2 + "'");
+    p1 = (v5 + "\n\nPlease find a way to read the license terms.\nDo you agree with the terms?\n");
+    L104:
+    if (p1.isBlank() == 0) goto L119;
+    MiSWT.showError("Unable to display license");
+    return 0;
+    L119:
+    v4 = Display.getCurrent();
+    v5 = new Shell(v4, 67680);
+    v5.setText(p0);
+    v5.setImage(MiSWT.getImage(169));
+    v6 = new layout.GridLayout();
+    v6.numColumns = 1;
+    v6.marginWidth = 10;
+    v6.marginHeight = 10;
+    v6.verticalSpacing = 5;
+    v6.horizontalSpacing = 5;
+    v5.setLayout(v6);
+    v7 = new Text(v5, 2626);
+    v7.setEditable(0);
+    v7.setText(p1);
+    v7.setLayoutData(new layout.GridData(1808));
+    v8 = new Composite(v5, 0);
+    v9 = new layout.GridData();
+    v9.horizontalSpan = 2;
+    v9.horizontalAlignment = 3;
+    v8.setLayoutData(v9);
+    v10 = new layout.RowLayout();
+    v10.pack = 0;
+    v10.justify = 1;
+    v10.spacing = 10;
+    v8.setLayout(v10);
+    v11 = MiSWT.getButtonDim(v8, "--Cancel--");
+    v12 = new Button(v8, 16777224);
+    v12.setText("I agree");
+    v12.setLayoutData(new layout.RowData(v11.x, v11.y));
+    v12.addSelectionListener(new MiSWT$6(v3, v5));
+    v12.setData(null);
+    v13 = new Button(v8, 16777224);
+    v13.setText("Cancel");
+    v13.setLayoutData(new layout.RowData(v11.x, v11.y));
+    v13.addSelectionListener(new MiSWT$7(v5));
+    v5.setDefaultButton(v12);
+    v14 = new Point(640, 480);
+    v5.setLocation(MiSWT.centerLoc(v14));
+    v5.setSize(v14);
+    v5.setVisible(1);
+    v5.setFocus();
+    L501:
+    if (v5.isDisposed() != 0) goto L526;
+    if (v4.readAndDispatch() != 0) goto L501;
+    v4.sleep();
+    goto L501;
+    L526:
+    return v3.accepted;
+}
+
+public static Font getBiggerFont(int p0, int p1) {
+    v2 = Display.getCurrent().getSystemFont().getFontData();
+    return new Font(Display.getCurrent(), v2[0].getName(), (v2[0].getHeight() + p0), p1);
+}
+
+public static Font getFont(Font p0, int p1, float p2) {
+    v3 = p0.getFontData();
+    $s0 = new Font(?);
+    $s1 = new Font(?);
+    $s2 = Display.getCurrent();
+    $s3 = v3[0].getName();
+    $s4 = (int)((float)v3[0].getHeight() * p2);
+    if (p1 != -1) goto L42;
+    $s0 = new Font(?);
+    $s1 = new Font(?);
+    $s2 = Display.getCurrent();
+    $s3 = v3[0].getName();
+    $s4 = (int)((float)v3[0].getHeight() * p2);
+    $s5 = v3[0].getStyle();
+    goto L43;
+    L42:
+    $s5 = p1;
+    L43:
+    $s1.<init>($s2, $s3, $s4, $s5);
+    return $s0;
+}
+
+public static Font getFont(Font p0, int p1, int p2) {
+    v3 = p0.getFontData();
+    $s0 = new Font(?);
+    $s1 = new Font(?);
+    $s2 = Display.getCurrent();
+    $s3 = v3[0].getName();
+    $s4 = (v3[0].getHeight() + p2);
+    if (p1 != -1) goto L40;
+    $s0 = new Font(?);
+    $s1 = new Font(?);
+    $s2 = Display.getCurrent();
+    $s3 = v3[0].getName();
+    $s4 = (v3[0].getHeight() + p2);
+    $s5 = v3[0].getStyle();
+    goto L41;
+    L40:
+    $s5 = p1;
+    L41:
+    $s1.<init>($s2, $s3, $s4, $s5);
+    return $s0;
+}
+
+public static Font getScaledFont(Font p0, float p1) {
+    v2 = p0.getFontData();
+    return new Font(p0.getDevice(), v2[0].getName(), Math.max(1, (int)((float)v2[0].getHeight() * p1)), v2[0].getStyle());
+}
+
+public static Font getMonospacedFont() {
+    if (MiSWT.monospaced != null) goto L85;
+    v0 = Display.getCurrent().getSystemFont().getFontData();
+    v1 = System.getProperty("os.name").toLowerCase();
+    if (v1.contains("mac") == 0) goto L62;
+    MiSWT.monospaced = new Font(Display.getCurrent(), "Monaco", v0[0].getHeight(), 0);
+    goto L85;
+    L62:
+    MiSWT.monospaced = new Font(Display.getCurrent(), "Consolas", v0[0].getHeight(), 0);
+    L85:
+    return MiSWT.monospaced;
+}
+
+public static Font changeFontSize(Font p0, int p1) {
+    v2 = p0.getFontData();
+    v3 = v2;
+    v4 = v3.length;
+    v5 = 0;
+    L14:
+    if (v5 >= v4) goto L45;
+    v6 = v3[v5];
+    v6.setHeight((v6.getHeight() + p1));
+    v5 += 1;
+    goto L14;
+    L45:
+    return new Font(p0.getDevice(), v2);
+}
+
+public static boolean isDarkColor(Color p0) {
+    v1 = p0.getRGB();
+    if (v1.red >= 10) goto L25;
+    if (v1.green >= 10) goto L25;
+    return 1;
+    L25:
+    v2 = v1.getHSB();
+    if ((double)v2[2] >= 0.7) goto L45;
+    $s0 = 1;
+    goto L46;
+    L45:
+    $s0 = 0;
+    L46:
+    return $s0;
+}
+
+public static boolean isLightColor(Color p0) {
+    if (MiSWT.isDarkColor(p0) != 0) goto L11;
+    $s0 = 1;
+    goto L12;
+    L11:
+    $s0 = 0;
+    L12:
+    return $s0;
+}
+
+public static Color getDarkerColor(Color p0, double p1) {
+    if (p1 < 0.0) goto L12;
+    if (p1 <= 1.0) goto L26;
+    L12:
+    throw new IllegalArgumentException(("d is out of [0..1]: " + p1));
+    L26:
+    v3 = (int)((double)p0.getRed() * p1);
+    v4 = (int)((double)p0.getGreen() * p1);
+    v5 = (int)((double)p0.getBlue() * p1);
+    return new Color(new RGB(v3, v4, v5));
+}
+
+public static Color getComplementaryColor(Color p0) {
+    v1 = (255 - p0.getRed());
+    v2 = (255 - p0.getGreen());
+    v3 = (255 - p0.getBlue());
+    return new Color(Display.getCurrent(), new RGB(v1, v2, v3));
+}
+
+public static Color getLigherColor(Color p0, double p1) {
+    if (p1 < 0.0) goto L12;
+    if (p1 <= 1.0) goto L26;
+    L12:
+    throw new IllegalArgumentException(("d is out of [0..1]: " + p1));
+    L26:
+    v3 = Math.min(255, (int)((double)p0.getRed() + ((double)p0.getRed() * p1)));
+    v4 = Math.min(255, (int)((double)p0.getGreen() + ((double)p0.getGreen() * p1)));
+    v5 = Math.min(255, (int)((double)p0.getBlue() + ((double)p0.getBlue() * p1)));
+    return new Color(new RGB(v3, v4, v5));
+}
+
+public static Color getAccentedColor(Color p0, double p1) {
+    if (p1 < 0.0) goto L12;
+    if (p1 <= 1.0) goto L26;
+    L12:
+    throw new IllegalArgumentException(("d is out of [0..1]: " + p1));
+    L26:
+    if (MiSWT.isLightColor(p0) == 0) goto L39;
+    return MiSWT.getDarkerColor(p0, p1);
+    L39:
+    return MiSWT.getLigherColor(p0, (1.0 - p1));
+}
+
+public static void fadeOut(Shell p0) {
+    $a1 = new float[6];
+    $a1[0] = 0.949999988079071f;
+    $a1[1] = 0.8999999761581421f;
+    $a1[2] = 0.800000011920929f;
+    $a1[3] = 0.6000000238418579f;
+    $a1[4] = 0.30000001192092896f;
+    $a1[5] = 0.0f;
+    v1 = $a1;
+    MiSWT.doFade(p0, v1, 100);
+    return;
+}
+
+public static void fadeIn(Shell p0) {
+    $a1 = new float[4];
+    $a1[0] = 0.20000000298023224f;
+    $a1[1] = 0.5f;
+    $a1[2] = 0.8999999761581421f;
+    $a1[3] = 1.0f;
+    v1 = $a1;
+    MiSWT.doFade(p0, v1, 100);
+    return;
+}
+
+private static void doFade(Shell p0, float[] p1, int p2) {
+    v3 = p1;
+    v4 = v3.length;
+    v5 = 0;
+    L9:
+    if (v5 >= v4) goto L77;
+    v6 = v3[v5];
+    Thread.sleep((long)p2);
+    goto L32;
+    // handler for [22,27) catch InterruptedException
+    L30:
+    v7 = $ex;
+    L32:
+    p0.setAlpha((int)(255.0f * v6));
+    L43:
+    if (p0.isDisposed() != 0) goto L63;
+    if (p0.getDisplay().readAndDispatch() == 0) goto L63;
+    goto L43;
+    L63:
+    if (p0.isDisposed() == 0) goto L71;
+    return;
+    L71:
+    v5 += 1;
+    goto L9;
+    L77:
+    return;
+}
+
+public static Image getImage(char p0) {
+    v1 = Display.getCurrent();
+    v2 = new ImageData(48, 48, 32, new PaletteData(65280, 16711680, -16777216));
+    v2.transparentPixel = 0;
+    v3 = new Image(v1, v2);
+    v4 = new GC(v3);
+    v4.setBackground(new Color(0, 0, 0, 0));
+    v4.fillRectangle(0, 0, 48, 48);
+    v4.setBackground(new Color(128, 128, 128, 128));
+    v4.fillOval(0, 0, 48, 48);
+    v5 = v1.getSystemFont();
+    L127:
+    v6 = MiSWT.stringExtent(v5, Character.toString(p0));
+    if (v6.y < 48) goto L159;
+    v5 = MiSWT.changeFontSize(v5, -1);
+    goto L170;
+    L159:
+    v5 = MiSWT.changeFontSize(v5, 1);
+    goto L127;
+    L170:
+    v4.setForeground(new Color(255, 255, 255, 255));
+    v4.setBackground(new Color(0, 0, 0, 0));
+    v4.setFont(v5);
+    v6.y = (v4.getFontMetrics().getHeight() - v4.getFontMetrics().getLeading());
+    v4.drawText(Character.toString(p0), ((48 - v6.x) / 2), (((-v4.getFontMetrics().getLeading()) / 2) + ((48 - v6.y) / 2)), 1);
+    v4.dispose();
+    return v3;
+}
+
+public static SimpleCalendar pickDate(Shell p0, SimpleCalendar p1) {
+    return MiSWT.pickDate(p0, p1, "Pick a Date");
+}
+
+public static SimpleCalendar pickDate(Shell p0, SimpleCalendar p1, String p2) {
+    v3 = new MiSWT$Holder(null);
+    v4 = new Shell(p0, 67680);
+    v4.setText(p2);
+    v5 = new layout.GridLayout();
+    v5.numColumns = 7;
+    v5.makeColumnsEqualWidth = 1;
+    v5.marginWidth = 10;
+    v5.marginHeight = 10;
+    v5.verticalSpacing = 2;
+    v5.horizontalSpacing = 2;
+    v4.setLayout(v5);
+    v4.setData("initial", new SimpleCalendar(p1));
+    MiSWT.fill_pick_date(v3, v4, p1);
+    v6 = v4.computeSize(-1, -1);
+    v6.y = (v6.y + (v6.y / 5));
+    v4.setLocation(MiSWT.centerLoc(p0, v6));
+    v4.setSize(v6);
+    v4.setVisible(1);
+    v4.setFocus();
+    L160:
+    if (v4.isDisposed() != 0) goto L189;
+    if (p0.getDisplay().readAndDispatch() != 0) goto L160;
+    p0.getDisplay().sleep();
+    goto L160;
+    L189:
+    return (SimpleCalendar)v3.value;
+}
+
+private static void fill_pick_date(MiSWT$Holder p0, Composite p1, SimpleCalendar p2) {
+    v4 = p2.getActualMaximum(1);
+    if (p1.isVisible() == 0) goto L19;
+    MiSWT.setRedraw(p1, 0);
+    L19:
+    v7 = new SimpleCalendar(p2);
+    v7.set(1, 1);
+    v8 = p1.getChildren();
+    v5 = 0;
+    L46:
+    if (v5 >= v8.length) goto L68;
+    v8[v5].dispose();
+    v5 += 1;
+    goto L46;
+    L68:
+    p1.setData(v7);
+    v10 = new Composite(p1, 0);
+    v11 = new layout.GridData(256);
+    v11.horizontalSpan = 7;
+    v10.setLayoutData(v11);
+    v10.setBackground(Display.getCurrent().getSystemColor(1));
+    v10.setLayout(new layout.GridLayout(6, 0));
+    v12 = new Button(v10, 8);
+    v12.setText("  <<  ");
+    v12.setToolTipText("Previous Year");
+    v12.addSelectionListener(new MiSWT$8(p0));
+    v13 = new Button(v10, 8);
+    v13.setText("  <  ");
+    v13.setToolTipText("Previous Month");
+    v13.addSelectionListener(new MiSWT$9(p0));
+    v14 = new SimpleDateFormat("MMMMMMMMMMMMM, yyyy");
+    v15 = new Button(v10, 16777216);
+    v16 = "      ";
+    v17 = new layout.GridData(768);
+    v17.widthHint = MiSWT.cal_label_width_hint(v15, v16);
+    v15.setText((v16 + v14.format(v7.getTime()) + v16 + "\u22ee"));
+    v15.setLayoutData(v17);
+    v15.addSelectionListener(new MiSWT$10(v14, p0));
+    v16 = new Button(v10, 8);
+    v16.setText("  >  ");
+    v16.setToolTipText("Next Month");
+    v16.addSelectionListener(new MiSWT$11(p0));
+    v17 = new Button(v10, 8);
+    v17.setText("  >>  ");
+    v17.setToolTipText("Next Year");
+    v17.addSelectionListener(new MiSWT$12(p0));
+    v18 = new Button(v10, 8);
+    v18.setText("Today");
+    v18.setToolTipText("Set Today Year and Month");
+    v18.addSelectionListener(new MiSWT$13(p0));
+    v5 = 0;
+    L452:
+    if (v5 >= 7) goto L533;
+    v9 = new Label(p1, 16777216);
+    v9.setText(MiSWT.week_day_names[v5].substring(0, 3));
+    v9.setForeground(Display.getCurrent().getSystemColor(1));
+    v9.setBackground(Display.getCurrent().getSystemColor(2));
+    v9.setLayoutData(new layout.GridData(768));
+    v5 += 1;
+    goto L452;
+    L533:
+    $t21 = v7.get(6);
+    v6 = $t21;
+    if ($t21 <= 0) goto L588;
+    v5 = 0;
+    L549:
+    if (v5 >= v6) goto L588;
+    v9 = new Label(p1, 0);
+    v9.setLayoutData(new layout.GridData(1808));
+    v5 += 1;
+    goto L549;
+    L588:
+    v19 = new MiSWT$14(p0);
+    v20 = new SimpleCalendar();
+    v21 = MiSWT.getAccentedColor(p1.getBackground(), 0.85);
+    v22 = MiSWT.getComplementaryColor(v21);
+    v3 = 1;
+    L628:
+    if (v3 > v4) goto L733;
+    v7.set(1, v3);
+    v9 = new Label(p1, 131072);
+    v9.setLayoutData(new layout.GridData(1808));
+    v9.setText((v3));
+    v9.setBackground(v21);
+    v9.addMouseListener(v19);
+    if (v7.equals(v20) == 0) goto L720;
+    v9.setForeground(Display.getCurrent().getSystemColor(3));
+    goto L727;
+    L720:
+    v9.setForeground(v22);
+    L727:
+    v3 += 1;
+    goto L628;
+    L733:
+    v7.set(1, v4);
+    $t28 = v7.get(6);
+    v6 = $t28;
+    if (6 == $t28) goto L800;
+    v5 = v6;
+    L761:
+    if (v5 >= 6) goto L800;
+    v9 = new Label(p1, 0);
+    v9.setLayoutData(new layout.GridData(1808));
+    v5 += 1;
+    goto L761;
+    L800:
+    p1.layout();
+    if (p1.isVisible() == 0) goto L816;
+    MiSWT.setRedraw(p1, 1);
+    L816:
+    return;
+}
+
+private static int cal_label_width_hint(Control p0, String p1) {
+    v2 = 0;
+    v3 = new SimpleDateFormat("MMMMMMMMMMMMM,yyyy");
+    v4 = new SimpleCalendar();
+    v5 = 0;
+    L25:
+    if (v5 >= 12) goto L116;
+    v4.add(2, 1);
+    if ((p0 instanceof Button) == 0) goto L73;
+    (Button)p0.setText((p1 + v3.format(v4.getTime()) + p1));
+    goto L96;
+    L73:
+    (Label)p0.setText((p1 + v3.format(v4.getTime()) + p1));
+    L96:
+    v2 = Math.max(v2, p0.computeSize(-1, -1).x);
+    v5 += 1;
+    goto L25;
+    L116:
+    return v2;
+}
+
+public static String editNotes(Shell p0, Image p1, String p2, String p3, boolean p4) {
+    return MiSWT.editNotes(p0, p1, p2, p3, p4, new MiSWT$EditNotesAttrs());
+}
+
+public static String editNotes(Shell p0, Image p1, String p2, String p3, boolean p4, MiSWT$EditNotesAttrs p5) {
+    v6 = new MiSWT$Holder(null);
+    v7 = new Shell(67632);
+    v7.setText(p2);
+    v7.setImage(p1);
+    v8 = new layout.GridLayout();
+    v8.numColumns = 1;
+    v8.marginWidth = 10;
+    v8.marginHeight = 10;
+    v8.verticalSpacing = 5;
+    v8.horizontalSpacing = 5;
+    v7.setLayout(v8);
+    v9 = new StyledText(v7, 2626);
+    v9.setEditable(p4);
+    v9.setTabs(8);
+    if (p5.font == null) goto L127;
+    v9.setFont(p5.font);
+    L127:
+    v9.setKeyBinding(262241, 262209);
+    v10 = HunspellSpeller.getInstance();
+    v11 = null;
+    if (v10 == null) goto L169;
+    if (p4 == 0) goto L169;
+    v11 = new StyledTextSpelling(v9, v10);
+    L169:
+    StyledTextUndo.addTo(v9);
+    $s0 = v9;
+    if (p3 != null) goto L187;
+    $s0 = v9;
+    $s1 = "";
+    goto L188;
+    L187:
+    $s1 = p3;
+    L188:
+    $s0.setText($s1);
+    v12 = new layout.GridData(1808);
+    v13 = MiSWT.stringExtent(v9.getFont(), "This is about 10");
+    v12.heightHint = (v13.y * 18);
+    v12.widthHint = (v13.x * 6);
+    v9.setLayoutData(v12);
+    if (p3 == null) goto L317;
+    v12 = p3.toUpperCase();
+    if (p5.text_to_select == null) goto L317;
+    $t7 = v12.indexOf(p5.text_to_select.toUpperCase());
+    v13 = $t7;
+    if (-1 == $t7) goto L317;
+    v9.setCaretOffset(v13);
+    v9.setSelection(v13, (v13 + p5.text_to_select.length()));
+    v9.showSelection();
+    L317:
+    v12 = new Composite(v7, 0);
+    v12.setLayoutData(new layout.GridData(4, 128, 1, 0));
+    v12.setLayout(new layout.GridLayout(2, 0));
+    if (p5.setup == null) goto L396;
+    p5.setup.accept(new MiSWT$EditNotesContext(v7, v9, v11, v6, v12));
+    L396:
+    if (v12.getChildren().length != 0) goto L471;
+    v13 = new Label(v12, 0);
+    $s0 = v13;
+    if (p4 == 0) goto L430;
+    $s0 = v13;
+    $s1 = "Quick save: Ctrl+S or Ctrl+Enter";
+    goto L433;
+    L430:
+    $s1 = "";
+    L433:
+    $s0.setText($s1);
+    v13.setLayoutData(new layout.GridData(16384, 128, 1, 0));
+    v13.setForeground(v7.getDisplay().getSystemColor(15));
+    L471:
+    v13 = new Composite(v12, 0);
+    v14 = new layout.GridData();
+    v14.horizontalSpan = 1;
+    v14.horizontalAlignment = 3;
+    v13.setLayoutData(v14);
+    v15 = new layout.RowLayout();
+    v15.pack = 0;
+    v15.justify = 1;
+    v15.spacing = 10;
+    v13.setLayout(v15);
+    v16 = SelectionListener.widgetSelectedAdapter(lambda[MiSWT::lambda$editNotes$0](p3, v9, v7, v6));
+    v17 = MiSWT.getButtonDim(v13, "--Cancel--");
+    v18 = new Button(v13, 16777224);
+    v18.setText("Ok");
+    v18.setLayoutData(new layout.RowData(v17.x, v17.y));
+    v18.addSelectionListener(new MiSWT$15(v6, v9, v7));
+    v18.setData(null);
+    v19 = new Button(v13, 16777224);
+    v19.setText("Cancel");
+    v19.setLayoutData(new layout.RowData(v17.x, v17.y));
+    v19.addSelectionListener(SelectionListener.widgetSelectedAdapter(lambda[MiSWT::lambda$editNotes$1](v16)));
+    v20 = lambda[MiSWT::lambda$editNotes$2](v7, v6, v9);
+    v7.addTraverseListener(lambda[MiSWT::lambda$editNotes$3](v16));
+    MiSWT.attachTextZoomHandler(v9);
+    if (p0 == null) goto L741;
+    $s0 = p0.getDisplay();
+    goto L744;
+    L741:
+    $s0 = Display.getCurrent();
+    L744:
+    v21 = $s0;
+    v21.addFilter(1, v20);
+    v7.setDefaultButton(v18);
+    v22 = v7.computeSize(-1, -1);
+    v7.setLocation(MiSWT.centerLoc(p0, v22));
+    v7.setSize(v22);
+    v7.setVisible(1);
+    v7.setFocus();
+    L800:
+    if (v7.isDisposed() != 0) goto L825;
+    if (v21.readAndDispatch() != 0) goto L800;
+    v21.sleep();
+    goto L800;
+    L825:
+    v21.removeFilter(1, v20);
+    return (String)v6.value;
+}
+
+public static void attachTextZoomHandler(StyledText p0) {
+    p0.addKeyListener(KeyListener.keyPressedAdapter(lambda[MiSWT::lambda$attachTextZoomHandler$0](p0)));
+    p0.addMouseWheelListener(lambda[MiSWT::lambda$attachTextZoomHandler$1](p0));
+    return;
+}
+
+public static Object selectChoice(Shell p0, Image p1, String p2, String p3, Map p4, Object p5) {
+    v6 = new MiSWT$Holder(null);
+    v7 = p0.getDisplay();
+    v8 = new Shell(p0, 67680);
+    v8.setImage(p1);
+    v8.setText(p2);
+    v9 = new layout.GridLayout();
+    v9.numColumns = 1;
+    v9.marginWidth = 10;
+    v9.marginHeight = 10;
+    v9.verticalSpacing = 10;
+    v9.horizontalSpacing = 10;
+    v8.setLayout(v9);
+    v10 = new Label(v8, 0);
+    v10.setText(p3);
+    v10 = new ArrayList();
+    v11 = p4.entrySet().iterator();
+    L129:
+    if (v11.hasNext() == 0) goto L224;
+    v12 = (Map$Entry)v11.next();
+    v13 = new Button(v8, 16);
+    $s0 = v13;
+    if (p5 != v12.getKey()) goto L182;
+    $s0 = v13;
+    $s1 = 1;
+    goto L183;
+    L182:
+    $s1 = 0;
+    L183:
+    $s0.setSelection($s1);
+    v13.setData(v12.getKey());
+    v13.setText((String)v12.getValue());
+    v10.add(v13);
+    goto L129;
+    L224:
+    v11 = new Composite(v8, 0);
+    v12 = new layout.GridData();
+    v12.horizontalSpan = 2;
+    v12.horizontalAlignment = 3;
+    v11.setLayoutData(v12);
+    v13 = new layout.RowLayout();
+    v13.pack = 0;
+    v13.justify = 1;
+    v13.spacing = 10;
+    v11.setLayout(v13);
+    v14 = MiSWT.getButtonDim(v11, "--Cancel--");
+    v15 = new Button(v11, 16777224);
+    v15.setText("Accept");
+    v15.setLayoutData(new layout.RowData(v14.x, v14.y));
+    v15.addSelectionListener(SelectionListener.widgetSelectedAdapter(lambda[MiSWT::lambda$selectChoice$0](v10, v6, v8)));
+    v15.setData(null);
+    v16 = new Button(v11, 16777224);
+    v16.setText("Cancel");
+    v16.setLayoutData(new layout.RowData(v14.x, v14.y));
+    v16.addSelectionListener(SelectionListener.widgetSelectedAdapter(lambda[MiSWT::lambda$selectChoice$1](v8)));
+    v8.setDefaultButton(v15);
+    v8.pack();
+    v8.setLocation(MiSWT.centerLoc(p0, v8.getSize()));
+    v8.open();
+    L468:
+    if (v8.isDisposed() != 0) goto L493;
+    if (v7.readAndDispatch() != 0) goto L468;
+    v7.sleep();
+    goto L468;
+    L493:
+    return v6.value;
+}
+
+private static synthetic void lambda$selectChoice$1(Shell p0, SelectionEvent p1) {
+    p0.dispose();
+    return;
+}
+
+private static synthetic void lambda$selectChoice$0(ArrayList p0, MiSWT$Holder p1, Shell p2, SelectionEvent p3) {
+    v4 = p0.iterator();
+    L6:
+    if (v4.hasNext() == 0) goto L55;
+    v5 = (Button)v4.next();
+    if (v5.getSelection() == 0) goto L52;
+    p1.value = v5.getData();
+    p2.dispose();
+    goto L55;
+    L52:
+    goto L6;
+    L55:
+    return;
+}
+
+private static synthetic void lambda$attachTextZoomHandler$1(StyledText p0, MouseEvent p1) {
+    if ((p1.stateMask & SWT.MODIFIER_MASK) != 262144) goto L38;
+    $s0 = p0;
+    $s1 = p0.getFont();
+    $s2 = -1;
+    if (p1.count <= 0) goto L31;
+    $s0 = p0;
+    $s1 = p0.getFont();
+    $s2 = -1;
+    $s3 = 1;
+    goto L32;
+    L31:
+    $s3 = -1;
+    L32:
+    $s0.setFont(MiSWT.getFont($s1, $s2, $s3));
+    L38:
+    return;
+}
+
+private static synthetic void lambda$attachTextZoomHandler$0(StyledText p0, KeyEvent p1) {
+    if ((p1.stateMask & SWT.MODIFIER_MASK) != 262144) goto L92;
+    if (p1.keyCode != 98) goto L45;
+    v2 = p0.getCaretOffset();
+    p0.insert(" \u2022\t");
+    p0.setCaretOffset((v2 + 3));
+    goto L92;
+    L45:
+    if (p1.keyCode != 61) goto L70;
+    p0.setFont(MiSWT.getFont(p0.getFont(), -1, 1));
+    goto L92;
+    L70:
+    if (p1.keyCode != 45) goto L92;
+    p0.setFont(MiSWT.getFont(p0.getFont(), -1, -1));
+    L92:
+    return;
+}
+
+private static synthetic void lambda$editNotes$3(SelectionListener p0, TraverseEvent p1) {
+    if (p1.character != 27) goto L21;
+    p0.widgetSelected(null);
+    p1.doit = 0;
+    L21:
+    return;
+}
+
+private static synthetic void lambda$editNotes$2(Shell p0, MiSWT$Holder p1, StyledText p2, Event p3) {
+    if (p0.isDisposed() != 0) goto L54;
+    if ((p3.stateMask & SWT.MODIFIER_MASK) != 262144) goto L54;
+    if (p3.keyCode == 13) goto L39;
+    if (p3.keyCode != 115) goto L54;
+    L39:
+    p1.value = p2.getText().trim();
+    p0.dispose();
+    L54:
+    return;
+}
+
+private static synthetic void lambda$editNotes$1(SelectionListener p0, SelectionEvent p1) {
+    p0.widgetSelected(p1);
+    p1.doit = 0;
+    return;
+}
+
+private static synthetic void lambda$editNotes$0(String p0, StyledText p1, Shell p2, MiSWT$Holder p3, SelectionEvent p4) {
+    if (p0 == null) goto L70;
+    if (p0.equals(p1.getText()) != 0) goto L70;
+    switch (MiSWT.dialogYesNoCancelAbort(p2, "\u26a0 Warning", "Note changed. Do you want to save it?", 0)) { 64: L52, 128: L63; default: L67 }
+    L52:
+    p3.value = p1.getText().trim();
+    L63:
+    p2.dispose();
+    L67:
+    goto L74;
+    L70:
+    p2.dispose();
+    L74:
+    return;
+}
+
+private static synthetic void lambda$dialogYesNoCancelAbort$0(Shell p0, MiSWT$1RetVal p1) {
+    if (p0.isDisposed() != 0) goto L18;
+    p1.ret = 512;
+    p0.dispose();
+    L18:
+    return;
+}
+
+private static synthetic void lambda$computeLinkSize$0(Link p0, Point p1, int[] p2, String p3) {
+    v4 = MiSWT.stringExtent(p0.getFont(), p3);
+    if (v4.x <= p1.x) goto L31;
+    p1.x = v4.x;
+    L31:
+    p2[0] = (p2[0] + (v4.y + ((v4.y * 15) / 100)));
+    return;
+}
+
+private static synthetic void lambda$prompt$0(Text p0, function.Function p1, Shell p2, MiSWT$1RV p3, SelectionEvent p4) {
+    v5 = p0.getText();
+    if (p1 == null) goto L33;
+    if ((Boolean)p1.apply(v5).booleanValue() != 0) goto L33;
+    p2.setFocus();
+    return;
+    L33:
+    p3.prompt_return_val = v5;
+    p2.dispose();
+    return;
+}
+
+static void <clinit>() {
+    $a1 = new String[7];
+    $a1[0] = "Sunday";
+    $a1[1] = "Monday";
+    $a1[2] = "Tuesday";
+    $a1[3] = "Wednesday";
+    $a1[4] = "Thursday";
+    $a1[5] = "Friday";
+    $a1[6] = "Saturday";
+    MiSWT.week_day_names = $a1;
+    MiSWT.isRunningOnLinux = System.getProperty("os.name", "").contains("Linux");
+    MiSWT.isRunningOnWindows = System.getProperty("os.name", "").contains("Windows");
+    MiSWT.isRunningOnMac = System.getProperty("os.name", "").startsWith("Mac");
+    MiSWT.lastClazz = null;
+    MiSWT.lastJarLocation = null;
+    v0 = Display.getCurrent();
+    if (v0 != null) goto L125;
+    v0 = Display.getDefault();
+    L125:
+    MiSWT.gc = new GC(v0);
+    MiSWT.monospaced = null;
+    return;
+}

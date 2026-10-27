@@ -1,0 +1,34 @@
+// ===== Platform extends Enum 
+public static final enum Platform WINDOWS_x64;
+public static final enum Platform MAC_ARM64;
+public static final enum Platform MAC_x64;
+private static final synthetic Platform[] $VALUES;
+
+public static Platform[] values() {
+    return ([Lca.mishell.misc.Platform;)Platform.$VALUES.clone();
+}
+
+public static Platform valueOf(String p0) {
+    return (Platform)Enum.valueOf(Platform, p0);
+}
+
+private void <init>(String p0, int p1) {
+    super.<init>(p0, p1);
+    return;
+}
+
+private static synthetic Platform[] $values() {
+    $a1 = new Platform[3];
+    $a1[0] = Platform.WINDOWS_x64;
+    $a1[1] = Platform.MAC_ARM64;
+    $a1[2] = Platform.MAC_x64;
+    return $a1;
+}
+
+static void <clinit>() {
+    Platform.WINDOWS_x64 = new Platform("WINDOWS_x64", 0);
+    Platform.MAC_ARM64 = new Platform("MAC_ARM64", 1);
+    Platform.MAC_x64 = new Platform("MAC_x64", 2);
+    Platform.$VALUES = Platform.$values();
+    return;
+}

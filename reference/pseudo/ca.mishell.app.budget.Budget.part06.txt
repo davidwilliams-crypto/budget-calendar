@@ -1,0 +1,2314 @@
+private Menu createStatStartEndMenu(Shell p0, SimpleCalendar[] p1, SelectionAdapter p2, Label p3, Label p4) {
+    v6 = new SimpleCalendar().getYear();
+    v7 = new SimpleDateFormat("MMMMMMMMMMMM");
+    v8 = lambda[Budget::lambda$createStatStartEndMenu$0](this, p1, p4, p3, v7, p2, v6, p0);
+    v9 = new Menu(p0, 8);
+    v10 = (Set)Arrays.stream(p1).map(lambda[SimpleCalendar::getYear]()).filter(lambda[Budget::lambda$createStatStartEndMenu$3](v6)).collect(stream.Collectors.toSet());
+    if (v10.size() < 2) goto L231;
+    v11 = new MenuItem(v9, 64);
+    v11.setText((String.valueOf(Collections.min(v10)) + " - " + String.valueOf(Collections.max(v10))));
+    v12 = new Menu(v9);
+    v11.setMenu(v12);
+    v13 = new ArrayList(v10);
+    Collections.sort(v13, Collections.reverseOrder());
+    v14 = v13.iterator();
+    L188:
+    if (v14.hasNext() == 0) goto L228;
+    v15 = (Integer)v14.next();
+    v8.add_year(v12, v15.intValue(), 1);
+    goto L188;
+    L228:
+    goto L238;
+    L231:
+    v10.clear();
+    L238:
+    v11 = (TreeSet)Arrays.stream(p1).map(lambda[SimpleCalendar::getYear]()).filter(lambda[Budget::lambda$createStatStartEndMenu$4](v10)).collect(stream.Collectors.toCollection(lambda[Budget::lambda$createStatStartEndMenu$5]()));
+    v12 = v11.iterator();
+    L289:
+    if (v12.hasNext() == 0) goto L385;
+    v13 = (Integer)v12.next();
+    if (v13.intValue() != v6) goto L332;
+    new MenuItem(v9, 2);
+    L332:
+    $s0 = v8;
+    $s1 = v9;
+    $s2 = v13.intValue();
+    if (v13.intValue() == v6) goto L355;
+    $s0 = v8;
+    $s1 = v9;
+    $s2 = v13.intValue();
+    $s3 = 1;
+    goto L356;
+    L355:
+    $s3 = 0;
+    L356:
+    $s0.add_year($s1, $s2, $s3);
+    if (v13.intValue() != v6) goto L382;
+    new MenuItem(v9, 2);
+    L382:
+    goto L289;
+    L385:
+    return v9;
+}
+
+private void full_stats_update(SimpleDateFormat p0, Label p1, Label p2, Label p3) {
+    v5 = (SimpleCalendar)p1.getData();
+    v6 = (SimpleCalendar)p2.getData();
+    if (v5.gt(v6) == 0) goto L40;
+    v7 = v6;
+    v6 = v5;
+    v5 = v7;
+    L40:
+    p1.setData(v5);
+    p2.setData(v6);
+    v6 = new SimpleCalendar(v6).set(1, 1).add(2, 1);
+    v7 = SimpleCalendar.getMonthsDiff(v5, v6);
+    v8 = (v7 % 12);
+    v9 = (v7 / 12);
+    $s0 = p3;
+    if (v9 != 0) goto L109;
+    $s0 = p3;
+    $s1 = "";
+    goto L116;
+    L109:
+    $s1 = (v9 + "y ");
+    L116:
+    if (v8 <= 0) goto L131;
+    $s2 = (v8 + "m ");
+    goto L134;
+    L131:
+    $s2 = "";
+    L134:
+    $s0.setText(("( " + $s1 + $s2 + ")"));
+    p3.getParent().layout();
+    this.showStatsStats = this.calcStatistics(v5, v7, 1);
+    this.display_stats(p0, p1, p2, p3);
+    return;
+}
+
+private void display_stats(SimpleDateFormat p0, Label p1, Label p2, Label p3) {
+    p1.setText(p0.format(this.showStatsStats.startCal.getTime()));
+    p1.redraw();
+    p2.setText(p0.format(this.showStatsStats.endCal.getTime()));
+    p2.redraw();
+    v5 = this.stat_sv.getChildren();
+    v6 = 0;
+    L56:
+    if (v6 >= v5.length) goto L78;
+    v5[v6].dispose();
+    v6 += 1;
+    goto L56;
+    L78:
+    this.fillStats(this.showStatsStats, this.stat_sv, 4079, 0);
+    return;
+}
+
+private void showStats(Shell p0) {
+    v2 = new SimpleDateFormat("d-MMM-yyyy");
+    v3 = new Shell(p0, 67696);
+    v3.setImage(this.getImage(Budget.icon("det.bmp"), this.cfg.bgColorWindow.colorValue));
+    if (this.calViewFilter == null) goto L70;
+    this.setFilterText("");
+    this.calViewFilter = null;
+    this.updateCalendarView();
+    L70:
+    v3.setText("Income vs. Expenses");
+    v3.setBackground(this.cfg.bgColorWindow.colorValue);
+    v3.setLayout(new layout.GridLayout());
+    this.showStatsStats = this.calcStatistics(this.curCal, 1, 1);
+    v4 = new Composite(v3, 0);
+    v4.setLayout(new layout.GridLayout(6, 0));
+    v4.setLayoutData(new layout.GridData(768));
+    v4.setBackground(this.cfg.bgColorWindow.colorValue);
+    v5 = new Label(v4, 0);
+    v5.setFont(this.cfg.fontDate.fontValue);
+    v5.setBackground(this.cfg.bgColorWindow.colorValue);
+    $s0 = v5;
+    if (this.isDarkColor(v5.getBackground()) == 0) goto L235;
+    $s0 = v5;
+    $s1 = this.white_color;
+    goto L239;
+    L235:
+    $s1 = this.black_color;
+    L239:
+    $s0.setForeground($s1);
+    v5.setLayoutData(new layout.GridData(128));
+    v5.setText("From");
+    v6 = new Vector();
+    v7 = new SimpleCalendar(this.minDate);
+    L287:
+    if (v7.inRange(this.minDate, this.maxDate) == 0) goto L329;
+    v6.add(new SimpleCalendar(v7));
+    v7.add(2, 1);
+    goto L287;
+    L329:
+    $a12 = new SimpleCalendar[v6.size()];
+    v8 = ([Lca.mishell.misc.SimpleCalendar;)v6.toArray($a12);
+    v9 = new Label(v4, 16777216);
+    v9.setFont(this.cfg.fontDate.fontValue);
+    v9.setText(v2.format(this.showStatsStats.startCal.getTime()));
+    v10 = v9.computeSize(-1, -1);
+    v11 = (int)((double)v10.x * 1.1);
+    v12 = (int)((double)v10.y * 1.1);
+    v13 = new layout.GridData();
+    v13.widthHint = v11;
+    v13.heightHint = v12;
+    v9.setLayoutData(v13);
+    v9.setBackground(this.cfg.bgColorWindow.colorValue);
+    v9.setForeground(this.cfg.colorCurrentMonth.colorValue);
+    v9.addPaintListener(this.lbl_underline);
+    v5 = new Label(v4, 0);
+    v5.setFont(this.cfg.fontDate.fontValue);
+    v5.setLayoutData(new layout.GridData(128));
+    v5.setBackground(this.cfg.bgColorWindow.colorValue);
+    $s0 = v5;
+    if (this.isDarkColor(v5.getBackground()) == 0) goto L577;
+    $s0 = v5;
+    $s1 = this.white_color;
+    goto L581;
+    L577:
+    $s1 = this.black_color;
+    L581:
+    $s0.setForeground($s1);
+    v5.setText("to");
+    v14 = new Label(v4, 16777216);
+    v14.setFont(this.cfg.fontDate.fontValue);
+    v14.setBackground(this.cfg.bgColorWindow.colorValue);
+    v14.setForeground(this.cfg.colorCurrentMonth.colorValue);
+    v14.setText(v2.format(this.showStatsStats.endCal.getTime()));
+    v14.addPaintListener(this.lbl_underline);
+    v13 = new layout.GridData();
+    v13.widthHint = v11;
+    v13.heightHint = v12;
+    v14.setLayoutData(v13);
+    v9.setData(this.showStatsStats.startCal);
+    v14.setData(this.showStatsStats.startCal);
+    v15 = new Label(v4, 0);
+    v15.setFont(this.cfg.fontDate.fontValue);
+    v15.setText("( 1m )");
+    v15.setLayoutData(new layout.GridData(64));
+    v15.setBackground(this.cfg.bgColorWindow.colorValue);
+    $s0 = v15;
+    if (this.isDarkColor(v5.getBackground()) == 0) goto L818;
+    $s0 = v15;
+    $s1 = this.white_color;
+    goto L822;
+    L818:
+    $s1 = this.black_color;
+    L822:
+    $s0.setForeground($s1);
+    v16 = new Budget$172(this, v9, v14, v2, v15);
+    v17 = lambda[Budget::lambda$showStats$0](this, v15, v2, v9, v14);
+    v3.setData("updateCallback", new Budget$173(this, v2, v9, v14, v15));
+    v18 = this.createStatStartEndMenu(v3, v8, v16, v9, v14);
+    v9.setMenu(v18);
+    v19 = new Budget$174(this);
+    v9.addMouseListener(v19);
+    v20 = lambda[Budget::lambda$showStats$1](v17);
+    v20.accept(v18);
+    v21 = this.createStatStartEndMenu(v3, v8, v16, v14, v9);
+    v14.setMenu(v21);
+    v14.addMouseListener(v19);
+    v20.accept(v21);
+    v22 = new Label(v4, 0);
+    v22.setText("Actions...");
+    v22.setForeground(this.cfg.colorCurrentMonth.colorValue);
+    v22.setBackground(this.cfg.bgColorWindow.colorValue);
+    v22.setLayoutData(new layout.GridData(640));
+    v23 = new Menu(v3, 0);
+    v24 = new MenuItem(v23, 8);
+    v24.setText("Print");
+    v24.addSelectionListener(new Budget$175(this));
+    v24 = new MenuItem(v23, 8);
+    v24.setText("Excel Report");
+    if (this.excel_prg != null) goto L1121;
+    v24.setEnabled(0);
+    goto L1134;
+    L1121:
+    v24.addSelectionListener(new Budget$176(this));
+    L1134:
+    v24 = new MenuItem(v23, 8);
+    v24.setText("Print Monthly Calendar");
+    v24.addSelectionListener(new Budget$177(this, v9, v14));
+    v24 = new MenuItem(v23, 8);
+    v24.setText("Monthly Excel Report");
+    if (this.excel_prg != null) goto L1209;
+    v24.setEnabled(0);
+    goto L1226;
+    L1209:
+    v24.addSelectionListener(new Budget$178(this, v9, v14));
+    L1226:
+    v24 = new MenuItem(v23, 8);
+    v24.setText("Monthly Detailed Report");
+    v24.addSelectionListener(new Budget$179(this, v9, v14));
+    v24 = new MenuItem(v23, 8);
+    v24.setText("&Unpaid && paid Report");
+    v24.addSelectionListener(new Budget$180(this));
+    new MenuItem(v23, 2);
+    v24 = new MenuItem(v23, 8);
+    v24.setText("&Comparative report to...");
+    v24.addSelectionListener(SelectionListener.widgetSelectedAdapter(lambda[Budget::lambda$showStats$4](this, v3, v8)));
+    v24 = new MenuItem(v23, 8);
+    v24.setText("&Month-by-Month report");
+    v24.addSelectionListener(SelectionListener.widgetSelectedAdapter(lambda[Budget::lambda$showStats$5](this, v3)));
+    v22.addMouseListener(new Budget$181(this, v23));
+    v22.setMenu(v23);
+    v22.addPaintListener(this.lbl_underline);
+    v22 = new ScrolledComposite(v3, 768);
+    v22.setLayoutData(new layout.GridData(1808));
+    this.stat_sv = new Composite(v22, 0);
+    v22.setContent(this.stat_sv);
+    v22.setExpandHorizontal(1);
+    v22.setExpandVertical(1);
+    this.fillStats(this.showStatsStats, this.stat_sv, 4079, 0);
+    v23 = v3.computeSize(-1, -1);
+    v23.x = (v23.x + 20);
+    v23.x = Math.max(this.cfg.statWidth, v23.x);
+    if (this.cfg.statHeight == -1) goto L1556;
+    v23.y = this.cfg.statHeight;
+    L1556:
+    v24 = this.centerLoc(v23);
+    $s0 = v24;
+    if (this.cfg.statX == -1) goto L1587;
+    $s0 = v24;
+    $s1 = this.cfg.statX;
+    goto L1592;
+    L1587:
+    $s1 = v24.x;
+    L1592:
+    $s0.x = $s1;
+    $s0 = v24;
+    if (this.cfg.statY == -1) goto L1618;
+    $s0 = v24;
+    $s1 = this.cfg.statY;
+    goto L1623;
+    L1618:
+    $s1 = v24.y;
+    L1623:
+    $s0.y = $s1;
+    v24 = this.fixShellLocation(this.display, v23, v24);
+    v3.setLocation(v24);
+    v3.setSize(v23);
+    v3.setVisible(1);
+    v3.setFocus();
+    v3.addDisposeListener(new Budget$182(this, v3));
+    L1675:
+    if (v3.isDisposed() != 0) goto L1703;
+    if (this.display.readAndDispatch() != 0) goto L1675;
+    this.display.sleep();
+    goto L1675;
+    L1703:
+    return;
+}
+
+private void report_month_by_month(Shell p0, Budget$Stats p1) {
+    if (p1.get_duration() != 0) goto L16;
+    this.showInfo(p0, "Please select more than one month in the Full Stats dialog.");
+    return;
+    L16:
+    v3 = this.getHtmlFileName();
+    if (null != v3) goto L27;
+    return;
+    L27:
+    this.generate_month_by_month_report(v3, p1);
+    program.Program.launch(Budget.html_name(v3));
+    goto L69;
+    // handler for [16,26) catch Exception
+    // handler for [27,41) catch Exception
+    L44:
+    v3 = $ex;
+    this.showError(this.mainShell, ("Unable to save HTML file!\n" + String.valueOf(v3)));
+    v3.printStackTrace(System.err);
+    L69:
+    return;
+}
+
+private List get_month_by_month_entries(Budget$Stats p0) {
+    v2 = new ArrayList(((p0.incomeVec.size() + p0.expenseVec.size()) + 3));
+    v3 = (p0.get_duration() + 1);
+    $a2 = new Budget$Stats[v3];
+    v4 = $a2;
+    v5 = 0;
+    L41:
+    if (v5 >= v4.length) goto L86;
+    v6 = new SimpleCalendar(p0.startCal).addMonths(v5);
+    v4[v5] = this.calcStatistics(v6, 1, 1);
+    v5 += 1;
+    goto L41;
+    L86:
+    v5 = new Budget$month_by_month_entry("Disposable Income");
+    v5.style = " style='padding-top: 1em; padding-bottom: 1em; border-top: 1px solid black;'";
+    v6 = v4;
+    v7 = v6.length;
+    v8 = 0;
+    L117:
+    if (v8 >= v7) goto L178;
+    v9 = v6[v8];
+    v10 = (v9.total_income + v9.total_expense);
+    v5.amounts.add(Double.valueOf(v10));
+    v5.total = (v5.total + v10);
+    v8 += 1;
+    goto L117;
+    L178:
+    v2.add(v5);
+    v6 = new ArrayList();
+    v7 = v4;
+    v8 = v7.length;
+    v9 = 0;
+    L206:
+    if (v9 >= v8) goto L237;
+    v10 = v7[v9];
+    v6.add(v10.get_flat_map());
+    v9 += 1;
+    goto L206;
+    L237:
+    if (p0.incomeVec.isEmpty() == 0) goto L251;
+    $s0 = null;
+    goto L260;
+    L251:
+    $s0 = new Budget$month_by_month_entry("Total Income");
+    L260:
+    v7 = $s0;
+    if (p0.expenseVec.isEmpty() == 0) goto L276;
+    $s0 = null;
+    goto L285;
+    L276:
+    $s0 = new Budget$month_by_month_entry("Total Expenses");
+    L285:
+    v8 = $s0;
+    if (p0.expenseVec.isEmpty() == 0) goto L301;
+    $s0 = null;
+    goto L312;
+    L301:
+    $s0 = (Budget$Amount)p0.expenseVec.get(0);
+    L312:
+    v9 = $s0;
+    if (v7 == null) goto L334;
+    v2.add(v7);
+    v7.style = " style='padding-top: 1em; padding-bottom: 1em; border-top: 1px solid black;'";
+    L334:
+    v10 = new Vector(p0.incomeVec);
+    v10.addAll(p0.expenseVec);
+    v11 = v10.iterator();
+    L364:
+    if (v11.hasNext() == 0) goto L654;
+    v12 = (Budget$Amount)v11.next();
+    if (v12 != v9) goto L408;
+    v2.add(v8);
+    v8.style = " style='padding-top: 1em; padding-bottom: 1em; border-top: 1px solid black;'";
+    L408:
+    v13 = new Budget$month_by_month_entry(v12);
+    if (v12.is_aggregate() == 0) goto L457;
+    v14 = 0;
+    L430:
+    if (v14 >= v3) goto L454;
+    v13.amounts.add(null);
+    v14 += 1;
+    goto L430;
+    L454:
+    goto L644;
+    L457:
+    v14 = new Budget$AmountKey(v12);
+    v15 = v6.iterator();
+    L475:
+    if (v15.hasNext() == 0) goto L644;
+    v16 = (Map)v15.next();
+    v17 = (Budget$Amount)v16.get(v14);
+    if (v17 != null) goto L597;
+    if (v14.category.equals("(Uncategorized-Income)") == 0) goto L548;
+    $s0 = new Budget$AmountKey("(Uncategorized-Expenses)", v14.description);
+    goto L581;
+    L548:
+    if (v14.category.equals("(Uncategorized-Expenses)") == 0) goto L580;
+    $s0 = new Budget$AmountKey("(Uncategorized-Income)", v14.description);
+    goto L581;
+    L580:
+    $s0 = null;
+    L581:
+    v18 = $s0;
+    v17 = (Budget$Amount)v16.get(v18);
+    L597:
+    if (v17 != null) goto L606;
+    $s0 = 0.0;
+    goto L611;
+    L606:
+    $s0 = v17.amount;
+    L611:
+    v18 = $s0;
+    v13.amounts.add(Double.valueOf(v18));
+    v13.total = (v13.total + v18);
+    goto L475;
+    L644:
+    v2.add(v13);
+    goto L364;
+    L654:
+    v11 = new HashSet();
+    v11.add(v5);
+    if (v7 == null) goto L684;
+    v11.add(v7);
+    L684:
+    if (v8 == null) goto L697;
+    v11.add(v8);
+    L697:
+    v12 = v2.iterator();
+    L703:
+    if (v12.hasNext() == 0) goto L870;
+    v13 = (Budget$month_by_month_entry)v12.next();
+    if (v11.contains(v13) != 0) goto L867;
+    if (v13.is_aggregate() == 0) goto L867;
+    v13.total = 0.0;
+    v14 = 0;
+    L752:
+    if (v14 >= v3) goto L867;
+    v15 = 0.0;
+    v17 = (v2.indexOf(v13) + 1);
+    L771:
+    if (v17 >= v2.size()) goto L831;
+    v18 = (Budget$month_by_month_entry)v2.get(v17);
+    if (v18.is_aggregate() == 0) goto L802;
+    goto L831;
+    L802:
+    v15 = (v15 + (Double)v18.amounts.get(v14).doubleValue());
+    v17 += 1;
+    goto L771;
+    L831:
+    v13.amounts.set(v14, Double.valueOf(v15));
+    v13.total = (v13.total + v15);
+    v14 += 1;
+    goto L752;
+    L867:
+    goto L703;
+    L870:
+    if (v7 == null) goto L1007;
+    if (v8 == null) goto L889;
+    $s0 = v2.indexOf(v8);
+    goto L893;
+    L889:
+    $s0 = v2.size();
+    L893:
+    v12 = $s0;
+    v13 = 0;
+    L898:
+    if (v13 >= v3) goto L1007;
+    v14 = 0.0;
+    v16 = (v2.indexOf(v7) + 1);
+    L917:
+    if (v16 >= v12) goto L972;
+    v17 = (Budget$month_by_month_entry)v2.get(v16);
+    if (v17.is_aggregate() == 0) goto L966;
+    v14 = (v14 + (Double)v17.amounts.get(v13).doubleValue());
+    L966:
+    v16 += 1;
+    goto L917;
+    L972:
+    v7.total = (v7.total + v14);
+    v7.amounts.add(v13, Double.valueOf(v14));
+    v13 += 1;
+    goto L898;
+    L1007:
+    if (v8 == null) goto L1130;
+    v12 = v2.size();
+    v13 = 0;
+    L1021:
+    if (v13 >= v3) goto L1130;
+    v14 = 0.0;
+    v16 = (v2.indexOf(v8) + 1);
+    L1040:
+    if (v16 >= v12) goto L1095;
+    v17 = (Budget$month_by_month_entry)v2.get(v16);
+    if (v17.is_aggregate() == 0) goto L1089;
+    v14 = (v14 + (Double)v17.amounts.get(v13).doubleValue());
+    L1089:
+    v16 += 1;
+    goto L1040;
+    L1095:
+    v8.total = (v8.total + v14);
+    v8.amounts.add(v13, Double.valueOf(v14));
+    v13 += 1;
+    goto L1021;
+    L1130:
+    v12 = v2.iterator();
+    L1136:
+    if (v12.hasNext() == 0) goto L1219;
+    v13 = (Budget$month_by_month_entry)v12.next();
+    if (v11.contains(v13) == 0) goto L1171;
+    goto L1136;
+    L1171:
+    if (v13.is_aggregate() != 0) goto L1216;
+    if (0L != v13.amounts.stream().filter(lambda[Budget::lambda$get_month_by_month_entries$0]()).count()) goto L1216;
+    v12.remove();
+    L1216:
+    goto L1136;
+    L1219:
+    v12 = new HashSet();
+    v13 = 0;
+    L1231:
+    if (v13 >= v2.size()) goto L1344;
+    v14 = (Budget$month_by_month_entry)v2.get(v13);
+    if (v11.contains(v14) == 0) goto L1264;
+    goto L1338;
+    L1264:
+    if (v14.is_aggregate() == 0) goto L1338;
+    if (0L != v14.amounts.stream().filter(lambda[Budget::lambda$get_month_by_month_entries$1]()).count()) goto L1338;
+    if ((v13 + 1) == v2.size()) goto L1330;
+    if ((Budget$month_by_month_entry)v2.get((v13 + 1)).is_aggregate() == 0) goto L1338;
+    L1330:
+    v12.add(v14);
+    L1338:
+    v13 += 1;
+    goto L1231;
+    L1344:
+    v2.removeAll(v12);
+    v13 = new HashMap();
+    v2.stream().filter(lambda[Budget::lambda$get_month_by_month_entries$2](v11)).forEach(lambda[Budget::lambda$get_month_by_month_entries$3](v13));
+    v14 = p0.get_flat_map().values().iterator();
+    L1404:
+    if (v14.hasNext() == 0) goto L1560;
+    v15 = (Budget$Amount)v14.next();
+    v16 = (Budget$month_by_month_entry)v13.get(new Budget$AmountKey(v15));
+    if (v16 != null) goto L1486;
+    if (v15.amount == 0.0) goto L1557;
+    $a18 = new Object[1];
+    $a18[0] = v15.key;
+    throw new RuntimeException("missing '%s' in the resultant table".formatted($a18));
+    L1486:
+    if (Math.ceil(v16.total) == Math.ceil(v15.amount)) goto L1557;
+    $a20 = new Object[3];
+    $a20[0] = v16.key.description;
+    $a20[1] = Double.valueOf(v15.amount);
+    $a20[2] = Double.valueOf(v16.total);
+    throw new RuntimeException("'%s' amounts do NOT match: base_stats=%.2f, mbm=%.2f".formatted($a20));
+    L1557:
+    goto L1404;
+    L1560:
+    if (v7 == null) goto L1623;
+    if (Math.ceil(p0.total_income) == Math.ceil(v7.total)) goto L1623;
+    $a22 = new Object[2];
+    $a22[0] = Double.valueOf(v7.total);
+    $a22[1] = Double.valueOf(p0.total_income);
+    throw new RuntimeException("base stats income doesn't match! got=%.2f, expected=%.2f".formatted($a22));
+    L1623:
+    if (v8 == null) goto L1686;
+    if (Math.ceil(p0.total_expense) == Math.ceil(v8.total)) goto L1686;
+    $a24 = new Object[2];
+    $a24[0] = Double.valueOf(v8.total);
+    $a24[1] = Double.valueOf(p0.total_expense);
+    throw new RuntimeException("base stats expenses doesn't match! got=%.2f, expected=%.2f".formatted($a24));
+    L1686:
+    return v2;
+}
+
+private void generate_month_by_month_report(String p0, Budget$Stats p1) {
+    v3 = new UnicodishBufferedWriter(new FileWriter(p0));
+    this.stat_rep_row_color = 0;
+    v3.writeRaw("<HTML>\n<HEAD>\n<TITLE>Budget Month-by-Month Comparison Report</TITLE>\n</HEAD>\n<BODY bgcolor=ffffff>\n<style type=\"text/css\">\nBODY { font: 10px Arial, Helvetica, sans-serif; }\nP, TD, TH, UL, DIV, .yspgen { font: 12px Arial, Helvetica, sans-serif; }\ntable tr:hover td { background: #ffffc5; cursor: pointer; }\n</style>\n");
+    v3.write("<TABLE BORDER=0 CELLSPACING=2>\n");
+    v3.write(("<CAPTION>Month-By-Month report <B>" + p1.get_range_string() + "</B></CAPTION>\n"));
+    v3.write("<TR bgcolor=ddDDdd>");
+    v3.write("<TD><B>Description</B>");
+    v4 = (p1.get_duration() + 1);
+    v5 = 0;
+    L73:
+    if (v5 >= v4) goto L121;
+    v6 = new SimpleCalendar(p1.startCal).addMonths(v5);
+    v3.write(("<TD ALIGN=CENTER><B>" + v6.toString("MMM, yyyy") + "<br>amount</B>"));
+    v5 += 1;
+    goto L73;
+    L121:
+    v3.write("<TD ALIGN=CENTER><B>Total<br>amount</B>");
+    v3.write("<TD ALIGN=CENTER><B>Avg/month<br>amount</B>");
+    v5 = 1;
+    v6 = this.get_month_by_month_entries(p1).iterator();
+    L150:
+    if (v6.hasNext() == 0) goto L519;
+    v7 = (Budget$month_by_month_entry)v6.next();
+    v8 = Budget.escape_html_text(this.getDesc(v7.key.description));
+    v9 = "";
+    v10 = "";
+    v11 = 0;
+    if (v8.startsWith(Budget.indent_string) == 0) goto L230;
+    v8 = ("&nbsp;&nbsp;&nbsp;&nbsp;" + v8);
+    v10 = " style='font-size: 10px'";
+    goto L238;
+    L230:
+    v11 = 1;
+    v9 = "<B>";
+    L238:
+    if (v5 != 0) goto L247;
+    $s0 = 1;
+    goto L248;
+    L247:
+    $s0 = 0;
+    L248:
+    v5 = $s0;
+    v3.writeRaw("\n");
+    $s0 = v3;
+    if (v5 == 0) goto L269;
+    $s0 = v3;
+    $s1 = "eeEEee";
+    goto L272;
+    L269:
+    $s1 = "ffFFff";
+    L272:
+    $s0.write(("<TR bgcolor=" + $s1 + "><TD" + v7.style + ">" + v9 + v8));
+    v12 = 0.0;
+    v14 = 1;
+    v15 = v7.amounts.iterator();
+    L307:
+    if (v15.hasNext() == 0) goto L456;
+    v16 = (Double)v15.next();
+    if (v14 == 0) goto L340;
+    $s0 = "base amount";
+    goto L412;
+    L340:
+    $a4 = new Object[1];
+    $a4[0] = Double.valueOf((v16.doubleValue() - v12));
+    $s0 = "%+,.0f".formatted($a4);
+    if (v12 != 0.0) goto L377;
+    $s0 = "%+,.0f".formatted($a4);
+    $s1 = "";
+    goto L407;
+    L377:
+    $a5 = new Object[1];
+    $a5[0] = Double.valueOf((((v16.doubleValue() / v12) - 1.0) * 100.0));
+    $s1 = " (%+,.0f%%)".formatted($a5);
+    L407:
+    $s0 = ($s0 + $s1);
+    L412:
+    v17 = $s0;
+    v3.write(("<TD align=right" + v7.style + "><span title='" + v17 + "'" + v10 + ">" + v9 + this.f2html_no_zero(v16.doubleValue()) + "</span>"));
+    v12 = v16.doubleValue();
+    v14 = 0;
+    goto L307;
+    L456:
+    v3.write(("<TD align=right" + Budget.html_merge_styles(v7.style, "border-left: 1px solid black; border-right: 1px solid black;") + "><span" + v10 + ">&nbsp;&nbsp;&nbsp;" + v9 + this.f2html_no_zero(v7.total) + "</span>"));
+    v3.write(("<TD align=right" + v7.style + "><span style='font-size: 11px'>" + this.f2html_no_zero((v7.total / (double)v4)) + "</span>"));
+    goto L150;
+    L519:
+    v3.write("</TABLE></HTML>");
+    v3.close();
+    return;
+}
+
+private static String html_merge_styles(String p0, String p1) {
+    if (p0.isBlank() == 0) goto L14;
+    return (" style='" + p1 + "'");
+    L14:
+    return p0.replace(";'", (";" + p1 + "'"));
+}
+
+private String f2html_no_zero(double p0) {
+    if (((int)(p0 * 100.0) / 100) != 0) goto L16;
+    return "";
+    L16:
+    return this.amount2html(p0, null, Budget.normalColors, this.cfg.showDecimalsInCV.boolValue);
+}
+
+private void compare_stats_report(Shell p0, SimpleCalendar[] p1, Budget$Stats p2) {
+    v4 = p2.get_duration();
+    v5 = new SimpleCalendar(p2.startCal).addMonths((-v4));
+    v6 = new ArrayList();
+    v7 = p1;
+    v8 = v7.length;
+    v9 = 0;
+    L45:
+    if (v9 >= v8) goto L87;
+    v10 = v7[v9];
+    if (v10.inRange(v5, p2.endCal) != 0) goto L81;
+    v6.add(v10);
+    L81:
+    v9 += 1;
+    goto L45;
+    L87:
+    v7 = this.createStatStartEndMenu(p0, ([Lca.mishell.misc.SimpleCalendar;)v6.toArray(lambda[Budget::lambda$compare_stats_report$0]()), new Budget$183(this, p2), null, null);
+    v7.setVisible(1);
+    return;
+}
+
+private void do_comparative_report(Budget$Stats p0, SimpleCalendar p1) {
+    v3 = this.calcStatistics(p1, (p0.get_duration() + 1), 1);
+    v4 = this.getHtmlFileName();
+    if (null != v4) goto L26;
+    return;
+    L26:
+    this.generate_comparison_report(v4, p0, v3);
+    program.Program.launch(Budget.html_name(v4));
+    goto L66;
+    // handler for [13,25) catch Exception
+    // handler for [26,43) catch Exception
+    L46:
+    v4 = $ex;
+    this.showError(this.mainShell, ("Unable to save HTML file\n" + String.valueOf(v4)));
+    L66:
+    return;
+}
+
+private Point fixShellLocation(Display p0, Point p1, Point p2) {
+    v4 = 50;
+    v5 = p0.getBounds();
+    v5.x = (v5.x + v4);
+    v5.y = (v5.y + v4);
+    v5.height = (v5.height - (v4 * 2));
+    v5.width = (v5.width - (v4 * 2));
+    v6 = new Rectangle(p2.x, p2.y, p1.x, p1.y);
+    if (v5.intersects(v6) != 0) goto L103;
+    p2 = this.centerLoc(p1);
+    L103:
+    return p2;
+}
+
+private static boolean isInBounds(Display p0, Point p1) {
+    v2 = p0.getBounds();
+    return v2.contains(p1);
+}
+
+private void add_comp_row(BufferedWriter p0, Budget$Stats p1, String p2, double p3, boolean p4, double p5) {
+    v9 = "&nbsp;&nbsp;&nbsp;";
+    v10 = Budget.numFormatFrac2;
+    v11 = Budget.numFormatFrac0;
+    p3 = ((double)(int)(p3 * 100.0) / 100.0);
+    p5 = ((double)(int)(p5 * 100.0) / 100.0);
+    v12 = (p3 - p5);
+    if (p3 == 0.0) goto L64;
+    if (v12 != 0.0) goto L70;
+    L64:
+    $s0 = inf;
+    goto L79;
+    L70:
+    $s0 = ((v12 / p3) * 100.0);
+    L79:
+    v14 = $s0;
+    $s0 = p0;
+    if (this.stat_rep_row_color == 0) goto L95;
+    $s0 = p0;
+    $s1 = "EEeeEE";
+    goto L98;
+    L95:
+    $s1 = "FFffFF";
+    L98:
+    if (p4 == 0) goto L108;
+    $s2 = v9;
+    goto L111;
+    L108:
+    $s2 = "";
+    L111:
+    $s3 = p2;
+    $s4 = v9;
+    $s5 = this.f2html(p3);
+    $s6 = v9;
+    $s7 = this.f2html(p5);
+    $s8 = v9;
+    if (Math.abs(v12) <= 5.0) goto L151;
+    $s3 = p2;
+    $s4 = v9;
+    $s5 = this.f2html(p3);
+    $s6 = v9;
+    $s7 = this.f2html(p5);
+    $s8 = v9;
+    $s9 = this.f2html(v12);
+    goto L154;
+    L151:
+    $s9 = "";
+    L154:
+    $s10 = v9;
+    if (Math.abs(v12) <= 5.0) goto L207;
+    $s10 = v9;
+    if (Double.isFinite(v14) == 0) goto L207;
+    $s10 = v9;
+    if (v14 <= 0.0) goto L189;
+    $s10 = v9;
+    $s11 = "+";
+    goto L192;
+    L189:
+    $s11 = "";
+    L192:
+    $s11 = ($s11 + v11.format(v14));
+    goto L210;
+    L207:
+    $s11 = "";
+    L210:
+    $s0.write(("<TR bgcolor=" + $s1 + "><TD>" + $s2 + $s3 + "<TD ALIGN=RIGHT>" + $s4 + $s5 + "<TD ALIGN=RIGHT>" + $s6 + $s7 + "<TD ALIGN=RIGHT>" + $s8 + $s9 + "<TD ALIGN=RIGHT>" + $s10 + $s11));
+    $s0 = this;
+    if (this.stat_rep_row_color != 0) goto L230;
+    $s0 = this;
+    $s1 = 1;
+    goto L231;
+    L230:
+    $s1 = 0;
+    L231:
+    $s0.stat_rep_row_color = $s1;
+    p0.write(("<TD>" + this.genRepImage(p5, p1.total_income, p1.total_expense, 300)));
+    return;
+}
+
+private String get_normalized_note(String p0, int p1, boolean p2) {
+    if (p0 != null) goto L8;
+    return "";
+    L8:
+    if (p1 != Budget.GEN_EXCEL) goto L55;
+    v4 = p0.indexOf(10);
+    if (-1 == v4) goto L45;
+    p0 = ("  (Note: " + p0.substring(0, v4) + "...)");
+    goto L52;
+    L45:
+    p0 = ("  (Note: " + p0 + ")");
+    L52:
+    goto L112;
+    L55:
+    if (p2 == 0) goto L65;
+    $s0 = "<BR>";
+    goto L68;
+    L65:
+    $s0 = "";
+    L68:
+    p0 = ($s0 + "<FONT COLOR=gray>Note: <I>" + p0 + "</I></FONT>");
+    L75:
+    $t1 = p0.indexOf(10);
+    v4 = $t1;
+    if (-1 == $t1) goto L112;
+    p0 = (p0.substring(0, v4) + "<BR>" + p0.substring((v4 + 1)));
+    goto L75;
+    L112:
+    return p0;
+}
+
+private String getExcelNumberStyle() {
+    return "STYLE=\"vnd.ms-excel.numberformat:###0.00\" ";
+}
+
+static String repeat(String p0, int p1) {
+    if (p1 <= 0) goto L16;
+    return String.join("", Collections.nCopies(p1, p0));
+    L16:
+    return "";
+}
+
+private void generateReport(SimpleCalendar p0, SimpleCalendar p1, String p2, int p3) {
+    v5 = 3;
+    v6 = 0;
+    v7 = Budget.numFormatFrac2;
+    v9 = " LOTUS_FORMAT=\"Fixed;2\" ";
+    if (p3 != Budget.GEN_EXCEL) goto L28;
+    $s0 = 1;
+    goto L29;
+    L28:
+    $s0 = 0;
+    L29:
+    v10 = $s0;
+    if (v10 == 0) goto L49;
+    v9 = (v9 + this.getExcelNumberStyle());
+    L49:
+    if (v10 == 0) goto L77;
+    v7 = DecimalFormat.getNumberInstance();
+    v7.setMinimumFractionDigits(2);
+    v7.setMaximumFractionDigits(2);
+    v7.setGroupingUsed(0);
+    L77:
+    v11 = new SimpleCalendar(p0);
+    v11.set(1, 1);
+    v12 = new UnicodishBufferedWriter(new FileWriter(p2));
+    v12.write("<HTML>\n<HEAD>\n<TITLE>Budget Report</TITLE>\n</HEAD>\n<BODY bgcolor=ffffff>\n");
+    L120:
+    v13 = 0.0;
+    v15 = 0.0;
+    v17 = 0.0;
+    v19 = new SimpleCalendar(v11);
+    v19.set(1, 1);
+    v19.add(1, -1);
+    $t5 = this.db.getDay(v19);
+    v8 = $t5;
+    if (null == $t5) goto L179;
+    v13 = v8.closing_balance;
+    L179:
+    v19.add(1, 1);
+    v20 = new SimpleCalendar(v11);
+    v20.set(1, v19.getMaximumDayOfMonth());
+    v21 = "";
+    if (v6 == 0) goto L231;
+    v21 = (" FORMULA=\"=G" + (v6 - 1) + "\"");
+    L231:
+    if (p3 == Budget.GEN_HTML) goto L244;
+    if (v6 != 0) goto L267;
+    L244:
+    v12.write(("<TABLE BORDER=0 CELLSPACING=2><CAPTION>Budget from <B>" + Budget.sdate(v19) + "</B> to <B>" + Budget.sdate(v20) + "</B></CAPTION>\n"));
+    goto L290;
+    L267:
+    v12.write(("<TR><TR><TR><TD COLSPAN=7><BR><CENTER>Budget from <B>" + Budget.sdate(v19) + "</B> to <B>" + Budget.sdate(v20) + "</B></CENTER></TR>\n"));
+    v6 += 2;
+    L290:
+    $s0 = v12;
+    $s1 = Budget.repeat("&nbsp;", 30);
+    $s2 = v9;
+    $s3 = v21;
+    if (v10 == 0) goto L319;
+    $s0 = v12;
+    $s1 = Budget.repeat("&nbsp;", 30);
+    $s2 = v9;
+    $s3 = v21;
+    $s4 = v7.format(v13);
+    goto L325;
+    L319:
+    $s4 = this.f2html(v13);
+    L325:
+    $s0.write(("<TR bgcolor=EEEEEE><TD><B>Date</B><TD><TD><B>Category</B><TD><B>Payee</B><TD COLSPAN=2><B>Amount</B><TD><B>Balance</B>\n<TR bgcolor=ffffff><TD ALIGN=CENTER><TD><TD ALIGN=LEFT><TD ALIGN=LEFT><B>Opening balance" + $s1 + "</B>\n<TD ALIGN=RIGHT><TD ALIGN=RIGHT><TD ALIGN=RIGHT" + $s2 + $s3 + "><B>" + $s4 + "</B></TR>\n"));
+    if (p3 != Budget.GEN_EXCEL) goto L347;
+    v6 += 3;
+    goto L350;
+    L347:
+    v6 += 4;
+    L350:
+    v23 = 1;
+    L353:
+    if (v19.gt(v20) != 0) goto L1449;
+    v24 = 1;
+    v8 = this.db.getDay(v19);
+    v25 = this.db.getDayNote(v19);
+    if (v25 == null) goto L573;
+    v25 = this.get_normalized_note(v25, p3, 0);
+    v21 = (" FORMULA=\"=G" + (v6 - 1) + "+E" + v6 + "+F" + v6 + "\"");
+    if (v23 == 0) goto L430;
+    $s0 = "eeeeee";
+    goto L433;
+    L430:
+    $s0 = "ffffff";
+    L433:
+    v26 = ("BGCOLOR=\"#" + $s0 + "\"");
+    v22 = ("<IMG SRC=\"" + Budget.embeddedSRC(Budget.get_image_full_path(Budget.icon("note.png")), v10) + "\">");
+    $s0 = v12;
+    $s1 = v26;
+    $s2 = v26;
+    if (v24 == 0) goto L480;
+    $s0 = v12;
+    $s1 = v26;
+    $s2 = v26;
+    $s3 = Budget.sdate(v19);
+    goto L483;
+    L480:
+    $s3 = "";
+    L483:
+    $s4 = v22;
+    $s5 = v26;
+    $s6 = v26;
+    $s7 = v25;
+    $s8 = v26;
+    $s9 = v9;
+    $s10 = v26;
+    $s11 = v9;
+    $s12 = v26;
+    $s13 = v9;
+    $s14 = v21;
+    if (v10 == 0) goto L541;
+    $s4 = v22;
+    $s5 = v26;
+    $s6 = v26;
+    $s7 = v25;
+    $s8 = v26;
+    $s9 = v9;
+    $s10 = v26;
+    $s11 = v9;
+    $s12 = v26;
+    $s13 = v9;
+    $s14 = v21;
+    if (v13 >= 0.0) goto L523;
+    $s4 = v22;
+    $s5 = v26;
+    $s6 = v26;
+    $s7 = v25;
+    $s8 = v26;
+    $s9 = v9;
+    $s10 = v26;
+    $s11 = v9;
+    $s12 = v26;
+    $s13 = v9;
+    $s14 = v21;
+    $s15 = "<FONT COLOR=ff0000>";
+    goto L526;
+    L523:
+    $s15 = "";
+    L526:
+    $s15 = ($s15 + v7.format(v13));
+    goto L547;
+    L541:
+    $s15 = this.f2html(v13);
+    L547:
+    $s0.write(("<TR " + $s1 + "><TD ALIGN=CENTER " + $s2 + ">" + $s3 + "<TD WIDTH=18>" + $s4 + "<TD ALIGN=LEFT " + $s5 + "><TD ALIGN=LEFT " + $s6 + ">" + $s7 + "<TD ALIGN=RIGHT " + $s8 + $s9 + "><TD ALIGN=RIGHT " + $s10 + $s11 + "><TD ALIGN=RIGHT " + $s12 + $s13 + " " + $s14 + ">" + $s15 + "</TR>\n"));
+    v6 += 1;
+    if (v23 != 0) goto L567;
+    $s0 = 1;
+    goto L568;
+    L567:
+    $s0 = 0;
+    L568:
+    v23 = $s0;
+    v24 = 0;
+    L573:
+    if (v8.hasTransactions() == 0) goto L1179;
+    v26 = v8.transactionIterator();
+    L588:
+    if (v26.hasNext() == 0) goto L1179;
+    v27 = (Transaction)v26.next();
+    v28 = v27.pmt;
+    if (v28.disabled != 0) goto L635;
+    v13 = (v13 + v27.amount);
+    L635:
+    if (v28.image_path == null) goto L680;
+    if (v28.image_path.length() <= 0) goto L680;
+    v22 = ("<IMG SRC=\"" + Budget.embeddedSRC(Budget.get_image_full_path(Budget.image(v28.image_path)), v10) + "\">");
+    goto L685;
+    L680:
+    v22 = "";
+    L685:
+    $s0 = (v6 - 1);
+    if (v28.disabled == 0) goto L703;
+    $s0 = (v6 - 1);
+    $s1 = "";
+    goto L712;
+    L703:
+    $s1 = ("+E" + v6 + "+F" + v6);
+    L712:
+    v21 = (" FORMULA=\"=G" + $s0 + $s1 + "\"");
+    if (v23 == 0) goto L730;
+    $s0 = "eeeeee";
+    goto L733;
+    L730:
+    $s0 = "ffffff";
+    L733:
+    v29 = ("BGCOLOR=\"#" + $s0 + "\"");
+    v30 = this.get_normalized_note(v28.getNote(v19.get()), p3, 1);
+    v31 = v28.getFlag(v19.get());
+    $s0 = v12;
+    $s1 = v29;
+    $s2 = v29;
+    if (v24 == 0) goto L790;
+    $s0 = v12;
+    $s1 = v29;
+    $s2 = v29;
+    $s3 = Budget.sdate(v19);
+    goto L793;
+    L790:
+    $s3 = "";
+    L793:
+    $s4 = v22;
+    $s5 = v29;
+    $s6 = v28;
+    if (v28.category != null) goto L813;
+    $s4 = v22;
+    $s5 = v29;
+    $s6 = v28;
+    $s7 = "";
+    goto L818;
+    L813:
+    $s7 = v28.category;
+    L818:
+    $s6 = Budget.html_string($s6, $s7);
+    $s7 = v29;
+    if (v31 != 59) goto L836;
+    $s6 = Budget.html_string($s6, $s7);
+    $s7 = v29;
+    $s8 = "<font color=green>&#x2714</font> ";
+    goto L852;
+    L836:
+    if (v31 != 35) goto L849;
+    $s8 = "<font color=red>&#x26A0</font> ";
+    goto L852;
+    L849:
+    $s8 = "";
+    L852:
+    $s9 = Budget.html_string(v28, v28.description);
+    $s10 = v30;
+    $s11 = v29;
+    $s12 = v9;
+    if (v27.amount < 0.0) goto L946;
+    $s9 = Budget.html_string(v28, v28.description);
+    $s10 = v30;
+    $s11 = v29;
+    $s12 = v9;
+    if (v28.disabled == 0) goto L916;
+    $a7 = new String[2];
+    $a7[0] = "gray";
+    $a7[1] = "gray";
+    $s9 = Budget.html_string(v28, v28.description);
+    $s10 = v30;
+    $s11 = v29;
+    $s12 = v9;
+    $s13 = this.amount2html(v27.amount, null, $a7, 1);
+    goto L949;
+    L916:
+    if (v10 == 0) goto L934;
+    $s13 = v7.format(v27.amount);
+    goto L949;
+    L934:
+    $s13 = this.f2html(v27.amount);
+    goto L949;
+    L946:
+    $s13 = "";
+    L949:
+    $s14 = v29;
+    $s15 = v9;
+    if (v27.amount >= 0.0) goto L1031;
+    $s14 = v29;
+    $s15 = v9;
+    if (v28.disabled == 0) goto L1001;
+    $a8 = new String[2];
+    $a8[0] = "gray";
+    $a8[1] = "gray";
+    $s14 = v29;
+    $s15 = v9;
+    $s16 = this.amount2html(v27.amount, null, $a8, 1);
+    goto L1034;
+    L1001:
+    if (v10 == 0) goto L1019;
+    $s16 = v7.format(v27.amount);
+    goto L1034;
+    L1019:
+    $s16 = this.f2html(v27.amount);
+    goto L1034;
+    L1031:
+    $s16 = "";
+    L1034:
+    if (p3 != Budget.GEN_HTML) goto L1056;
+    if (v28.disabled == 0) goto L1056;
+    $s17 = "<TD>";
+    goto L1109;
+    L1056:
+    $s17 = v29;
+    $s18 = v9;
+    $s19 = v21;
+    if (v10 == 0) goto L1098;
+    $s17 = v29;
+    $s18 = v9;
+    $s19 = v21;
+    if (v13 >= 0.0) goto L1080;
+    $s17 = v29;
+    $s18 = v9;
+    $s19 = v21;
+    $s20 = "<FONT COLOR=ff0000>";
+    goto L1083;
+    L1080:
+    $s20 = "";
+    L1083:
+    $s20 = ($s20 + v7.format(v13));
+    goto L1104;
+    L1098:
+    $s20 = this.f2html(v13);
+    L1104:
+    $s17 = ("<TD ALIGN=RIGHT " + $s17 + $s18 + " " + $s19 + ">" + $s20);
+    L1109:
+    $s0.write(("<TR " + $s1 + "><TD ALIGN=CENTER " + $s2 + ">" + $s3 + "<TD WIDTH=18>" + $s4 + "<TD ALIGN=LEFT " + $s5 + ">" + $s6 + "<TD ALIGN=LEFT " + $s7 + ">" + $s8 + $s9 + $s10 + "<TD ALIGN=RIGHT " + $s11 + $s12 + ">" + $s13 + "<TD ALIGN=RIGHT " + $s14 + $s15 + ">" + $s16 + $s17 + "</TR>\n"));
+    v6 += 1;
+    if (v23 != 0) goto L1129;
+    $s0 = 1;
+    goto L1130;
+    L1129:
+    $s0 = 0;
+    L1130:
+    v23 = $s0;
+    if (v28.disabled != 0) goto L1173;
+    if (v27.amount >= 0.0) goto L1163;
+    v17 = (v17 + v27.amount);
+    goto L1173;
+    L1163:
+    v15 = (v15 + v27.amount);
+    L1173:
+    v24 = 0;
+    goto L588;
+    L1179:
+    if (v13 == v8.closing_balance) goto L1438;
+    v26 = (v8.closing_balance - v13);
+    v21 = (" FORMULA=\"=G" + (v6 - 1) + "+E" + v6 + "+F" + v6 + "\"");
+    if (v23 == 0) goto L1226;
+    $s0 = "eeeeee";
+    goto L1229;
+    L1226:
+    $s0 = "ffffff";
+    L1229:
+    v28 = ("BGCOLOR=\"#" + $s0 + "\"");
+    v13 = v8.closing_balance;
+    $s0 = v12;
+    $s1 = v28;
+    $s2 = v28;
+    if (v24 == 0) goto L1262;
+    $s0 = v12;
+    $s1 = v28;
+    $s2 = v28;
+    $s3 = Budget.sdate(v19);
+    goto L1265;
+    L1262:
+    $s3 = "";
+    L1265:
+    $s4 = v28;
+    $s5 = v28;
+    $s6 = v9;
+    if (v26 < 0.0) goto L1302;
+    $s4 = v28;
+    $s5 = v28;
+    $s6 = v9;
+    if (v10 == 0) goto L1293;
+    $s4 = v28;
+    $s5 = v28;
+    $s6 = v9;
+    $s7 = v7.format(v26);
+    goto L1305;
+    L1293:
+    $s7 = this.f2html(v26);
+    goto L1305;
+    L1302:
+    $s7 = "";
+    L1305:
+    $s8 = v28;
+    $s9 = v9;
+    if (v26 >= 0.0) goto L1340;
+    $s8 = v28;
+    $s9 = v9;
+    if (v10 == 0) goto L1331;
+    $s8 = v28;
+    $s9 = v9;
+    $s10 = v7.format(v26);
+    goto L1343;
+    L1331:
+    $s10 = this.f2html(v26);
+    goto L1343;
+    L1340:
+    $s10 = "";
+    L1343:
+    $s11 = v28;
+    $s12 = v9;
+    $s13 = v21;
+    if (v10 == 0) goto L1385;
+    $s11 = v28;
+    $s12 = v9;
+    $s13 = v21;
+    if (v13 >= 0.0) goto L1367;
+    $s11 = v28;
+    $s12 = v9;
+    $s13 = v21;
+    $s14 = "<FONT COLOR=ff0000>";
+    goto L1370;
+    L1367:
+    $s14 = "";
+    L1370:
+    $s14 = ($s14 + v7.format(v13));
+    goto L1391;
+    L1385:
+    $s14 = this.f2html(v13);
+    L1391:
+    $s0.write(("<TR " + $s1 + "><TD ALIGN=CENTER " + $s2 + ">" + $s3 + "<TD WIDTH=18><TD><TD ALIGN=RIGHT " + $s4 + "><I>Balance adjustment</I><TD ALIGN=RIGHT " + $s5 + $s6 + "><I>" + $s7 + "</I><TD ALIGN=RIGHT " + $s8 + $s9 + "><I>" + $s10 + "</I><TD ALIGN=RIGHT " + $s11 + $s12 + " " + $s13 + "><I>" + $s14 + "</I></TR>\n"));
+    v6 += 1;
+    if (v23 != 0) goto L1411;
+    $s0 = 1;
+    goto L1412;
+    L1411:
+    $s0 = 0;
+    L1412:
+    v23 = $s0;
+    if (v26 >= 0.0) goto L1431;
+    v17 = (v17 + v26);
+    goto L1438;
+    L1431:
+    v15 = (v15 + v26);
+    L1438:
+    v19.add(1, 1);
+    goto L353;
+    L1449:
+    $s0 = v12;
+    if (v23 == 0) goto L1462;
+    $s0 = v12;
+    $s1 = "eeeeee";
+    goto L1465;
+    L1462:
+    $s1 = "ffffff";
+    L1465:
+    $s2 = v9;
+    $s3 = v5;
+    $s4 = (v6 - 1);
+    if (v10 == 0) goto L1488;
+    $s2 = v9;
+    $s3 = v5;
+    $s4 = (v6 - 1);
+    $s5 = v7.format(v15);
+    goto L1494;
+    L1488:
+    $s5 = this.f2html(v15);
+    L1494:
+    $s6 = v9;
+    $s7 = v5;
+    $s8 = (v6 - 1);
+    if (v10 == 0) goto L1517;
+    $s6 = v9;
+    $s7 = v5;
+    $s8 = (v6 - 1);
+    $s9 = v7.format(v17);
+    goto L1523;
+    L1517:
+    $s9 = this.f2html(v15);
+    L1523:
+    $s10 = v9;
+    $s11 = v6;
+    $s12 = v6;
+    if (v10 == 0) goto L1547;
+    $s10 = v9;
+    $s11 = v6;
+    $s12 = v6;
+    $s13 = v7.format((v15 + v17));
+    goto L1556;
+    L1547:
+    $s13 = this.f2html((v15 + v17));
+    L1556:
+    if (v23 != 0) goto L1567;
+    $s14 = "eeeeee";
+    goto L1570;
+    L1567:
+    $s14 = "ffffff";
+    L1570:
+    $s15 = v9;
+    $s16 = (v6 - 1);
+    if (v10 == 0) goto L1591;
+    $s15 = v9;
+    $s16 = (v6 - 1);
+    $s17 = v7.format(v13);
+    goto L1597;
+    L1591:
+    $s17 = this.f2html(v13);
+    L1597:
+    $s0.write(("<TR bgcolor=" + $s1 + "><TD><TD COLSPAN=3 ALIGN=RIGHT><B>Totals:</B><TD ALIGN=RIGHT " + $s2 + " FORMULA=\"=@sum(E" + $s3 + "..E" + $s4 + ")\"><B>" + $s5 + "</B><TD ALIGN=RIGHT " + $s6 + " FORMULA=\"=@sum(F" + $s7 + "..F" + $s8 + ")\"><B>" + $s9 + "</B><TD ALIGN=RIGHT " + $s10 + " FORMULA=\"=E" + $s11 + "+F" + $s12 + "\"><B>" + $s13 + "</B></TR>\n<TR bgcolor=" + $s14 + "><TD><TD><TD COLSPAN=2 ALIGN=RIGHT><B>Closing balance:</B><TD ALIGN=RIGHT><B></B><TD ALIGN=RIGHT><B></B><TD ALIGN=RIGHT " + $s15 + " FORMULA=\"=G" + $s16 + "\"><B>" + $s17 + "</B></TR>\n"));
+    if (p3 != Budget.GEN_HTML) goto L1621;
+    v12.write("</TABLE>\n<P><BR></P>");
+    L1621:
+    v6 += 2;
+    v5 = (v6 + 4);
+    v11.add(2, 1);
+    if (v11.lt(p1) != 0) goto L120;
+    v12.write("</BODY>\n</HTML>\n");
+    v12.close();
+    return;
+}
+
+private static String html_string(Payment p0, String p1) {
+    if (p0.disabled == 0) goto L16;
+    $s0 = ("<FONT color=gray>" + p1 + "</FONT>");
+    goto L17;
+    L16:
+    $s0 = p1;
+    L17:
+    return $s0;
+}
+
+private boolean generatePaidUnpaidReport(SimpleCalendar p0, SimpleCalendar p1, String p2) {
+    v5 = new Vector();
+    v6 = new Vector();
+    v7 = new Vector();
+    v8 = new SimpleCalendar(p0);
+    v9 = new SimpleCalendar(p1);
+    L47:
+    if (v8.gt(v9) != 0) goto L213;
+    v4 = this.db.getDay(v8);
+    if (v4.hasTransactions() == 0) goto L202;
+    v10 = v4.transactionIterator();
+    L83:
+    if (v10.hasNext() == 0) goto L202;
+    v11 = (Transaction)v10.next();
+    if (v11.pmt.disabled != 0) goto L199;
+    v12 = v11.pmt.getFlag(v8.get());
+    v13 = new Budget$1TranEntry(this);
+    v13.date = v8.get();
+    v13.tr = v11;
+    if (v12 != 59) goto L176;
+    v5.add(v13);
+    goto L199;
+    L176:
+    v6.add(v13);
+    if (v12 != 35) goto L199;
+    v7.add(v13);
+    L199:
+    goto L83;
+    L202:
+    v8.add(1, 1);
+    goto L47;
+    L213:
+    v10 = new Budget$1TranSum(this, v5);
+    v11 = new Budget$1TranSum(this, v6);
+    v12 = new Budget$1TranSum(this, v7);
+    $a10 = new String[2];
+    $a10[0] = "black";
+    $a10[1] = "red";
+    v13 = $a10;
+    $a11 = new boolean[1];
+    v14 = $a11;
+    v14[0] = 0;
+    v15 = new UnicodishBufferedWriter(new FileWriter(p2));
+    v15.write("<HTML>\n<HEAD><TITLE>Budget Report</TITLE></HEAD><BODY bgcolor=ffffff>\n");
+    v15.write(("<TABLE BORDER=0 CELLSPACING=2><CAPTION>Paid/Unpaid Report from <B>" + Budget.sdate(p0) + "</B> to <B>" + Budget.sdate(v9) + "</B></CAPTION>\n"));
+    v15.write("<TR bgcolor=EEEEEE><TD><B>Date</B><TD><!--image--><TD><B>Category</B><TD><B>Payee</B><TD COLSPAN=2 ALIGN=CENTER><B>Amount</B></TR>\n");
+    $a14 = new boolean[1];
+    v16 = $a14;
+    $a15 = new int[1];
+    v17 = $a15;
+    v18 = lambda[Budget::lambda$generatePaidUnpaidReport$0](this, v16, v15, v17, v13, v14);
+    v15.write("<TR bgcolor=#FCF#CF><TD COLSPAN=6 ALIGN=CENTER><FONT SIZE=+2>*** PAID ***</FONT></TR>");
+    if (v5.isEmpty() == 0) goto L384;
+    v15.write("<TR bgcolor=ffffff><TD><TD><TD COLSPAN=4><FONT COLOR=gray>No entries!</TR><TR></TR>");
+    goto L440;
+    L384:
+    v5.forEach(v18);
+    v15.write(("<TR><TD COLSPAN=4 ALIGN=RIGHT>PAID SUBTOTALS:<TD ALIGN=RIGHT>" + this.amount2html(v10.income, null, v13, 1) + "<TD ALIGN=RIGHT>" + this.amount2html(v10.expenses, null, v13, 1) + "<TD ALIGN=RIGHT>" + this.amount2html(v10.amount, null, v13, 1) + "</TR><TR></TR>"));
+    L440:
+    v15.write("<TR bgcolor=#FCF#CF><TD COLSPAN=6 ALIGN=CENTER><FONT SIZE=+2>*** UNPAID ***</FONT></TR>");
+    if (v6.isEmpty() == 0) goto L467;
+    v15.write("<TR bgcolor=ffffff><TD><TD><TD COLSPAN=4><FONT COLOR=gray>No entries!</TR><TR></TR>");
+    goto L585;
+    L467:
+    v17[0] = 0;
+    v6.forEach(v18);
+    v15.write(("<TR><TD COLSPAN=4 ALIGN=RIGHT>UNPAID SUBTOTALS:<TD ALIGN=RIGHT>" + this.amount2html(v11.income, null, v13, 1) + "<TD ALIGN=RIGHT>" + this.amount2html(v11.expenses, null, v13, 1) + "<TD ALIGN=RIGHT>" + this.amount2html(v11.amount, null, v13, 1) + "</TR><TR></TR>"));
+    if (v7.isEmpty() != 0) goto L585;
+    v15.write(("<TR><TD COLSPAN=4 ALIGN=RIGHT><font color=red>&#x26A0</font> IMPORTANT SUBTOTALS:<TD ALIGN=RIGHT>" + this.amount2html(v12.income, null, v13, 1) + "<TD ALIGN=RIGHT>" + this.amount2html(v12.expenses, null, v13, 1) + "<TD ALIGN=RIGHT>" + this.amount2html(v12.amount, null, v13, 1) + "</TR><TR></TR>"));
+    L585:
+    v15.write("</BODY>\n</HTML>\n");
+    v15.close();
+    goto L623;
+    // handler for [294,593) catch Throwable
+    L601:
+    v16 = $ex;
+    v15.close();
+    goto L620;
+    // handler for [603,608) catch Throwable
+    L611:
+    v17 = $ex;
+    v16.addSuppressed(v17);
+    L620:
+    throw v16;
+    L623:
+    if (v14[0] == 0) goto L644;
+    throw new IOException(("failed to write into " + p2));
+    L644:
+    return 1;
+}
+
+private String genRepImage(double p0, double p1, double p2, int p3) {
+    v9 = Math.max(Math.abs(p1), Math.abs(p2));
+    if (v9 != 0.0) goto L24;
+    v9 = 1.0;
+    L24:
+    if (p0 >= 0.0) goto L36;
+    $s0 = "red_g.gif";
+    goto L39;
+    L36:
+    $s0 = "blue_g.gif";
+    L39:
+    v11 = Budget.get_image_full_path(Budget.icon($s0));
+    v8 = ("<img src=\"" + Budget.embeddedSRC(v11, 0) + "\" height=10 width=" + (int)(((double)p3 * Math.abs(p0)) / v9) + ">\n");
+    return v8;
+}
+
+private void addRepRow(BufferedWriter p0, Budget$Stats p1, String p2, double p3, boolean p4, double p5) {
+    v9 = "&nbsp;&nbsp;&nbsp;";
+    v10 = Budget.numFormatFrac2;
+    v11 = Budget.numFormatFrac1;
+    v12 = "?";
+    if (p1.total_income != 0.0) goto L59;
+    if (p1.total_expense == 0.0) goto L77;
+    v12 = v11.format(((p3 / p1.total_expense) * 100.0));
+    goto L77;
+    L59:
+    v12 = v11.format(((p3 / p1.total_income) * 100.0));
+    L77:
+    $s0 = p0;
+    if (this.stat_rep_row_color == 0) goto L91;
+    $s0 = p0;
+    $s1 = "EEeeEE";
+    goto L94;
+    L91:
+    $s1 = "FFffFF";
+    L94:
+    if (p4 == 0) goto L104;
+    $s2 = v9;
+    goto L107;
+    L104:
+    $s2 = "";
+    L107:
+    $s3 = p2;
+    $s4 = v9;
+    $s5 = v10.format(p3);
+    $s6 = v9;
+    $s7 = v12;
+    $s8 = v9;
+    if (Math.abs(p5) <= 5.0) goto L145;
+    $s3 = p2;
+    $s4 = v9;
+    $s5 = v10.format(p3);
+    $s6 = v9;
+    $s7 = v12;
+    $s8 = v9;
+    $s9 = v10.format(p5);
+    goto L148;
+    L145:
+    $s9 = "";
+    L148:
+    $s0.write(("<TR bgcolor=" + $s1 + "><TD>" + $s2 + $s3 + "<TD ALIGN=RIGHT>" + $s4 + $s5 + "<TD ALIGN=RIGHT>" + $s6 + $s7 + "<TD ALIGN=RIGHT>" + $s8 + $s9));
+    $s0 = this;
+    if (this.stat_rep_row_color != 0) goto L168;
+    $s0 = this;
+    $s1 = 1;
+    goto L169;
+    L168:
+    $s1 = 0;
+    L169:
+    $s0.stat_rep_row_color = $s1;
+    p0.write(("<TD>" + this.genRepImage(p3, p1.total_income, p1.total_expense, 300)));
+    return;
+}
+
+private void generateStatsReport(Budget$Stats p0, String p1) {
+    v3 = new UnicodishBufferedWriter(new FileWriter(p1));
+    this.stat_rep_row_color = 0;
+    v3.write("<HTML>\n<HEAD>\n\t<TITLE>Budget Report</TITLE>\n</HEAD>\n<BODY bgcolor=ffffff>\n<style type=\"text/css\">\nBODY { font: 10px Arial, Helvetica, sans-serif; }\nP, TD, TH, UL, DIV, .yspgen { font: 12px Arial, Helvetica, sans-serif; }\n</style>\n");
+    v3.write("<TABLE BORDER=0 CELLSPACING=2>\n");
+    v3.write(("<CAPTION>Budget from <B>" + Budget.sdate(p0.startCal) + "</B> to <B>" + Budget.sdate(p0.endCal) + "</B></CAPTION>\n"));
+    v3.write("<TR bgcolor=ddDDdd>");
+    v3.write("<TD><B>Description</B>");
+    v3.write("<TD ALIGN=RIGHT><B>Amount</B>");
+    v3.write("<TD ALIGN=RIGHT><B>%</B>");
+    v3.write("<TD ALIGN=RIGHT><B>&#43;&#47;&#45;</B>");
+    v3.write("<TD><B>Graph</B>");
+    this.addRepRow(v3, p0, "Disposable Income", (p0.total_income + p0.total_expense), 0, ((p0.total_income + p0.total_expense) - (p0.total_planned_income + p0.total_planned_expense)));
+    this.addRepRow(v3, p0, "Total Income", p0.total_income, 0, (p0.total_income - p0.total_planned_income));
+    v4 = p0.incomeVec.iterator();
+    L168:
+    if (v4.hasNext() == 0) goto L252;
+    v5 = (Budget$Amount)v4.next();
+    v6 = Budget.escape_html_text(this.getDesc(v5.key));
+    if (v6.startsWith(Budget.indent_string) == 0) goto L224;
+    v6 = ("&nbsp;&nbsp;&nbsp;&nbsp;" + v6);
+    L224:
+    this.addRepRow(v3, p0, v6, v5.amount, 1, (v5.amount - v5.planned_amount));
+    goto L168;
+    L252:
+    this.addRepRow(v3, p0, "Total Expenses", p0.total_expense, 0, (p0.total_expense - p0.total_planned_expense));
+    v4 = p0.expenseVec.iterator();
+    L283:
+    if (v4.hasNext() == 0) goto L367;
+    v5 = (Budget$Amount)v4.next();
+    v6 = Budget.escape_html_text(this.getDesc(v5.key));
+    if (v6.startsWith(Budget.indent_string) == 0) goto L339;
+    v6 = ("&nbsp;&nbsp;&nbsp;&nbsp;" + v6);
+    L339:
+    this.addRepRow(v3, p0, v6, v5.amount, 1, (v5.amount - v5.planned_amount));
+    goto L283;
+    L367:
+    v3.write("</TABLE></HTML>");
+    v3.close();
+    return;
+}
+
+private void generate_comparison_report(String p0, Budget$Stats p1, Budget$Stats p2) {
+    v4 = new UnicodishBufferedWriter(new FileWriter(p0));
+    this.stat_rep_row_color = 0;
+    v4.write("<HTML>\n<HEAD>\n<TITLE>Budget Comparison Report</TITLE>\n</HEAD>\n<BODY bgcolor=ffffff>\n<style type=\"text/css\">\nBODY { font: 10px Arial, Helvetica, sans-serif; }\nP, TD, TH, UL, DIV, .yspgen { font: 12px Arial, Helvetica, sans-serif; }\n</style>\n");
+    v4.write("<TABLE BORDER=0 CELLSPACING=2>\n");
+    v4.write(("<CAPTION>Stats comparison of two ranges <B>" + p1.get_range_string() + "</B> vs <B>" + p2.get_range_string() + "</B></CAPTION>\n"));
+    v4.write("<TR bgcolor=ddDDdd>");
+    v4.write("<TD><B>Description</B>");
+    v4.write(("<TD ALIGN=CENTER><B>" + p1.get_range_string() + "<br>(base)<br>amount</B>"));
+    v4.write(("<TD ALIGN=CENTER><B>" + p2.get_range_string() + "<br>(other)<br>amount</B>"));
+    v4.write("<TD ALIGN=CENTER><B>&#43;&#47;&#45;<br>amount</B>");
+    v4.write("<TD ALIGN=CENTER><B>&#43;&#47;&#45;<br>%</B>");
+    v4.write("<TD><B>Graph</B>");
+    this.add_comp_row(v4, p1, "Disposable Income", (p1.total_income + p1.total_expense), 0, (p2.total_income + p2.total_expense));
+    this.add_comp_row(v4, p1, "Total Income", p1.total_income, 0, p2.total_income);
+    v5 = Budget$comp_entry.comp_entry_from(p1.incomeVec, p2.incomeVec).iterator();
+    L188:
+    if (v5.hasNext() == 0) goto L267;
+    v6 = (Budget$comp_entry)v5.next();
+    v7 = Budget.escape_html_text(this.getDesc(v6.key));
+    if (v7.startsWith(Budget.indent_string) == 0) goto L244;
+    v7 = ("&nbsp;&nbsp;&nbsp;&nbsp;" + v7);
+    L244:
+    this.add_comp_row(v4, p1, v7, v6.v1, 1, v6.v2);
+    goto L188;
+    L267:
+    this.add_comp_row(v4, p1, "Total Expenses", p1.total_expense, 0, p2.total_expense);
+    v5 = Budget$comp_entry.comp_entry_from(p1.expenseVec, p2.expenseVec).iterator();
+    L303:
+    if (v5.hasNext() == 0) goto L382;
+    v6 = (Budget$comp_entry)v5.next();
+    v7 = Budget.escape_html_text(this.getDesc(v6.key));
+    if (v7.startsWith(Budget.indent_string) == 0) goto L359;
+    v7 = ("&nbsp;&nbsp;&nbsp;&nbsp;" + v7);
+    L359:
+    this.add_comp_row(v4, p1, v7, v6.v1, 1, v6.v2);
+    goto L303;
+    L382:
+    v4.write("</TABLE></HTML>");
+    v4.close();
+    return;
+}
+
+private static String getStatFormula(char p0, int p1, Vector p2) {
+    v3 = " FORMULA=\"=";
+    v4 = 0;
+    v5 = p2.iterator();
+    L13:
+    if (v5.hasNext() == 0) goto L67;
+    v6 = (Budget$Amount)v5.next();
+    if (v6.key.startsWith(Budget.indent_string) != 0) goto L61;
+    v3 = (v3 + "+" + p0 + p1);
+    v4 = 1;
+    L61:
+    p1 += 1;
+    goto L13;
+    L67:
+    if (v4 != 0) goto L79;
+    v3 = (v3 + "0.0");
+    L79:
+    return (v3 + "\" ");
+}
+
+private void generateExcelStatsReport(Budget$Stats p0, String p1) {
+    v3 = "&nbsp;&nbsp;&nbsp;";
+    v4 = Budget.numFormatFrac2;
+    v5 = this.getExcelNumberStyle();
+    v6 = new UnicodishBufferedWriter(new FileWriter(p1));
+    v6.write("<HTML>\n<HEAD>\n\t<TITLE>Budget Report</TITLE>\n</HEAD>\n<BODY bgcolor=ffffff>\n<style type=\"text/css\">\nBODY { font: 10px Arial, Helvetica, sans-serif; }\nP, TD, TH, UL, DIV, .yspgen { font: 12px Arial, Helvetica, sans-serif; }\n</style>\n");
+    v6.write("<TABLE BORDER=0 CELLSPACING=2>\n");
+    v6.write(("<CAPTION>Budget from <B>" + Budget.sdate(p0.startCal) + "</B> to <B>" + Budget.sdate(p0.endCal) + "</B></CAPTION>\n"));
+    v6.write("<TR bgcolor=eeEEee>");
+    v6.write("<TD><B>Description</B>");
+    v6.write("<TD ALIGN=RIGHT><B>Amount</B>");
+    v6.write("<TD ALIGN=RIGHT><B>%</B>");
+    v6.write("<TD ALIGN=RIGHT><B>&#43;&#47;&#45;</B>");
+    if (p0.total_income == 0.0) goto L127;
+    $s0 = "B3";
+    goto L130;
+    L127:
+    $s0 = "B2";
+    L130:
+    v7 = $s0;
+    v6.write(("<TR><TD><B>Disposable Income:</B><TD ALIGN=RIGHT " + v5 + " FORMULA='=B3+B" + (p0.incomeVec.size() + 4) + "'>0.001<TD ALIGN=RIGHT " + v5 + " FORMULA='=B2/" + v7 + "*100'>?\n<TD ALIGN=RIGHT>\n"));
+    v6.write(("<TR><TD><B>Total Income:</B><TD ALIGN=RIGHT " + v5 + Budget.getStatFormula(66, 4, p0.incomeVec) + ">0.001<TD ALIGN=RIGHT " + v5 + ">100.00\n<TD ALIGN=RIGHT><FONT COLOR=aaAAaa>" + v4.format((p0.total_income - p0.total_planned_income)) + "</FONT>\n"));
+    v9 = 4;
+    v10 = p0.incomeVec.iterator();
+    L207:
+    if (v10.hasNext() == 0) goto L382;
+    v11 = (Budget$Amount)v10.next();
+    v12 = Budget.escape_html_text(this.getDesc(v11.key));
+    v8 = "";
+    if (v12.startsWith(Budget.indent_string) == 0) goto L271;
+    v12 = ("&nbsp;&nbsp;&nbsp;&nbsp;" + v12);
+    goto L301;
+    L271:
+    if (v11.sub_amounts == null) goto L301;
+    v8 = (" FORMULA='=SUM(B" + (v9 + 1) + "..B" + (v9 + v11.sub_amounts.size()) + ")'");
+    L301:
+    v6.write(("<TR><TD>" + v3 + v12 + "<TD ALIGN=RIGHT " + v5 + v8 + ">" + v4.format(v11.amount) + "<TD ALIGN=RIGHT " + v5 + "FORMULA='=B" + v9 + "/" + v7 + "*100.0'>?\n"));
+    if ((v11.amount - v11.planned_amount) == 0.0) goto L376;
+    v6.write(("<TD ALIGN=RIGHT><FONT COLOR=aaAAaa>" + v4.format((v11.amount - v11.planned_amount)) + "</FONT>\n"));
+    L376:
+    v9 += 1;
+    goto L207;
+    L382:
+    v6.write(("<TR><TD><B>Total Expenses:</B><TD ALIGN=RIGHT " + v5 + Budget.getStatFormula(66, (v9 + 1), p0.expenseVec) + ">0.001<TD ALIGN=RIGHT " + v5 + "FORMULA='=B" + v9 + "/" + v7 + "*100.0'>?\n<TD ALIGN=RIGHT><FONT COLOR=aaAAaa>" + v4.format((p0.total_expense - p0.total_planned_expense)) + "</FONT>\n"));
+    v9 += 1;
+    v10 = p0.expenseVec.iterator();
+    L439:
+    if (v10.hasNext() == 0) goto L614;
+    v11 = (Budget$Amount)v10.next();
+    v12 = Budget.escape_html_text(this.getDesc(v11.key));
+    v8 = "";
+    if (v12.startsWith(Budget.indent_string) == 0) goto L503;
+    v12 = ("&nbsp;&nbsp;&nbsp;&nbsp;" + v12);
+    goto L533;
+    L503:
+    if (v11.sub_amounts == null) goto L533;
+    v8 = (" FORMULA='=SUM(B" + (v9 + 1) + "..B" + (v9 + v11.sub_amounts.size()) + ")'");
+    L533:
+    v6.write(("<TR><TD>" + v3 + v12 + "<TD ALIGN=RIGHT " + v5 + v8 + ">" + v4.format(v11.amount) + "<TD ALIGN=RIGHT " + v5 + "FORMULA='=B" + v9 + "/" + v7 + "*100.0'>?\n"));
+    if ((v11.amount - v11.planned_amount) == 0.0) goto L608;
+    v6.write(("<TD ALIGN=RIGHT><FONT COLOR=aaAAaa>" + v4.format((v11.amount - v11.planned_amount)) + "</FONT>\n"));
+    L608:
+    v9 += 1;
+    goto L439;
+    L614:
+    v6.write("</TABLE></HTML>");
+    v6.close();
+    return;
+}
+
+private boolean openBudgetFile(String p0) {
+    v2 = new StringBuffer();
+    v3 = new SimpleCalendar(this.initCal);
+    v3.set(1, 1);
+    v4 = null;
+    if (BudgetDB.isEncrypted(p0) == 0) goto L51;
+    v4 = this.askPasswordIfEncrypted(p0);
+    if (v4 != null) goto L51;
+    return 0;
+    L51:
+    v5 = BudgetDB.load(p0, v4, v2, v3, this.cfg.futureNMonths.intValue, this.cfg.unlimitedHistory.boolValue);
+    if (v5 != null) goto L102;
+    this.showError(this.mainShell, ("Unable to load the '" + p0 + "' file."));
+    return 0;
+    L102:
+    this.curCal = v3;
+    this.db = v5;
+    this.fileName = p0;
+    this.dbKey = v4;
+    this.addRecentFile(new File(this.fileName).getAbsolutePath());
+    this.checkRegistration();
+    this.calc_min_date();
+    this.updateMonthLabelMenu();
+    this.updateShellTitle();
+    this.updateCalendarView();
+    return 1;
+}
+
+private synthetic void lambda$generatePaidUnpaidReport$0(boolean[] p0, BufferedWriter p1, int[] p2, String[] p3, boolean[] p4, Budget$1TranEntry p5) {
+    v7 = p5.tr.pmt;
+    if (p0[0] == 0) goto L22;
+    $s0 = "eeeeee";
+    goto L25;
+    L22:
+    $s0 = "ffffff";
+    L25:
+    v8 = ("BGCOLOR=\"#" + $s0 + "\"");
+    v9 = this.get_normalized_note(v7.getNote(p5.date), Budget.GEN_HTML, 1);
+    v10 = v7.getFlag(p5.date);
+    v11 = p5.tr.amount;
+    $s0 = p1;
+    $s1 = v8;
+    $s2 = v8;
+    if (p2[0] == p5.date) goto L101;
+    $s0 = p1;
+    $s1 = v8;
+    $s2 = v8;
+    $s3 = Budget.sdate(p5.date);
+    goto L104;
+    L101:
+    $s3 = "";
+    L104:
+    if (v7.image_path == null) goto L146;
+    if (v7.image_path.length() <= 0) goto L146;
+    $s4 = ("<IMG SRC=\"" + Budget.embeddedSRC(Budget.get_image_full_path(Budget.image(v7.image_path)), 0) + "\">");
+    goto L149;
+    L146:
+    $s4 = "";
+    L149:
+    $s5 = v8;
+    if (v7.category != null) goto L165;
+    $s5 = v8;
+    $s6 = "";
+    goto L170;
+    L165:
+    $s6 = v7.category;
+    L170:
+    $s7 = v8;
+    if (v10 != 59) goto L185;
+    $s7 = v8;
+    $s8 = "<font color=green>&#x2714</font> ";
+    goto L201;
+    L185:
+    if (v10 != 35) goto L198;
+    $s8 = "<font color=red>&#x26A0</font> ";
+    goto L201;
+    L198:
+    $s8 = "";
+    L201:
+    $s9 = Budget.escape_html_text(this.getDesc(v7.description));
+    $s10 = v9;
+    if (v11 < 0.0) goto L235;
+    $s9 = Budget.escape_html_text(this.getDesc(v7.description));
+    $s10 = v9;
+    $s11 = this.amount2html(v11, null, p3, 1);
+    goto L238;
+    L235:
+    $s11 = "";
+    L238:
+    if (v11 >= 0.0) goto L258;
+    $s12 = this.amount2html(v11, null, p3, 1);
+    goto L261;
+    L258:
+    $s12 = "";
+    L261:
+    $s0.write(("<TR " + $s1 + "><TD ALIGN=CENTER " + $s2 + ">" + $s3 + "<TD WIDTH=18>" + $s4 + "<TD ALIGN=LEFT " + $s5 + ">" + $s6 + "<TD ALIGN=LEFT " + $s7 + ">" + $s8 + $s9 + $s10 + "<TD ALIGN=RIGHT>" + $s11 + "<TD ALIGN=RIGHT>" + $s12 + "</TR>\n"));
+    goto L279;
+    // handler for [74,269) catch IOException
+    L272:
+    v13 = $ex;
+    p4[0] = 1;
+    L279:
+    $s0 = p0;
+    $s1 = 0;
+    if (p0[0] != 0) goto L291;
+    $s0 = p0;
+    $s1 = 0;
+    $s2 = 1;
+    goto L292;
+    L291:
+    $s2 = 0;
+    L292:
+    $s0[$s1] = $s2;
+    p2[0] = p5.date;
+    return;
+}
+
+private static synthetic SimpleCalendar[] lambda$compare_stats_report$0(int p0) {
+    $a1 = new SimpleCalendar[p0];
+    return $a1;
+}
+
+private static synthetic void lambda$get_month_by_month_entries$3(HashMap p0, Budget$month_by_month_entry p1) {
+    p0.put(p1.key, p1);
+    return;
+}
+
+private static synthetic boolean lambda$get_month_by_month_entries$2(HashSet p0, Budget$month_by_month_entry p1) {
+    if (p0.contains(p1) != 0) goto L12;
+    $s0 = 1;
+    goto L13;
+    L12:
+    $s0 = 0;
+    L13:
+    return $s0;
+}
+
+private static synthetic boolean lambda$get_month_by_month_entries$1(Double p0) {
+    if (p0.doubleValue() == 0.0) goto L13;
+    $s0 = 1;
+    goto L14;
+    L13:
+    $s0 = 0;
+    L14:
+    return $s0;
+}
+
+private static synthetic boolean lambda$get_month_by_month_entries$0(Double p0) {
+    if (p0.doubleValue() == 0.0) goto L13;
+    $s0 = 1;
+    goto L14;
+    L13:
+    $s0 = 0;
+    L14:
+    return $s0;
+}
+
+private synthetic void lambda$showStats$5(Shell p0, SelectionEvent p1) {
+    this.report_month_by_month(p0, this.showStatsStats);
+    return;
+}
+
+private synthetic void lambda$showStats$4(Shell p0, SimpleCalendar[] p1, SelectionEvent p2) {
+    this.compare_stats_report(p0, p1, this.showStatsStats);
+    return;
+}
+
+private static synthetic void lambda$showStats$1(function.Consumer p0, Menu p1) {
+    new MenuItem(p1, 2);
+    v2 = new MenuItem(p1, 8);
+    v2.setText("&Last 30 days");
+    v2.addSelectionListener(SelectionListener.widgetSelectedAdapter(lambda[Budget::lambda$showStats$2](p0)));
+    v2 = new MenuItem(p1, 8);
+    v2.setText("Last 365 days");
+    v2.addSelectionListener(SelectionListener.widgetSelectedAdapter(lambda[Budget::lambda$showStats$3](p0)));
+    return;
+}
+
+private static synthetic void lambda$showStats$3(function.Consumer p0, SelectionEvent p1) {
+    p0.accept(Boolean.valueOf(0));
+    return;
+}
+
+private static synthetic void lambda$showStats$2(function.Consumer p0, SelectionEvent p1) {
+    p0.accept(Boolean.valueOf(1));
+    return;
+}
+
+private synthetic void lambda$showStats$0(Label p0, SimpleDateFormat p1, Label p2, Label p3, Boolean p4) {
+    $s0 = p0;
+    if (p4.booleanValue() == 0) goto L15;
+    $s0 = p0;
+    $s1 = "30d)";
+    goto L18;
+    L15:
+    $s1 = "1y)";
+    L18:
+    $s0.setText(("(" + $s1));
+    p0.getParent().layout();
+    if (p4.booleanValue() == 0) goto L57;
+    $s0 = new SimpleCalendar().add(1, -29);
+    goto L73;
+    L57:
+    $s0 = new SimpleCalendar().add(3, -1).addDays(1);
+    L73:
+    v6 = $s0;
+    this.showStatsStats = this.calcStatisticsExact(v6, new SimpleCalendar(), 1);
+    this.display_stats(p1, p2, p3, p0);
+    return;
+}
+
+private static synthetic TreeSet lambda$createStatStartEndMenu$5() {
+    return new TreeSet();
+}
+
+private static synthetic boolean lambda$createStatStartEndMenu$4(Set p0, Integer p1) {
+    if (p0.contains(p1) != 0) goto L14;
+    $s0 = 1;
+    goto L15;
+    L14:
+    $s0 = 0;
+    L15:
+    return $s0;
+}
+
+private static synthetic boolean lambda$createStatStartEndMenu$3(int p0, Integer p1) {
+    if (p1.intValue() >= (p0 - 2)) goto L14;
+    $s0 = 1;
+    goto L15;
+    L14:
+    $s0 = 0;
+    L15:
+    return $s0;
+}
+
+private synthetic void lambda$createStatStartEndMenu$0(SimpleCalendar[] p0, Label p1, Label p2, SimpleDateFormat p3, SelectionAdapter p4, int p5, Shell p6, Menu p7, int p8, boolean p9) {
+    if (p9 == 0) goto L51;
+    v12 = new MenuItem(p7, 64);
+    v12.setText((p8));
+    v11 = new Menu(p7);
+    v12.setMenu(v11);
+    goto L55;
+    L51:
+    v11 = p7;
+    L55:
+    v12 = Arrays.stream(p0).filter(lambda[Budget::lambda$createStatStartEndMenu$1](p8)).sorted().toList();
+    if (p1 == null) goto L218;
+    if (v12.size() < 2) goto L218;
+    v13 = (SimpleCalendar)Collections.min(v12);
+    v14 = (SimpleCalendar)Collections.max(v12);
+    v15 = new MenuItem(v11, 8);
+    v15.setData("sourceLabel", p2);
+    v15.setData("sourceLabel2", p1);
+    v15.setData(v13);
+    v15.setData("sourceCal2", v14);
+    v15.setText((p3.format(v13.getTime()) + " " + p8 + " to " + p3.format(v14.getTime()) + " " + p8));
+    v15.addSelectionListener(p4);
+    new MenuItem(v11, 2);
+    L218:
+    v12.forEach(lambda[Budget::lambda$createStatStartEndMenu$2](this, v11, p3, p5, p2, p4, p6));
+    return;
+}
+
+private synthetic void lambda$createStatStartEndMenu$2(Menu p0, SimpleDateFormat p1, int p2, Label p3, SelectionAdapter p4, Shell p5, SimpleCalendar p6) {
+    v8 = new MenuItem(p0, 8);
+    v9 = p1.format(p6.getTime());
+    $s0 = v8;
+    if (p6.getYear() != p2) goto L43;
+    $s0 = v8;
+    $s1 = (p2 + ", ");
+    goto L46;
+    L43:
+    $s1 = "";
+    L46:
+    $s0.setText(($s1 + v9));
+    v8.setData(p6);
+    v8.setData("sourceLabel", p3);
+    v8.addSelectionListener(p4);
+    if (p6.getYm() != this.initCal.getYm()) goto L115;
+    v8.setImage(this.getImage(Budget.icon("nxt.gif"), p5.getBackground()));
+    L115:
+    return;
+}
+
+private static synthetic boolean lambda$createStatStartEndMenu$1(int p0, SimpleCalendar p1) {
+    if (p1.getYear() != p0) goto L12;
+    $s0 = 1;
+    goto L13;
+    L12:
+    $s0 = 0;
+    L13:
+    return $s0;
+}
+
+private static synthetic int lambda$new$0(Budget$Amount p0, Budget$Amount p1) {
+    if (p0.amount >= 0.0) goto L48;
+    if (p1.amount >= 0.0) goto L48;
+    if (p0.amount >= p1.amount) goto L32;
+    return -1;
+    L32:
+    if (p0.amount <= p1.amount) goto L46;
+    return 1;
+    L46:
+    return 0;
+    L48:
+    if (p0.amount >= p1.amount) goto L62;
+    return 1;
+    L62:
+    if (p0.amount <= p1.amount) goto L76;
+    return -1;
+    L76:
+    return 0;
+}
+
+private static synthetic void lambda$calculate_stats_range$0(Vector p0, Budget$Amount p1) {
+    p0.add(p1);
+    return;
+}
+
+private synthetic void lambda$createCalendarView$5(Budget$Info p0, SimpleCalendar p1, Transaction p2, Payment p3, char p4, String p5, MouseEvent p6) {
+    if (this.cfg.oneButtonMouse.boolValue != 0) goto L22;
+    if (p6.button != 3) goto L54;
+    L22:
+    if (p0.menu != null) goto L46;
+    p0.menu = this.createTransactionMenu(p1, p2, p0, p3, p4, p5);
+    L46:
+    p0.menu.setVisible(1);
+    L54:
+    return;
+}
+
+private synthetic void lambda$createCalendarView$0(Menu p0, MenuItem p1, MenuItem p2, ArrayList p3, int p4, MenuEvent p5) {
+    if (p0.getData("$menu$initialized$") == null) goto L11;
+    return;
+    L11:
+    p0.setData("$menu$initialized$", "$menu$initialized$");
+    p1.setEnabled(0);
+    p2.setEnabled(0);
+    v7 = p3.stream().filter(lambda[Budget::lambda$createCalendarView$1](p4)).toList();
+    if (v7.isEmpty() != 0) goto L156;
+    v8 = v7.stream().filter(lambda[Budget::lambda$createCalendarView$2](p4)).count();
+    if (v8 <= 0L) goto L120;
+    p1.setEnabled(1);
+    p1.addSelectionListener(SelectionListener.widgetSelectedAdapter(lambda[Budget::lambda$createCalendarView$3](this, v7, p4)));
+    L120:
+    if ((long)v7.size() == v8) goto L156;
+    p2.setEnabled(1);
+    p2.addSelectionListener(SelectionListener.widgetSelectedAdapter(lambda[Budget::lambda$createCalendarView$4](this, v7, p4)));
+    L156:
+    return;
+}
+
+private synthetic void lambda$createCalendarView$4(List p0, int p1, SelectionEvent p2) {
+    v4 = p0.iterator();
+    L8:
+    if (v4.hasNext() == 0) goto L50;
+    v5 = (Transaction)v4.next();
+    this.set_pmt_flag(v5.pmt, p1, 59, v5.amount);
+    goto L8;
+    L50:
+    this.updateCalendarView();
+    return;
+}
+
+private synthetic void lambda$createCalendarView$3(List p0, int p1, SelectionEvent p2) {
+    v4 = p0.iterator();
+    L8:
+    if (v4.hasNext() == 0) goto L46;
+    v5 = (Transaction)v4.next();
+    this.set_pmt_flag(v5.pmt, p1, 94, 0.0);
+    goto L8;
+    L46:
+    this.updateCalendarView();
+    return;
+}
+
+private static synthetic boolean lambda$createCalendarView$2(int p0, Transaction p1) {
+    if (p1.pmt.getFlag(p0) != 59) goto L17;
+    $s0 = 1;
+    goto L18;
+    L17:
+    $s0 = 0;
+    L18:
+    return $s0;
+}
+
+private static synthetic boolean lambda$createCalendarView$1(int p0, Transaction p1) {
+    if (p1.pmt.disabled != 0) goto L27;
+    if (p1.pmt.getFlag(p0) == 35) goto L27;
+    $s0 = 1;
+    goto L28;
+    L27:
+    $s0 = 0;
+    L28:
+    return $s0;
+}
+
+private static synthetic RGB[] lambda$get_customer_rgbs$0(int p0) {
+    $a1 = new RGB[p0];
+    return $a1;
+}
+
+private synthetic void lambda$createFileMenu$0(SelectionEvent p0) {
+    v2 = this.getHtmlFileName();
+    if (null != v2) goto L11;
+    return;
+    L11:
+    this.generatePaidUnpaidReport(new SimpleCalendar(this.curCal).setDayOne(), new SimpleCalendar(this.curCal).setDayLast(), v2);
+    program.Program.launch(Budget.html_name(v2));
+    goto L74;
+    // handler for [0,10) catch Exception
+    // handler for [11,53) catch Exception
+    L56:
+    v2 = $ex;
+    this.showError(this.mainShell, ("Unable to save the output file\n" + String.valueOf(v2)));
+    L74:
+    return;
+}
+
+private static synthetic int lambda$static$4(Payment p0, Payment p1) {
+    v2 = p0;
+    v3 = p1;
+    v4 = (v2.frequency + v2.freq_type);
+    v5 = (v3.frequency + v3.freq_type);
+    return (Budget.sort_direction * v4.compareTo(v5));
+}
+
+private static synthetic int lambda$static$3(Payment p0, Payment p1) {
+    return (Budget.sort_direction * Double.compare(p0.amount, p1.amount));
+}
+
+private static synthetic int lambda$static$2(Payment p0, Payment p1) {
+    return (Budget.sort_direction * Integer.compare(p0.endDate, p1.endDate));
+}
+
+private static synthetic int lambda$static$1(Payment p0, Payment p1) {
+    return (Budget.sort_direction * Integer.compare(p0.startDate, p1.startDate));
+}
+
+private static synthetic int lambda$static$0(Payment p0, Payment p1) {
+    return (Budget.sort_direction * Integer.compare(p0.n_pays, p1.n_pays));
+}
+
+private synthetic void lambda$selectImage$2(function.Consumer p0, SelectionEvent p1) {
+    p0.accept(Integer.valueOf((this.cfg.image_selection_zoom + 25)));
+    return;
+}
+
+private synthetic void lambda$selectImage$1(function.Consumer p0, SelectionEvent p1) {
+    p0.accept(Integer.valueOf((this.cfg.image_selection_zoom - 25)));
+    return;
+}
+
+private synthetic void lambda$selectImage$0(int p0, Composite p1, MouseAdapter p2, File[] p3, String p4, Shell p5, Integer p6) {
+    if (p6.intValue() < p0) goto L20;
+    if (p6.intValue() <= (p0 * 2)) goto L21;
+    L20:
+    return;
+    L21:
+    this.cfg.image_selection_zoom = p6.intValue();
+    MiSWT.clear_composite(p1, 0);
+    this.fill_images(p1, p2, p3, p4);
+    v8 = p5.computeSize(-1, -1);
+    p5.setSize(v8);
+    return;
+}
+
+private synthetic void lambda$editPayment$0(Text p0, Button p1, Button p2) {
+    v4 = new SimpleCalendar(BudgetDB.toDate(p0.getText()));
+    p1.setText(this.get_last_weekday_msg(v4));
+    p1.setEnabled(v4.isLastWeekday());
+    if (p1.getSelection() == 0) goto L60;
+    if (v4.isLastWeekday() != 0) goto L60;
+    p1.setSelection(0);
+    p2.setSelection(1);
+    L60:
+    return;
+}
+
+static void <clinit>() {
+    Budget.revision = ("." + Budget.getRevision());
+    Budget.budgetVersion = ("1.11" + Budget.revision);
+    Budget.LICENSE_TXT = "license.txt";
+    Budget.icons_loc = "icons/";
+    Budget.images_loc = "images/";
+    Budget.numPattern = null;
+    Budget.numPattern = regex.Pattern.compile("(\\D*)([\\d,]+\\.\\d+)(\\D*)");
+    goto L57;
+    // handler for [44,53) catch Exception
+    L56:
+    v0 = $ex;
+    L57:
+    Budget.dirHome = System.getProperty("user.home", ".");
+    Budget.dirCurrent = System.getProperty("user.dir", ".");
+    Budget.dirData = ".";
+    Budget.runningOnMac = System.getProperty("os.name", "").startsWith("Mac");
+    Budget.runningOnLinux = System.getProperty("os.name", "").contains("Linux");
+    if (File.separatorChar != 92) goto L135;
+    $s0 = 1;
+    goto L136;
+    L135:
+    $s0 = 0;
+    L136:
+    Budget.runningOnWindows = $s0;
+    Budget.mb_dnd_prefix = "MiShell*Budget*TID:";
+    Budget.is_jpackage = 0;
+    $a1 = new int[10];
+    $a1[0] = 100;
+    $a1[1] = 500;
+    $a1[2] = 1000;
+    $a1[3] = 2000;
+    $a1[4] = 5000;
+    $a1[5] = 10000;
+    $a1[6] = 50000;
+    $a1[7] = 100000;
+    $a1[8] = 1000000;
+    $a1[9] = 10000000;
+    Budget.stepList = $a1;
+    Budget.BALANCE_NONE = 0;
+    Budget.BALANCE_ALL = 1;
+    Budget.BALANCE_FIRST_AND_LAST = 2;
+    Budget.imgTags = new Vector();
+    Budget.sort_direction = 1;
+    Budget.lastQuickPicks = null;
+    Budget.edit_payments_new_pmt = null;
+    Budget.PROMPT_PASSWORD = 1;
+    Budget.PROMPT_EXPENSE = 2;
+    Budget.PROMPT_REMOVE_ADJUSTMENT = 4;
+    Budget.n_pays_comp = lambda[Budget::lambda$static$0]();
+    Budget.start_date_comp = lambda[Budget::lambda$static$1]();
+    Budget.end_date_comp = lambda[Budget::lambda$static$2]();
+    Budget.cat_comp = new Budget$80();
+    Budget.desc_comp = new Budget$81();
+    Budget.amount_comp = lambda[Budget::lambda$static$3]();
+    Budget.freq_comp = lambda[Budget::lambda$static$4]();
+    Budget.sortColumn = null;
+    Budget.filterToolTipText = "Filter expression format:\n[-][|] <[~]token>[ <[~]token> [...]]\n  '-' filters and displays DELETED transactions only -- can be used without pararameters\n  '|' sets the 'OR' search mode (the default is the 'AND' mode );\n  '~' inverts its token condition\ntoken:\n-- >n, <n or =n -- n is the amount\n-- 'cat:<substring>' to search categories only\n-- 'note:<substring>' to search notes only\n-- 'desc:<substring>' to search description only\n-- 'date:<date>' to search date only\n-- 'range:<n|active|past|future|disabled|i[ndefinite]>' to filter-out by date range\n-- '[flag]:<paid or .|unpaid or ?|important or !> -- filter paid, unpaid, important.\nMisc:\n-- Use '\\ ' when searching for a space.\n";
+    Budget.allPaymentsSavedFilter = "";
+    Budget.numFormatFrac2 = null;
+    Budget.numFormatFrac1 = null;
+    Budget.numFormatFrac0 = null;
+    $a5 = new int[11];
+    $a5[0] = 16766720;
+    $a5[1] = 16416882;
+    $a5[2] = 16761035;
+    $a5[3] = 16744272;
+    $a5[4] = 12433259;
+    $a5[5] = 15631086;
+    $a5[6] = 65280;
+    $a5[7] = 10145074;
+    $a5[8] = 9419919;
+    $a5[9] = 8900331;
+    $a5[10] = 16770273;
+    Budget.hilight_color = $a5;
+    $a6 = new String[11];
+    $a6[0] = "Gold";
+    $a6[1] = "Salmon";
+    $a6[2] = "Pink";
+    $a6[3] = "Coral";
+    $a6[4] = "Dark Khaki";
+    $a6[5] = "Violet";
+    $a6[6] = "Lime";
+    $a6[7] = "Yellow Green";
+    $a6[8] = "Dark See Green";
+    $a6[9] = "Sky Blue";
+    $a6[10] = "Misty Rose";
+    Budget.hilight_color_name = $a6;
+    Budget.SUM_QUESTION = "The selected day already has this type of transaction.\nDo you want to sum the amounts?\n";
+    Budget.AMOUNT_SEP = ": ";
+    Budget.decimalSeparator = DecimalFormatSymbols.getInstance().getDecimalSeparator();
+    $a7 = new String[2];
+    $a7[0] = "black";
+    $a7[1] = "red";
+    Budget.normalColors = $a7;
+    Budget.indent_string = "   ";
+    Budget.GEN_HTML = 0;
+    Budget.GEN_EXCEL = 1;
+    return;
+}

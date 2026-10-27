@@ -1,0 +1,2581 @@
+// ===== StyledTextStream$1 extends MouseTrackAdapter 
+final synthetic StyledTextStream this$0;
+
+ void <init>(StyledTextStream p0) {
+    Objects.requireNonNull(p0);
+    this.this$0 = p0;
+    super.<init>();
+    return;
+}
+
+public void mouseHover(MouseEvent p0) {
+    v2 = this.this$0.getActionSpanAt(p0.x, p0.y);
+    if (v2 != null) goto L30;
+    this.this$0.tool_tip_off();
+    goto L68;
+    L30:
+    if ((this.this$0.last_click_timestamp_msec + 1500L) >= (System.nanoTime() / 1000000L)) goto L68;
+    this.this$0.update_tool_tip(p0.x, p0.y, v2);
+    L68:
+    return;
+}
+
+// ===== StyledTextStream$2 extends Object implements MouseListener
+final synthetic StyledTextStream this$0;
+
+ void <init>(StyledTextStream p0) {
+    Objects.requireNonNull(p0);
+    this.this$0 = p0;
+    super.<init>();
+    return;
+}
+
+public void mouseDown(MouseEvent p0) {
+    this.this$0.last_click_timestamp_msec = (System.nanoTime() / 1000000L);
+    v2 = this.this$0.getActionSpanAt(p0.x, p0.y);
+    if (v2 == null) goto L58;
+    if (v2.mouseDownConsumer == null) goto L58;
+    this.this$0.tool_tip_off();
+    this.invoke_consumer(p0, v2, v2.mouseDownConsumer);
+    L58:
+    return;
+}
+
+public void mouseUp(MouseEvent p0) {
+    v2 = this.this$0.getActionSpanAt(p0.x, p0.y);
+    if (v2 != null) goto L21;
+    return;
+    L21:
+    this.this$0.tool_tip_off();
+    if (p0.button != 3) goto L54;
+    if (v2.menu == null) goto L54;
+    v2.menu.setVisible(1);
+    goto L99;
+    L54:
+    if (p0.button != 1) goto L82;
+    if (v2.consumer == null) goto L82;
+    this.invoke_consumer(p0, v2, v2.consumer);
+    goto L99;
+    L82:
+    if (v2.mouseUpConsumer == null) goto L99;
+    this.invoke_consumer(p0, v2, v2.mouseUpConsumer);
+    L99:
+    return;
+}
+
+public void mouseDoubleClick(MouseEvent p0) {
+    v2 = this.this$0.getActionSpanAt(p0.x, p0.y);
+    if (v2 == null) goto L49;
+    if (v2.doubleClickConsumer == null) goto L49;
+    this.this$0.text.notifyListeners(4, null);
+    this.invoke_consumer(p0, v2, v2.doubleClickConsumer);
+    L49:
+    return;
+}
+
+private void invoke_consumer(MouseEvent p0, StyledTextStream$Span p1, function.Consumer p2) {
+    this.this$0.tool_tip_off();
+    this.this$0.text.setCursor(this.this$0.arrowCursor);
+    v4 = new StyledTextStream$SpanEvent();
+    v4.e = p0;
+    v4.data = p1.data;
+    v4.text = p1.consumer_text;
+    $s0 = v4;
+    if (p1.original_user_span == null) goto L73;
+    $s0 = v4;
+    $s1 = p1.original_user_span;
+    goto L74;
+    L73:
+    $s1 = p1;
+    L74:
+    $s0.span = $s1;
+    p2.accept(v4);
+    if (this.this$0.text.isDisposed() != 0) goto L113;
+    this.this$0.mouse_moved(p0.x, p0.y);
+    L113:
+    return;
+}
+
+// ===== StyledTextStream$Cell extends Object 
+private int col_span;
+private final int alignment;
+private LinkedList spans;
+private boolean is_locked;
+private int length;
+private int width;
+private int min_width;
+private int max_width;
+private int line_vindent;
+private StyledTextStream$Span overflow_span;
+public LinkedList invisible_data;
+private StyledTextStream$Table table;
+private Set styles;
+final synthetic StyledTextStream this$0;
+
+private void <init>(StyledTextStream p0, int p1, int p2, int p3) {
+    Objects.requireNonNull(p0);
+    this.this$0 = p0;
+    super.<init>();
+    this.spans = new LinkedList();
+    this.is_locked = 0;
+    this.width = -1;
+    this.min_width = -1;
+    this.max_width = -1;
+    this.line_vindent = 0;
+    if (p1 >= 1) goto L65;
+    throw new IllegalArgumentException("col_span must be 1 or greater");
+    L65:
+    this.col_span = p1;
+    if (p2 == 1) goto L85;
+    throw new IllegalArgumentException("row_span can only be 1.");
+    L85:
+    if (p3 == 16384) goto L117;
+    if (p3 == 131072) goto L117;
+    if (p3 == 16777216) goto L117;
+    throw new IllegalArgumentException("Illegal alignment");
+    L117:
+    this.alignment = p3;
+    return;
+}
+
+public StyledTextStream$Cell setMinWidth(int p0) {
+    this.assertNotLocked();
+    this.min_width = p0;
+    return this;
+}
+
+public StyledTextStream$Cell addHTMLStyle(String p0) {
+    if (this.styles != null) goto L18;
+    this.styles = new HashSet();
+    L18:
+    this.styles.add(p0);
+    return this;
+}
+
+public StyledTextStream$Cell setMaxWidth(int p0) {
+    this.assertNotLocked();
+    this.max_width = p0;
+    throw new RuntimeException("not implemented");
+}
+
+public StyledTextStream$Cell setVIndent(int p0) {
+    this.line_vindent = p0;
+    return this;
+}
+
+public StyledTextStream$Cell add(StyledTextStream$Span p0) {
+    this.assertNotLocked();
+    StyledTextStream$Cell.replace_tabs_and_nls(p0);
+    this.spans.add(p0);
+    p0.cell = this;
+    return this;
+}
+
+public StyledTextStream$Span addSpan(String p0) {
+    this.assertNotLocked();
+    v2 = new StyledTextStream$Span(p0);
+    StyledTextStream$Cell.replace_tabs_and_nls(v2);
+    this.add(v2);
+    return v2;
+}
+
+private void assertNotLocked() {
+    if (this.is_locked == 0) goto L17;
+    throw new IllegalStateException("this cell is locked");
+    L17:
+    return;
+}
+
+private static void replace_tabs_and_nls(StyledTextStream$Span p0) {
+    v1 = p0.text.length();
+    v2 = 0;
+    L10:
+    if (v2 >= v1) goto L64;
+    v3 = p0.text.charAt(v2);
+    if (v3 == 9) goto L42;
+    if (v3 == 10) goto L42;
+    if (v3 != 13) goto L58;
+    L42:
+    p0.text = p0.text.replaceAll("[\\t\\r\\n]", " ");
+    return;
+    L58:
+    v2 += 1;
+    goto L10;
+    L64:
+    return;
+}
+
+private int calc_length() {
+    v1 = 0;
+    v2 = this.spans.iterator();
+    L10:
+    if (v2.hasNext() == 0) goto L42;
+    v3 = (StyledTextStream$Span)v2.next();
+    v1 = (v1 + v3.text.length());
+    goto L10;
+    L42:
+    return v1;
+}
+
+public String toString() {
+    $a1 = new Object[5];
+    $s0 = "%s col_span=%d, alignment=%s, width=%d, n_spans=%d:\n";
+    $s1 = $a1;
+    $s2 = $a1;
+    $s3 = 0;
+    if (this.is_locked == 0) goto L20;
+    $s0 = "%s col_span=%d, alignment=%s, width=%d, n_spans=%d:\n";
+    $s1 = $a1;
+    $s2 = $a1;
+    $s3 = 0;
+    $s4 = "[LOCKED]";
+    goto L22;
+    L20:
+    $s4 = "[BUILDING]";
+    L22:
+    $s2[$s3] = $s4;
+    $s1[1] = Integer.valueOf(this.col_span);
+    switch (this.alignment) { 16384: L72, 131072: L77, 16777216: L82; default: L87 }
+    L72:
+    $s0 = "LEFT";
+    goto L89;
+    L77:
+    $s0 = "RIGHT";
+    goto L89;
+    L82:
+    $s0 = "CENTER";
+    goto L89;
+    L87:
+    $s0 = "?";
+    L89:
+    <?stack-underflow?>[<?stack-underflow?>] = $s0;
+    <?stack-underflow?>[3] = Integer.valueOf(this.width);
+    <?stack-underflow?>[4] = Integer.valueOf(this.spans.size());
+    v1 = <?stack-underflow?>.formatted(<?stack-underflow?>);
+    v2 = this.spans.iterator();
+    L125:
+    if (v2.hasNext() == 0) goto L158;
+    v3 = (StyledTextStream$Span)v2.next();
+    v1 = (v1 + v3.toString() + "\n");
+    goto L125;
+    L158:
+    return v1;
+}
+
+public String getText() {
+    v1 = "";
+    v2 = this.spans.iterator();
+    L11:
+    if (v2.hasNext() == 0) goto L44;
+    v3 = (StyledTextStream$Span)v2.next();
+    v1 = (v1 + v3.text);
+    goto L11;
+    L44:
+    if (this.is_locked == 0) goto L134;
+    switch (this.alignment) { 16384: L88, 131072: L102, 16777216: L102; default: L116 }
+    L88:
+    $s0 = v1.substring(0, (v1.length() - 1));
+    goto L133;
+    L102:
+    $s0 = v1.substring(1, (v1.length() - 1));
+    goto L133;
+    L116:
+    throw new IllegalArgumentException(("Unexpected value: " + this.alignment));
+    L133:
+    return $s0;
+    L134:
+    return v1;
+}
+
+public void setOverflowSpan(StyledTextStream$Span p0) {
+    this.overflow_span = p0;
+    return;
+}
+
+public List getOverflowData() {
+    return this.invisible_data;
+}
+
+public Rectangle getBounds() {
+    v1 = this.table.get_cell_start(this);
+    return this.this$0.text.getTextBounds(v1, ((v1 + this.calc_length()) - 1));
+}
+
+public StyledTextStream$Table getTable() {
+    return this.table;
+}
+
+public void update(List p0) {
+    if (this.table != null) goto L27;
+    this.spans.clear();
+    p0.forEach(lambda[StyledTextStream$Cell::lambda$update$0](this));
+    return;
+    L27:
+    this.table.update_cell(this, p0);
+    return;
+}
+
+public void updateText(String p0) {
+    (StyledTextStream$Span)this.spans.getFirst().text = p0;
+    this.update(this.spans);
+    return;
+}
+
+public boolean isDisposed() {
+    return this.table.isDisposed();
+}
+
+private synthetic void lambda$update$0(StyledTextStream$Span p0) {
+    this.add(p0);
+    return;
+}
+
+// ===== StyledTextStream$Span extends Object 
+private Font font;
+private Color background;
+private Color foreground;
+private String text;
+private boolean underline;
+private String href;
+private int fontStyle;
+private String toolTipText;
+private StyledTextStream$Span original_user_span;
+private Map html_attrs;
+private List html_styles;
+private boolean is_add_to_html;
+private function.Consumer consumer;
+private function.Consumer doubleClickConsumer;
+private function.Consumer mouseUpConsumer;
+private function.Consumer mouseDownConsumer;
+private Menu menu;
+private Object data;
+private Cursor cursor;
+private StyledTextStream$Cell cell;
+private String consumer_text;
+private transient/varargs Rectangle bounds;
+private static StringBuilder html;
+
+public void <init>(StyledTextStream$Span p0) {
+    super.<init>();
+    this.text = "";
+    this.underline = 0;
+    this.href = null;
+    this.fontStyle = 0;
+    this.toolTipText = null;
+    this.original_user_span = null;
+    this.html_attrs = null;
+    this.html_styles = null;
+    this.is_add_to_html = 1;
+    this.consumer = null;
+    this.doubleClickConsumer = null;
+    this.mouseUpConsumer = null;
+    this.mouseDownConsumer = null;
+    this.menu = null;
+    this.data = null;
+    this.cursor = null;
+    this.cell = null;
+    this.consumer_text = null;
+    this.bounds = null;
+    this.font = p0.font;
+    this.background = p0.background;
+    this.foreground = p0.foreground;
+    this.text = p0.text;
+    this.underline = p0.underline;
+    this.href = p0.href;
+    this.fontStyle = p0.fontStyle;
+    this.toolTipText = p0.toolTipText;
+    this.consumer = p0.consumer;
+    this.doubleClickConsumer = p0.doubleClickConsumer;
+    this.mouseUpConsumer = p0.mouseUpConsumer;
+    this.mouseDownConsumer = p0.mouseDownConsumer;
+    this.menu = p0.menu;
+    this.data = p0.data;
+    this.cursor = p0.cursor;
+    this.cell = p0.cell;
+    this.consumer_text = p0.consumer_text;
+    return;
+}
+
+public void updateText(String p0) {
+    if (this.cell != null) goto L17;
+    throw new IllegalStateException("span is not a cell");
+    L17:
+    this.text = p0;
+    this.cell.table.update_cell(this.cell, this.cell.spans);
+    return;
+}
+
+public void <init>() {
+    super.<init>();
+    this.text = "";
+    this.underline = 0;
+    this.href = null;
+    this.fontStyle = 0;
+    this.toolTipText = null;
+    this.original_user_span = null;
+    this.html_attrs = null;
+    this.html_styles = null;
+    this.is_add_to_html = 1;
+    this.consumer = null;
+    this.doubleClickConsumer = null;
+    this.mouseUpConsumer = null;
+    this.mouseDownConsumer = null;
+    this.menu = null;
+    this.data = null;
+    this.cursor = null;
+    this.cell = null;
+    this.consumer_text = null;
+    this.bounds = null;
+    return;
+}
+
+public void <init>(String p0) {
+    super.<init>();
+    this.text = "";
+    this.underline = 0;
+    this.href = null;
+    this.fontStyle = 0;
+    this.toolTipText = null;
+    this.original_user_span = null;
+    this.html_attrs = null;
+    this.html_styles = null;
+    this.is_add_to_html = 1;
+    this.consumer = null;
+    this.doubleClickConsumer = null;
+    this.mouseUpConsumer = null;
+    this.mouseDownConsumer = null;
+    this.menu = null;
+    this.data = null;
+    this.cursor = null;
+    this.cell = null;
+    this.consumer_text = null;
+    this.bounds = null;
+    this.text = p0;
+    return;
+}
+
+public void <init>(int p0) {
+    super.<init>();
+    this.text = "";
+    this.underline = 0;
+    this.href = null;
+    this.fontStyle = 0;
+    this.toolTipText = null;
+    this.original_user_span = null;
+    this.html_attrs = null;
+    this.html_styles = null;
+    this.is_add_to_html = 1;
+    this.consumer = null;
+    this.doubleClickConsumer = null;
+    this.mouseUpConsumer = null;
+    this.mouseDownConsumer = null;
+    this.menu = null;
+    this.data = null;
+    this.cursor = null;
+    this.cell = null;
+    this.consumer_text = null;
+    this.bounds = null;
+    this.fontStyle = p0;
+    return;
+}
+
+public StyledTextStream$Span setFont(Font p0) {
+    this.font = p0;
+    return this;
+}
+
+public StyledTextStream$Span setBackground(Color p0) {
+    this.background = p0;
+    return this;
+}
+
+public StyledTextStream$Span setBackground(int p0) {
+    v2 = ((p0 >> 16) % 256);
+    v3 = ((p0 >> 8) % 256);
+    v4 = (p0 % 256);
+    this.background = new Color(v2, v3, v4);
+    return this;
+}
+
+public StyledTextStream$Span setForeground(Color p0) {
+    this.foreground = p0;
+    return this;
+}
+
+public StyledTextStream$Span setForeground(int p0) {
+    v2 = ((p0 >> 16) % 256);
+    v3 = ((p0 >> 8) % 256);
+    v4 = (p0 % 256);
+    this.foreground = new Color(v2, v3, v4);
+    return this;
+}
+
+public StyledTextStream$Span setHoverColors(Color p0, Color p1) {
+    throw new RuntimeException("not implemented.");
+}
+
+public StyledTextStream$Span setText(String p0) {
+    this.text = p0;
+    return this;
+}
+
+public StyledTextStream$Span setUnderline(boolean p0) {
+    this.underline = p0;
+    return this;
+}
+
+public StyledTextStream$Span setFontStyle(int p0) {
+    this.fontStyle = p0;
+    return this;
+}
+
+public StyledTextStream$Span addHTMLAttr(String p0, String p1) {
+    if (this.html_attrs != null) goto L18;
+    this.html_attrs = new HashMap();
+    L18:
+    this.html_attrs.put(p0, p1);
+    return this;
+}
+
+public StyledTextStream$Span setConsumer(function.Consumer p0) {
+    this.consumer = p0;
+    return this;
+}
+
+public StyledTextStream$Span setMouseUpConsumer(function.Consumer p0) {
+    this.mouseUpConsumer = p0;
+    return this;
+}
+
+public StyledTextStream$Span setMouseDownConsumer(function.Consumer p0) {
+    this.mouseDownConsumer = p0;
+    return this;
+}
+
+public StyledTextStream$Span setDoubleClickConsumer(function.Consumer p0) {
+    this.doubleClickConsumer = p0;
+    return this;
+}
+
+public StyledTextStream$Span setMenu(Menu p0) {
+    this.menu = p0;
+    return this;
+}
+
+public StyledTextStream$Span setData(Object p0) {
+    this.data = p0;
+    return this;
+}
+
+public StyledTextStream$Span setCursor(Cursor p0) {
+    this.cursor = p0;
+    return this;
+}
+
+public StyledTextStream$Span setHREF(String p0) {
+    this.href = p0;
+    return this;
+}
+
+public StyledTextStream$Span setToolTipText(String p0) {
+    this.toolTipText = p0;
+    return this;
+}
+
+public String toString() {
+    $a1 = new Object[7];
+    $s0 = "[href='%s', text='%s'%s%s%s%s%s]";
+    $s1 = $a1;
+    $s2 = $a1;
+    $s3 = 0;
+    if (this.href != null) goto L21;
+    $s0 = "[href='%s', text='%s'%s%s%s%s%s]";
+    $s1 = $a1;
+    $s2 = $a1;
+    $s3 = 0;
+    $s4 = "(null)";
+    goto L25;
+    L21:
+    $s4 = this.href;
+    L25:
+    $s2[$s3] = $s4;
+    $s1[1] = this.text;
+    $s2 = $s1;
+    $s3 = 2;
+    if (this.underline == 0) goto L47;
+    $s2 = $s1;
+    $s3 = 2;
+    $s4 = ", underline";
+    goto L49;
+    L47:
+    $s4 = "";
+    L49:
+    $s2[$s3] = $s4;
+    $s2 = $s1;
+    $s3 = 3;
+    if (this.consumer == null) goto L64;
+    $s2 = $s1;
+    $s3 = 3;
+    $s4 = ", consumer=yes";
+    goto L66;
+    L64:
+    $s4 = "";
+    L66:
+    $s2[$s3] = $s4;
+    $s2 = $s1;
+    $s3 = 4;
+    if (this.font == null) goto L91;
+    $s2 = $s1;
+    $s3 = 4;
+    $s4 = (", font=" + String.valueOf(this.font));
+    goto L93;
+    L91:
+    $s4 = "";
+    L93:
+    $s2[$s3] = $s4;
+    $s2 = $s1;
+    $s3 = 5;
+    if (this.foreground == null) goto L118;
+    $s2 = $s1;
+    $s3 = 5;
+    $s4 = (", fore=" + String.valueOf(this.foreground));
+    goto L120;
+    L118:
+    $s4 = "";
+    L120:
+    $s2[$s3] = $s4;
+    $s2 = $s1;
+    $s3 = 6;
+    if (this.background == null) goto L146;
+    $s2 = $s1;
+    $s3 = 6;
+    $s4 = (", bkg=" + String.valueOf(this.background));
+    goto L148;
+    L146:
+    $s4 = "";
+    L148:
+    $s2[$s3] = $s4;
+    return String.format($s0, $s1);
+}
+
+public String getText() {
+    return this.text;
+}
+
+public StyledTextStream$Cell getCell() {
+    return this.cell;
+}
+
+public void addText(String p0) {
+    this.text = (this.text + p0);
+    return;
+}
+
+public StyledTextStream$Span optional(boolean p0, function.Consumer p1) {
+    if (p0 == 0) goto L11;
+    p1.accept(this);
+    L11:
+    return this;
+}
+
+public StyledTextStream$Span isLink() {
+    this.underline = 1;
+    this.foreground = Display.getDefault().getSystemColor(36);
+    return this;
+}
+
+private String get_font_size(Font p0, Font p1) {
+    if (p1 != p0) goto L8;
+    return "";
+    L8:
+    v3 = p1.getFontData()[0].height;
+    v4 = p0.getFontData()[0].height;
+    if (v3 != v4) goto L39;
+    return "";
+    L39:
+    $a1 = new Object[2];
+    $a1[0] = Float.valueOf((v3 / v4));
+    $s0 = "font-size:%.2frem;%s";
+    $s1 = $a1;
+    $s2 = $a1;
+    $s3 = 1;
+    if (MiSWT.isMonoFont(p1) == 0) goto L69;
+    $s0 = "font-size:%.2frem;%s";
+    $s1 = $a1;
+    $s2 = $a1;
+    $s3 = 1;
+    $s4 = "font-family:monospace;";
+    goto L71;
+    L69:
+    $s4 = "";
+    L71:
+    $s2[$s3] = $s4;
+    return $s0.formatted($s1);
+}
+
+public synchronized StringBuilder getHTML(StyledTextStream p0) {
+    StyledTextStream$Span.html.setLength(0);
+    if (this.text.equals("\n") == 0) goto L32;
+    StyledTextStream$Span.html.append("<br>\n");
+    return StyledTextStream$Span.html;
+    L32:
+    StyledTextStream$Span.html.append("<span style='");
+    v2 = StyledTextStream$Span.html.length();
+    if (this.font == null) goto L74;
+    StyledTextStream$Span.html.append(this.get_font_size(p0.getFont(), this.font));
+    L74:
+    if (this.background == null) goto L105;
+    StyledTextStream$Span.html.append("background-color:").append(MiSWT.color2hex(this.background)).append(";");
+    L105:
+    if (this.foreground == null) goto L150;
+    if (this.consumer != null) goto L150;
+    if (this.underline != 0) goto L150;
+    StyledTextStream$Span.html.append("color:").append(MiSWT.color2hex(this.foreground)).append(";");
+    L150:
+    if ((this.fontStyle & 2) != 2) goto L170;
+    StyledTextStream$Span.html.append("font-style:italic;");
+    L170:
+    if ((this.fontStyle & 1) != 1) goto L190;
+    StyledTextStream$Span.html.append("font-weight:bold;");
+    L190:
+    if (this.underline == 0) goto L207;
+    StyledTextStream$Span.html.append("text-decoration:underline;");
+    L207:
+    if (this.html_styles == null) goto L256;
+    v3 = this.html_styles.iterator();
+    L224:
+    if (v3.hasNext() == 0) goto L256;
+    v4 = (String)v3.next();
+    this.encode_single_quote(StyledTextStream$Span.html, v4);
+    goto L224;
+    L256:
+    StyledTextStream$Span.html.append("'");
+    if (this.html_attrs == null) goto L367;
+    v3 = this.html_attrs.entrySet().iterator();
+    L288:
+    if (v3.hasNext() == 0) goto L367;
+    v4 = (Map$Entry)v3.next();
+    StyledTextStream$Span.html.append(" ").append((String)v4.getKey()).append("='");
+    this.encode_single_quote(StyledTextStream$Span.html, (String)v4.getValue());
+    StyledTextStream$Span.html.append("'");
+    goto L288;
+    L367:
+    StyledTextStream$Span.html.append(">");
+    if (StyledTextStream$Span.html.length() != (v2 + 2)) goto L406;
+    StyledTextStream$Span.html.setLength(0);
+    StyledTextStream$Span.html.append("<span>");
+    L406:
+    if (this.href == null) goto L454;
+    if (this.href.isBlank() != 0) goto L454;
+    StyledTextStream$Span.html.append("<a href='");
+    this.encode_single_quote(StyledTextStream$Span.html, this.href);
+    StyledTextStream$Span.html.append("'>");
+    L454:
+    v3 = this.text.length();
+    v4 = 0;
+    L465:
+    if (v4 >= v3) goto L536;
+    v5 = this.text.charAt(v4);
+    if (v5 != 10) goto L501;
+    StyledTextStream$Span.html.append("<br>\n");
+    goto L530;
+    L501:
+    if (v5 != 60) goto L521;
+    StyledTextStream$Span.html.append("&lt;");
+    goto L530;
+    L521:
+    StyledTextStream$Span.html.append(v5);
+    L530:
+    v4 += 1;
+    goto L465;
+    L536:
+    if (this.href == null) goto L553;
+    StyledTextStream$Span.html.append("</a>");
+    L553:
+    StyledTextStream$Span.html.append("</span>");
+    return StyledTextStream$Span.html;
+}
+
+private void encode_single_quote(StringBuilder p0, String p1) {
+    v3 = p1.length();
+    v4 = 0;
+    L8:
+    if (v4 >= v3) goto L53;
+    v5 = p1.charAt(v4);
+    if (v5 != 39) goto L40;
+    p0.append("&#39;");
+    goto L47;
+    L40:
+    p0.append(v5);
+    L47:
+    v4 += 1;
+    goto L8;
+    L53:
+    return;
+}
+
+public StyledTextStream$Span noHTML() {
+    this.is_add_to_html = 0;
+    return this;
+}
+
+public StyledTextStream$Span addHTMLStyle(String p0) {
+    if (this.html_styles != null) goto L18;
+    this.html_styles = new ArrayList();
+    L18:
+    this.html_styles.add(p0);
+    return this;
+}
+
+static void <clinit>() {
+    StyledTextStream$Span.html = new StringBuilder(256);
+    return;
+}
+
+// ===== StyledTextStream$SpanEvent extends Object 
+public MouseEvent e;
+public String text;
+public Object data;
+public StyledTextStream$Span span;
+
+public void <init>() {
+    super.<init>();
+    return;
+}
+
+// ===== StyledTextStream$Table extends Object 
+ int start;
+ int length;
+private final StyledTextStream$Cell[][] cells;
+private final int[] col_width;
+public long measuring_millis;
+private StyledTextStream$TableBuildingResources tbRes;
+private final int padding;
+private final int n_cols;
+private final int n_rows;
+private static final String $ELLIPSIS = "\u2026";
+private static final int fit_jump = 3;
+final synthetic StyledTextStream this$0;
+
+private void <init>(StyledTextStream p0, StyledTextStream$TableBuilder p1) {
+    Objects.requireNonNull(p0);
+    this.this$0 = p0;
+    super.<init>();
+    this.tbRes = new StyledTextStream$TableBuildingResources(this.this$0);
+    if (p1.cells.getLast() == StyledTextStream.RowEnd) goto L53;
+    p1.cells.add(StyledTextStream.RowEnd);
+    L53:
+    if (p1.cells.size() != 1) goto L74;
+    throw new IllegalArgumentException("an empty table");
+    L74:
+    this.padding = this.measure_spans(new LinkedList(List.of(new StyledTextStream$Span().setText(" "))));
+    v3 = 0;
+    v4 = 0;
+    v5 = 0;
+    v6 = p1.cells.iterator();
+    L121:
+    if (v6.hasNext() == 0) goto L202;
+    v7 = (StyledTextStream$Cell)v6.next();
+    if (v7 != StyledTextStream.RowEnd) goto L169;
+    v3 += 1;
+    v5 = Math.max(v4, v5);
+    v4 = 0;
+    goto L199;
+    L169:
+    if (v7.spans.isEmpty() == 0) goto L196;
+    v7.spans.add(new StyledTextStream$Span());
+    L196:
+    v4 += 1;
+    L199:
+    goto L121;
+    L202:
+    this.n_cols = v5;
+    this.n_rows = v3;
+    $a6 = new int[this.n_cols];
+    this.col_width = $a6;
+    $a7 = new int[this.n_cols];
+    v3 = $a7;
+    this.cells = new [[Lca.mishell.ui.StyledTextStream$Cell;[this.n_rows][this.n_cols];
+    v4 = 0;
+    v5 = 0;
+    v6 = p1.cells.iterator();
+    L261:
+    if (v6.hasNext() == 0) goto L324;
+    v7 = (StyledTextStream$Cell)v6.next();
+    if (v7 != StyledTextStream.RowEnd) goto L300;
+    v4 += 1;
+    v5 = 0;
+    goto L321;
+    L300:
+    this.cells[v4][v5] = v7;
+    v7.table = this;
+    v5 += 1;
+    L321:
+    goto L261;
+    L324:
+    v4 = 0;
+    L327:
+    if (v4 >= this.n_rows) goto L541;
+    v5 = 0;
+    L339:
+    if (v5 >= this.n_cols) goto L535;
+    v6 = this.cells[v4][v5];
+    if (v6 != null) goto L415;
+    L365:
+    if (v5 >= this.n_cols) goto L535;
+    this.cells[v4][v5] = new StyledTextStream$Cell(p0, 1, 1, 16384).add(new StyledTextStream$Span(" "));
+    v5 += 1;
+    goto L365;
+    L415:
+    if (v6.col_span != 1) goto L430;
+    v5 += 1;
+    goto L532;
+    L430:
+    v6.col_span = this.get_effective_col_span(v6.col_span, this.cells[v4]);
+    if (v6.col_span <= 1) goto L529;
+    v7 = (v5 + v6.col_span);
+    v5 += 1;
+    System.arraycopy(this.cells[v4], v5, this.cells[v4], v7, this.get_occupied_cell_count(this.cells[v4], v5));
+    Arrays.fill(this.cells[v4], v5, v7, null);
+    v5 = v7;
+    goto L532;
+    L529:
+    v5 += 1;
+    L532:
+    goto L339;
+    L535:
+    v4 += 1;
+    goto L327;
+    L541:
+    v4 = System.currentTimeMillis();
+    v6 = 0;
+    L549:
+    if (v6 >= this.n_rows) goto L652;
+    v7 = 0;
+    L561:
+    if (v7 >= this.n_cols) goto L646;
+    v3[v7] = Math.max(v3[v7], this.cells[v6][v7].min_width);
+    this.measure_cell(this.cells[v6][v7], v7);
+    this.cells[v6][v7].is_locked = 1;
+    v7 = (v7 + this.cells[v6][v7].col_span);
+    goto L561;
+    L646:
+    v6 += 1;
+    goto L549;
+    L652:
+    v6 = 0;
+    L655:
+    if (v6 >= this.n_rows) goto L733;
+    v7 = 0;
+    L667:
+    if (v7 >= this.n_cols) goto L727;
+    v8 = this.cells[v6][v7];
+    if (v8.col_span <= 1) goto L706;
+    this.distribute_spanned_cell(v8, v7);
+    L706:
+    v7 = (v7 + this.cells[v6][v7].col_span);
+    goto L667;
+    L727:
+    v6 += 1;
+    goto L655;
+    L733:
+    if (p1.preferred_max_width == -1) goto L824;
+    v6 = this.get_combined_width(0, this.n_cols);
+    if (v6 <= p1.preferred_max_width) goto L821;
+    if (((v6 - this.col_width[(this.n_cols - 1)]) + v3[(this.n_cols - 1)]) >= p1.preferred_max_width) goto L821;
+    this.col_width[(this.n_cols - 1)] = (p1.preferred_max_width - (v6 - this.col_width[(this.n_cols - 1)]));
+    L821:
+    goto L873;
+    L824:
+    if (p1.min_width == -1) goto L873;
+    v6 = this.get_combined_width(0, this.n_cols);
+    if (v6 >= p1.min_width) goto L873;
+    $t10 = (this.n_cols - 1);
+    this.col_width[$t10] = (this.col_width[$t10] + (p1.min_width - v6));
+    L873:
+    this.measuring_millis = (System.currentTimeMillis() - v4);
+    v6 = p0.text.getCharCount();
+    if (v6 <= 0) goto L935;
+    if (p0.text.getText((v6 - 1), (v6 - 1)).equals("\n") != 0) goto L935;
+    if (this.n_rows <= 1) goto L935;
+    p0.add("\n");
+    L935:
+    this.start = p0.text.getCharCount();
+    p0.text.setRedraw(0);
+    $a11 = new int[this.n_rows];
+    v7 = $a11;
+    $a12 = new int[this.n_cols];
+    v8 = $a12;
+    v9 = new ArrayList();
+    v10 = 0;
+    L982:
+    if (v10 >= this.n_rows) goto L1234;
+    v11 = 0;
+    v12 = 0;
+    L997:
+    if (v12 >= this.n_cols) goto L1195;
+    v13 = this.cells[v10][v12];
+    if (v13.col_span != 1) goto L1037;
+    $s0 = this.col_width[v12];
+    goto L1048;
+    L1037:
+    $s0 = this.get_combined_width(v12, v13.col_span);
+    L1048:
+    v14 = $s0;
+    if (v13.width > v14) goto L1068;
+    if (v13.overflow_span == null) goto L1117;
+    L1068:
+    v13.spans = this.fitted_spans(v13, v14);
+    if (v13.col_span != 1) goto L1117;
+    v8[v12] = Math.max(v8[v12], (this.measure_spans(v13.spans) + this.padding));
+    L1117:
+    this.normalize_cell_text(v13);
+    v9.addAll(v13.spans);
+    v9.add(new StyledTextStream$Span().setText(" "));
+    v13.length = v13.calc_length();
+    v11 = Math.max(v11, v13.line_vindent);
+    v12 = (v12 + this.cells[v10][v12].col_span);
+    goto L997;
+    L1195:
+    v7[v10] = v11;
+    if (this.n_rows <= 1) goto L1228;
+    v9.add(new StyledTextStream$Span().setText("\n"));
+    L1228:
+    v10 += 1;
+    goto L982;
+    L1234:
+    p0.addSpans(p0.text, v9);
+    if (p0.is_collect_html == 0) goto L1263;
+    p0.add_html_table(this.cells, p1.styles);
+    L1263:
+    v10 = 0;
+    L1266:
+    if (v10 >= this.n_cols) goto L1311;
+    if (v8[v10] == 0) goto L1305;
+    this.col_width[v10] = Math.min(this.col_width[v10], v8[v10]);
+    L1305:
+    v10 += 1;
+    goto L1266;
+    L1311:
+    v10 = 0;
+    L1314:
+    if (v10 >= this.cells.length) goto L1390;
+    v11 = p0.text.getLineAtOffset(this.get_cell_start(this.cells[v10][0]));
+    p0.text.setLineTabStops(v11, 1, this.get_line_offsets(v10));
+    if (v7[v10] == 0) goto L1384;
+    p0.text.setLineVerticalIndent(v11, v7[v10]);
+    L1384:
+    v10 += 1;
+    goto L1314;
+    L1390:
+    p0.text.setRedraw(1);
+    this.length = (p0.text.getCharCount() - this.start);
+    p1.dispose();
+    return;
+}
+
+private int get_occupied_cell_count(StyledTextStream$Cell[] p0, int p1) {
+    v3 = 0;
+    v4 = p1;
+    L5:
+    if (v4 >= p0.length) goto L28;
+    if (p0[v4] == null) goto L28;
+    v4 += 1;
+    v3 += 1;
+    goto L5;
+    L28:
+    return v3;
+}
+
+private int get_effective_col_span(int p0, StyledTextStream$Cell[] p1) {
+    v3 = 1;
+    v4 = (p1.length - 1);
+    L8:
+    if (v4 <= 0) goto L29;
+    if (p1[v4] != null) goto L29;
+    v3 += 1;
+    v4 += -1;
+    goto L8;
+    L29:
+    return Math.min(v3, p0);
+}
+
+private LinkedList fitted_spans(StyledTextStream$Cell p0, int p1) {
+    v3 = new LinkedList();
+    v4 = 0;
+    if (p0.overflow_span == null) goto L35;
+    v4 = this.measure_span(p0.overflow_span, p0.overflow_span.text);
+    L35:
+    v5 = 0;
+    v6 = p0.spans.iterator();
+    L47:
+    if (v6.hasNext() == 0) goto L232;
+    v7 = (StyledTextStream$Span)v6.next();
+    v8 = this.measure_span(v7, v7.text);
+    if (((v5 + v8) + v4) >= p1) goto L111;
+    v3.add(v7);
+    v5 = (v5 + v8);
+    goto L47;
+    L111:
+    if (v7 == p0.spans.getLast()) goto L210;
+    if (v4 == 0) goto L210;
+    p0.invisible_data = new LinkedList();
+    v9 = p0.spans.indexOf(v7);
+    L150:
+    if (v9 >= p0.spans.size()) goto L200;
+    v10 = (StyledTextStream$Span)p0.spans.get(v9).data;
+    if (v10 == null) goto L194;
+    p0.invisible_data.add(v10);
+    L194:
+    v9 += 1;
+    goto L150;
+    L200:
+    v7 = p0.overflow_span;
+    v8 = v4;
+    L210:
+    this.fit_span(v7, v8, (p1 - v5));
+    v3.add(v7);
+    goto L232;
+    L232:
+    if (p0.overflow_span == null) goto L264;
+    v3.add(new StyledTextStream$Span("").setBackground(p0.overflow_span.background));
+    L264:
+    return v3;
+}
+
+private void fit_span(StyledTextStream$Span p0, int p1, int p2) {
+    v4 = p0.text;
+    if (v4.length() >= 2) goto L16;
+    return;
+    L16:
+    if (p1 >= p2) goto L22;
+    return;
+    L22:
+    v5 = ((int)((float)p2 / ((float)p1 / (float)v4.length())) - 2);
+    L39:
+    if (v5 <= 0) goto L83;
+    v6 = (v4.substring(0, v5) + "\u2026");
+    if (this.measure_span(p0, v6) >= p2) goto L77;
+    p0.text = v6;
+    return;
+    L77:
+    v5 += -3;
+    goto L39;
+    L83:
+    p0.text = "\u2026";
+    return;
+}
+
+public boolean isDisposed() {
+    if (this.tbRes != null) goto L11;
+    $s0 = 1;
+    goto L12;
+    L11:
+    $s0 = 0;
+    L12:
+    return $s0;
+}
+
+public void dispose() {
+    this.assertWidget();
+    this.tbRes.dispose();
+    this.tbRes = null;
+    this.this$0.tables.remove(this);
+    return;
+}
+
+private void assertWidget() {
+    if (this.tbRes != null) goto L18;
+    throw new IllegalStateException("this table is disposed");
+    L18:
+    return;
+}
+
+public void setRowHoverBackground(Color p0) {
+    throw new RuntimeException("not implemented");
+}
+
+public void setHasHeaderRow(boolean p0) {
+    throw new RuntimeException("not implemented");
+}
+
+private Point get_row_col(StyledTextStream$Cell p0) {
+    v2 = -1;
+    v3 = -1;
+    v4 = 0;
+    L7:
+    if (v4 >= this.cells.length) goto L68;
+    v5 = 0;
+    L20:
+    if (v5 >= this.cells[v4].length) goto L62;
+    if (p0 != this.cells[v4][v5]) goto L56;
+    v3 = v4;
+    v2 = v5;
+    goto L62;
+    L56:
+    v5 += 1;
+    goto L20;
+    L62:
+    v4 += 1;
+    goto L7;
+    L68:
+    return new Point(v2, v3);
+}
+
+private void update_cell(StyledTextStream$Cell p0, List p1) {
+    this.assertWidget();
+    this.this$0.text.setRedraw(0);
+    if (p0.spans != p1) goto L109;
+    v3 = (StyledTextStream$Span)p0.spans.getFirst();
+    if (v3.text.startsWith("\t") == 0) goto L59;
+    v3.text = v3.text.substring(1);
+    L59:
+    v4 = (StyledTextStream$Span)p0.spans.getLast();
+    if (v4.text.endsWith("\t") == 0) goto L109;
+    v4.text = v4.text.substring(0, (v4.text.length() - 1));
+    L109:
+    v3 = p1.iterator();
+    L116:
+    if (v3.hasNext() == 0) goto L144;
+    v4 = (StyledTextStream$Span)v3.next();
+    StyledTextStream$Cell.replace_tabs_and_nls(v4);
+    goto L116;
+    L144:
+    v3 = this.get_row_col(p0);
+    v4 = v3.y;
+    v5 = v3.x;
+    if (v5 != -1) goto L179;
+    throw new IllegalArgumentException("cell doesn't belong to this table");
+    L179:
+    v6 = this.get_cell_start(p0);
+    v7 = p0.length;
+    v8 = this.this$0.actionRanges.iterator();
+    L206:
+    if (v8.hasNext() == 0) goto L267;
+    v9 = (StyleRange)v8.next();
+    if (v6 > v9.start) goto L264;
+    if ((v9.start + v9.length) > (v6 + v7)) goto L264;
+    v8.remove();
+    L264:
+    goto L206;
+    L267:
+    v8 = this.this$0.actionRanges.iterator();
+    L281:
+    if (v8.hasNext() == 0) goto L318;
+    v9 = (StyleRange)v8.next();
+    (StyledTextStream$Span)v9.data.bounds = null;
+    goto L281;
+    L318:
+    if (this.this$0.actionRanges.isEmpty() == 0) goto L340;
+    this.this$0.detach_mouse_listener();
+    L340:
+    if (p1 == p0.spans) goto L400;
+    p0.spans = new LinkedList(p1);
+    v8 = p0.spans.iterator();
+    L369:
+    if (v8.hasNext() == 0) goto L400;
+    v9 = (StyledTextStream$Span)v8.next();
+    v9.cell = p0;
+    goto L369;
+    L400:
+    v8 = this.measure_cell(p0, v5);
+    if (p0.col_span <= 1) goto L429;
+    v8 = (v8 | this.distribute_spanned_cell(p0, v5));
+    L429:
+    this.normalize_cell_text(p0);
+    p0.length = p0.calc_length();
+    v9 = (p0.length - v7);
+    v10 = this.this$0.actionRanges.iterator();
+    L465:
+    if (v10.hasNext() == 0) goto L512;
+    v11 = (StyleRange)v10.next();
+    if (v11.start < v6) goto L509;
+    v11.start = (v11.start + v9);
+    L509:
+    goto L465;
+    L512:
+    v10 = this.this$0.tables.iterator();
+    L526:
+    if (v10.hasNext() == 0) goto L573;
+    v11 = (StyledTextStream$Table)v10.next();
+    if (v11.start <= v6) goto L570;
+    v11.start = (v11.start + v9);
+    L570:
+    goto L526;
+    L573:
+    this.this$0.insertSpans(this.this$0.text, v6, v7, p0.spans);
+    if (v8 == 0) goto L667;
+    v10 = 0;
+    L604:
+    if (v10 >= this.cells.length) goto L664;
+    v11 = this.this$0.text.getLineAtOffset(this.get_cell_start(this.cells[v10][0]));
+    this.this$0.text.setLineTabStops(v11, 1, this.get_line_offsets(v10));
+    v10 += 1;
+    goto L604;
+    L664:
+    goto L700;
+    L667:
+    v10 = this.this$0.text.getLineAtOffset(v6);
+    this.this$0.text.setLineTabStops(v10, 1, this.get_line_offsets(v4));
+    L700:
+    this.this$0.text.setCaretOffset(v6);
+    this.this$0.text.setRedraw(1);
+    return;
+}
+
+private int measure_spans(LinkedList p0) {
+    if (p0.size() != 1) goto L90;
+    v2 = (StyledTextStream$Span)p0.getFirst();
+    v3 = this.measure_span(v2, v2.text);
+    if (this.tbRes.x_padding != -1) goto L80;
+    this.this$0.addSpans(this.tbRes.scratch, p0);
+    v4 = this.tbRes.scratch.computeSize(-1, -1).x;
+    this.tbRes.x_padding = (v4 - v3);
+    L80:
+    return (v3 + this.tbRes.x_padding);
+    L90:
+    this.tbRes.scratch.setText("");
+    this.this$0.addSpans(this.tbRes.scratch, p0);
+    return this.tbRes.scratch.computeSize(-1, -1).x;
+}
+
+private int measure_span(StyledTextStream$Span p0, String p1) {
+    v3 = this.tbRes.gc;
+    if (p0.font == null) goto L26;
+    v3.setFont(p0.font);
+    goto L48;
+    L26:
+    v3.setFont(this.get_font_for(this.this$0.text.getFont(), p0.fontStyle));
+    L48:
+    return (v3.stringExtent(p1).x + this.tbRes.x_padding);
+}
+
+private boolean measure_cell(StyledTextStream$Cell p0, int p1) {
+    p0.width = this.measure_spans(p0.spans);
+    v3 = ((Math.max(p0.min_width, p0.width) + this.padding) + this.padding);
+    if (p0.max_width == -1) goto L55;
+    if (v3 <= p0.max_width) goto L55;
+    v3 = p0.max_width;
+    L55:
+    if (p0.col_span != 1) goto L82;
+    if (this.col_width[p1] >= v3) goto L82;
+    this.col_width[p1] = v3;
+    return 1;
+    L82:
+    return 0;
+}
+
+private Font get_font_for(Font p0, int p1) {
+    v3 = p0.getFontData()[0];
+    if (v3.getStyle() == p1) goto L141;
+    switch ((p1 & -1)) { 0: L48, 1: L56, 2: L52, 3: L60; default: L64 }
+    L48:
+    $s0 = 0;
+    goto L75;
+    L52:
+    $s0 = 1;
+    goto L75;
+    L56:
+    $s0 = 2;
+    goto L75;
+    L60:
+    $s0 = 3;
+    goto L75;
+    L64:
+    throw new IllegalArgumentException("bad fontStyle");
+    L75:
+    v4 = $s0;
+    if (this.tbRes.fonts[v4] != null) goto L130;
+    this.tbRes.fonts[v4] = new Font(this.this$0.display, new FontData(v3.getName(), v3.getHeight(), p1));
+    L130:
+    return this.tbRes.fonts[v4];
+    L141:
+    return p0;
+}
+
+protected boolean distribute_spanned_cell(StyledTextStream$Cell p0, int p1) {
+    v3 = Math.max(p0.min_width, p0.width);
+    v4 = this.get_combined_width(p1, p0.col_span);
+    if ((v3 + this.padding) <= v4) goto L113;
+    v5 = ((v3 + this.padding) - v4);
+    v6 = (v5 / p0.col_span);
+    v7 = 0;
+    L57:
+    if (v7 >= p0.col_span) goto L93;
+    $t1 = (p1 + v7);
+    this.col_width[$t1] = (this.col_width[$t1] + v6);
+    v5 = (v5 - v6);
+    v7 += 1;
+    goto L57;
+    L93:
+    $t2 = ((p1 + p0.col_span) - 1);
+    this.col_width[$t2] = (this.col_width[$t2] + v5);
+    return 1;
+    L113:
+    return 0;
+}
+
+private void normalize_cell_text(StyledTextStream$Cell p0) {
+    if (p0.spans.isEmpty() == 0) goto L30;
+    p0.spans.add(new StyledTextStream$Span().setText(" "));
+    L30:
+    if (p0.alignment == 16384) goto L64;
+    v2 = (StyledTextStream$Span)p0.spans.getFirst();
+    v2.text = ("\t" + v2.text);
+    L64:
+    v2 = (StyledTextStream$Span)p0.spans.getLast();
+    v2.text = (v2.text + "\t");
+    return;
+}
+
+private int[] get_line_offsets(int p0) {
+    if (this.n_rows != 1) goto L10;
+    return null;
+    L10:
+    v2 = 0;
+    v3 = this.cells[p0];
+    v4 = 0;
+    L22:
+    if (v4 >= this.n_cols) goto L71;
+    v5 = v3[v4];
+    $s0 = v2;
+    if (v5.alignment != 16384) goto L53;
+    $s0 = v2;
+    $s1 = 1;
+    goto L54;
+    L53:
+    $s1 = 2;
+    L54:
+    v2 = ($s0 + $s1);
+    v4 = (v4 + v3[v4].col_span);
+    goto L22;
+    L71:
+    v4 = 0;
+    v5 = 0;
+    $a1 = new int[(v2 + 1)];
+    v6 = $a1;
+    v7 = 0;
+    L87:
+    if (v7 >= this.n_cols) goto L230;
+    v8 = v3[v7];
+    v9 = this.col_width[v7];
+    if (v8.col_span <= 1) goto L133;
+    v9 = this.get_combined_width(v7, v8.col_span);
+    L133:
+    v5 = (v5 + v9);
+    if (v8.alignment != 131072) goto L170;
+    $t2 = v4;  // value before increment
+    v4 += 1;
+    v6[$t2] = (v5 - v8.width);
+    goto L205;
+    L170:
+    if (v8.alignment != 16777216) goto L205;
+    $t3 = v4;  // value before increment
+    v4 += 1;
+    v6[$t3] = ((v5 - v9) + ((v9 - v8.width) / 2));
+    L205:
+    $t4 = v4;  // value before increment
+    v4 += 1;
+    v6[$t4] = v5;
+    v7 = (v7 + v3[v7].col_span);
+    goto L87;
+    L230:
+    v6[v4] = (v5 + this.padding);
+    return v6;
+}
+
+private int get_combined_width(int p0, int p1) {
+    v3 = this.col_width[p0];
+    v4 = 1;
+    L10:
+    if (v4 >= p1) goto L34;
+    v3 = (v3 + this.col_width[(p0 + v4)]);
+    v4 += 1;
+    goto L10;
+    L34:
+    return v3;
+}
+
+private int get_cell_start(StyledTextStream$Cell p0) {
+    v2 = this.start;
+    v3 = 0;
+    L7:
+    if (v3 >= this.cells.length) goto L92;
+    v4 = 0;
+    L19:
+    if (v4 >= this.cells[v3].length) goto L83;
+    if (this.cells[v3][v4] != p0) goto L46;
+    return v2;
+    L46:
+    v2 = (v2 + (this.cells[v3][v4].length + 1));
+    v4 = (v4 + this.cells[v3][v4].col_span);
+    goto L19;
+    L83:
+    v2 += 1;
+    v3 += 1;
+    goto L7;
+    L92:
+    throw new IllegalArgumentException("specified cell is not present in the table");
+}
+
+// ===== StyledTextStream$TableBuilder extends Object 
+ LinkedList cells;
+private int min_width;
+private int preferred_max_width;
+private Set styles;
+final synthetic StyledTextStream this$0;
+
+private void <init>(StyledTextStream p0) {
+    Objects.requireNonNull(p0);
+    this.this$0 = p0;
+    super.<init>();
+    this.cells = new LinkedList();
+    this.min_width = -1;
+    this.preferred_max_width = -1;
+    return;
+}
+
+public StyledTextStream$TableBuilder addHTMLStyle(String p0) {
+    if (this.styles != null) goto L18;
+    this.styles = new HashSet();
+    L18:
+    this.styles.add(p0);
+    return this;
+}
+
+public StyledTextStream$Cell addCell(int p0, int p1, int p2) {
+    if (p0 < 1) goto L29;
+    if (p1 < 1) goto L29;
+    if (p2 == 16384) goto L37;
+    if (p2 == 131072) goto L37;
+    if (p2 == 16777216) goto L37;
+    L29:
+    throw new IllegalArgumentException();
+    L37:
+    v4 = new StyledTextStream$Cell(this.this$0, p0, p1, p2);
+    this.cells.add(v4);
+    return v4;
+}
+
+public StyledTextStream$Cell addCell() {
+    return this.addCell(1, 1, 16384);
+}
+
+public StyledTextStream$Cell addCell(int p0) {
+    return this.addCell(1, 1, p0);
+}
+
+public void nextRow() {
+    if (this.cells.getLast() == StyledTextStream.RowEnd) goto L24;
+    this.cells.add(StyledTextStream.RowEnd);
+    L24:
+    return;
+}
+
+public void addRowEnd() {
+    this.nextRow();
+    return;
+}
+
+public void setMinimumWidth(int p0) {
+    this.min_width = p0;
+    return;
+}
+
+public void dispose() {
+    this.cells.clear();
+    this.min_width = -1;
+    this.preferred_max_width = -1;
+    return;
+}
+
+public void setPreferredMaxWidth(int p0) {
+    this.preferred_max_width = p0;
+    return;
+}
+
+// ===== StyledTextStream$TableBuildingResources extends Object 
+ Font[] fonts;
+private final Shell scratchShell;
+private final StyledText scratch;
+private final GC gc;
+private int x_padding;
+
+public void <init>(StyledTextStream p0) {
+    Objects.requireNonNull(p0);
+    super.<init>();
+    $a1 = new Font[4];
+    this.fonts = $a1;
+    this.x_padding = -1;
+    this.scratchShell = new Shell();
+    this.scratch = new StyledText(this.scratchShell, 0);
+    this.scratch.setFont(p0.text.getFont());
+    this.scratch.setRedraw(0);
+    this.gc = new GC(p0.display);
+    return;
+}
+
+public void dispose() {
+    v1 = this.fonts;
+    v2 = v1.length;
+    v3 = 0;
+    L10:
+    if (v3 >= v2) goto L36;
+    v4 = v1[v3];
+    if (v4 == null) goto L30;
+    v4.dispose();
+    L30:
+    v3 += 1;
+    goto L10;
+    L36:
+    this.scratch.dispose();
+    this.scratchShell.dispose();
+    this.gc.dispose();
+    return;
+}
+
+// ===== StyledTextStream extends Object 
+private final Display display;
+private final Cursor clickCursor;
+private final Cursor arrowCursor;
+public StyledText text;
+private final List actionRanges;
+private SelectionListener widgetSelectedListener;
+private Runnable on_first_add;
+private boolean is_collect_html;
+private final StringBuilder html;
+private int top_pixel;
+private final MouseMoveListener mouseMoveListener;
+private final MouseTrackAdapter mouseTrackAdapter;
+private long last_click_timestamp_msec;
+private final MouseListener mouseListener;
+private String user_tool_tip_text;
+private ToolTip toolTip;
+private int last_line;
+private static final int FLAGS_FONT_SIZE_BITS = 5;
+private static final int FLAG_FONT_SIZE_MASK = 31;
+private static final int FLAG_BOLD = 32;
+private static final int FLAG_UNDERLINE = 64;
+private static final int FLAG_ITALIC = 128;
+private static final int FLAG_LINK = 256;
+private final function.Consumer defaultHREFConsumer;
+private static final float[] fontRatio;
+private final StringBuilder stringBuilder;
+private function.Consumer on_log_changed;
+private boolean is_auto_scroll;
+private static final StyledTextStream$Cell RowEnd;
+private final List tables;
+private boolean is_disposed;
+
+public void <init>(StyledText p0) {
+    super.<init>();
+    this.actionRanges = new LinkedList();
+    this.is_collect_html = 0;
+    this.html = new StringBuilder(4096);
+    this.top_pixel = -1;
+    this.mouseMoveListener = lambda[StyledTextStream::lambda$new$1](this);
+    this.mouseTrackAdapter = new StyledTextStream$1(this);
+    this.mouseListener = new StyledTextStream$2(this);
+    this.user_tool_tip_text = null;
+    this.toolTip = null;
+    this.last_line = -1;
+    this.defaultHREFConsumer = lambda[StyledTextStream::lambda$new$2](this);
+    this.stringBuilder = new StringBuilder(128);
+    this.on_log_changed = null;
+    this.is_auto_scroll = 1;
+    this.tables = new LinkedList();
+    this.is_disposed = 0;
+    this.text = p0;
+    this.display = p0.getDisplay();
+    this.clickCursor = new Cursor(this.display, 21);
+    this.arrowCursor = new Cursor(this.display, 0);
+    p0.setCursor(this.arrowCursor);
+    return;
+}
+
+public void <init>(Composite p0, int p1) {
+    super.<init>();
+    this.actionRanges = new LinkedList();
+    this.is_collect_html = 0;
+    this.html = new StringBuilder(4096);
+    this.top_pixel = -1;
+    this.mouseMoveListener = lambda[StyledTextStream::lambda$new$1](this);
+    this.mouseTrackAdapter = new StyledTextStream$1(this);
+    this.mouseListener = new StyledTextStream$2(this);
+    this.user_tool_tip_text = null;
+    this.toolTip = null;
+    this.last_line = -1;
+    this.defaultHREFConsumer = lambda[StyledTextStream::lambda$new$2](this);
+    this.stringBuilder = new StringBuilder(128);
+    this.on_log_changed = null;
+    this.is_auto_scroll = 1;
+    this.tables = new LinkedList();
+    this.is_disposed = 0;
+    this.display = p0.getDisplay();
+    this.text = new StyledText(p0, p1);
+    this.text.setEditable(0);
+    this.text.setDoubleClickEnabled(0);
+    this.text.setCaret(null);
+    this.clickCursor = new Cursor(this.display, 21);
+    this.arrowCursor = new Cursor(this.display, 0);
+    this.text.setCursor(this.arrowCursor);
+    this.text.setBackground(p0.getBackground());
+    this.text.addDisposeListener(lambda[StyledTextStream::lambda$new$0](this));
+    return;
+}
+
+public void setCollectHTML(boolean p0) {
+    this.is_collect_html = p0;
+    return;
+}
+
+public void clearHTML() {
+    this.html.setLength(0);
+    return;
+}
+
+public int getHtmlLength() {
+    return this.html.length();
+}
+
+public void setHtmlLength(int p0) {
+    this.html.setLength(p0);
+    return;
+}
+
+public String getHTML() {
+    return this.html.toString();
+}
+
+public StyledTextStream addLink(String p0, function.Consumer p1) {
+    v3 = new StyledTextStream$Span();
+    v3.underline = 1;
+    v3.text = p0;
+    v3.foreground = this.display.getSystemColor(36);
+    v3.consumer = p1;
+    return this.add(v3);
+}
+
+public StyledTextStream add(Color p0, String p1) {
+    v3 = new StyledTextStream$Span(p1);
+    v3.fontStyle = 0;
+    v3.foreground = p0;
+    return this.add(v3);
+}
+
+public StyledTextStream addError(String p0) {
+    return this.add(this.display.getSystemColor(3), p0);
+}
+
+private StyleRange getStyleAt(int p0, int p1) {
+    v3 = this.text.getTopPixel();
+    if (v3 == this.top_pixel) goto L68;
+    v4 = this.actionRanges.iterator();
+    L27:
+    if (v4.hasNext() == 0) goto L68;
+    v5 = (StyleRange)v4.next();
+    v6 = (StyledTextStream$Span)v5.data;
+    v6.bounds = null;
+    goto L27;
+    L68:
+    this.top_pixel = v3;
+    v4 = this.actionRanges.iterator();
+    L84:
+    if (v4.hasNext() == 0) goto L173;
+    v5 = (StyleRange)v4.next();
+    v6 = (StyledTextStream$Span)v5.data;
+    if (v6.bounds != null) goto L154;
+    v6.bounds = this.text.getTextBounds(v5.start, ((v5.start + v5.length) - 1));
+    L154:
+    if (v6.bounds.contains(p0, p1) == 0) goto L170;
+    return v5;
+    L170:
+    goto L84;
+    L173:
+    return null;
+}
+
+private StyledTextStream$Span getActionSpanAt(int p0, int p1) {
+    v3 = this.getStyleAt(p0, p1);
+    if (v3 == null) goto L21;
+    $s0 = (StyledTextStream$Span)v3.data;
+    goto L22;
+    L21:
+    $s0 = null;
+    L22:
+    return $s0;
+}
+
+private void tool_tip_off() {
+    this.toolTip.setVisible(0);
+    if (this.user_tool_tip_text == null) goto L26;
+    this.text.setToolTipText(this.user_tool_tip_text);
+    L26:
+    return;
+}
+
+private void update_tool_tip(int p0, int p1, StyledTextStream$Span p2) {
+    if (p2.toolTipText == null) goto L17;
+    if (p2.toolTipText.isBlank() == 0) goto L22;
+    L17:
+    this.tool_tip_off();
+    return;
+    L22:
+    if (this.toolTip.getMessage().equals(p2.toolTipText) != 0) goto L78;
+    this.toolTip.dispose();
+    this.toolTip = new ToolTip(this.text.getShell(), 4096);
+    this.toolTip.setMessage(p2.toolTipText);
+    L78:
+    v4 = this.text.toDisplay(p0, p1);
+    this.toolTip.setLocation((v4.x + 2), (v4.y + 2));
+    v5 = this.text.getToolTipText();
+    if (v5 == null) goto L138;
+    this.user_tool_tip_text = v5;
+    this.text.setToolTipText(null);
+    L138:
+    this.toolTip.setVisible(1);
+    return;
+}
+
+private void attach_listeners(StyleRange p0) {
+    if (this.actionRanges.isEmpty() == 0) goto L74;
+    this.text.addMouseMoveListener(this.mouseMoveListener);
+    this.text.addMouseTrackListener(this.mouseTrackAdapter);
+    this.text.addMouseListener(this.mouseListener);
+    this.toolTip = new ToolTip(this.text.getShell(), 4096);
+    this.toolTip.setAutoHide(0);
+    L74:
+    this.actionRanges.add(p0);
+    return;
+}
+
+public void setFont(Font p0) {
+    this.text.setFont(p0);
+    return;
+}
+
+public Font getFont() {
+    return this.text.getFont();
+}
+
+public void setBackground(Color p0) {
+    this.text.setBackground(p0);
+    return;
+}
+
+public void setLayoutData(Object p0) {
+    this.text.setLayoutData(p0);
+    return;
+}
+
+public void setData(String p0, Object p1) {
+    this.text.setData(p0, p1);
+    return;
+}
+
+public Object getData(String p0) {
+    return this.text.getData(p0);
+}
+
+public void setForeground(Color p0) {
+    this.text.setForeground(p0);
+    return;
+}
+
+public void pack() {
+    this.text.pack();
+    return;
+}
+
+private void detach_mouse_listener() {
+    this.text.removeMouseMoveListener(this.mouseMoveListener);
+    this.text.removeMouseTrackListener(this.mouseTrackAdapter);
+    this.text.removeMouseListener(this.mouseListener);
+    if (this.toolTip == null) goto L52;
+    this.toolTip.dispose();
+    this.toolTip = null;
+    L52:
+    return;
+}
+
+public StyledTextStream setHTML(String p0) {
+    if (this.actionRanges.isEmpty() != 0) goto L36;
+    this.detach_mouse_listener();
+    this.actionRanges.clear();
+    this.text.setCursor(this.arrowCursor);
+    L36:
+    this.text.setText("");
+    this.log_changed();
+    this.addHTML(p0);
+    return this;
+}
+
+public StyledTextStream addHTML(String p0) {
+    v2 = this.html2spans(p0).iterator();
+    L11:
+    if (v2.hasNext() == 0) goto L39;
+    v3 = (StyledTextStream$Span)v2.next();
+    this.add(v3);
+    goto L11;
+    L39:
+    return this;
+}
+
+public List html2spans(String p0) {
+    v2 = new ArrayList();
+    if (p0.isEmpty() == 0) goto L17;
+    return v2;
+    L17:
+    p0 = this.reduceLONGtags(p0);
+    v3 = p0.toCharArray();
+    $a2 = new char[v3.length];
+    v4 = $a2;
+    $a3 = new int[v3.length];
+    v5 = $a3;
+    $a4 = new String[v3.length];
+    v6 = $a4;
+    v7 = 0;
+    v8 = 0;
+    v9 = 0;
+    L56:
+    if (v9 >= v3.length) goto L692;
+    if (60 != v3[v9]) goto L566;
+    if (v9 >= (v3.length - 3)) goto L566;
+    v9 += 1;
+    if (47 != v3[v9]) goto L97;
+    $s0 = 1;
+    goto L98;
+    L97:
+    $s0 = 0;
+    L98:
+    v10 = $s0;
+    v11 = 0;
+    if (v10 == 0) goto L111;
+    v9 += 1;
+    L111:
+    $t5 = v9;  // value before increment
+    v9 += 1;
+    v12 = Character.toLowerCase(v3[$t5]);
+    if (v10 != 0) goto L396;
+    if (97 != v12) goto L396;
+    L135:
+    if (v9 >= v3.length) goto L158;
+    if (Character.isSpaceChar(v3[v9]) == 0) goto L158;
+    v9 += 1;
+    goto L135;
+    L158:
+    v13 = p0.indexOf("<", v9);
+    if (v13 == -1) goto L686;
+    if (v13 >= (v3.length - 3)) goto L686;
+    if (v3[(v13 + 1)] != 47) goto L686;
+    if (v3[(v13 + 2)] == 97) goto L217;
+    if (v3[(v13 + 2)] != 65) goto L686;
+    L217:
+    if (v3[(v13 + 3)] == 62) goto L231;
+    goto L686;
+    L231:
+    v15 = null;
+    if (p0.startsWith("href=", v9) != 0) goto L258;
+    if (p0.startsWith("HREF=", v9) == 0) goto L332;
+    L258:
+    $t6 = v3[(v9 + 5)];
+    v14 = $t6;
+    if ($t6 == 39) goto L279;
+    if (v14 != 34) goto L332;
+    L279:
+    v16 = p0.indexOf((v14 + ">"), v9);
+    if (-1 == v16) goto L686;
+    if (v16 <= v13) goto L310;
+    goto L686;
+    L310:
+    v15 = p0.substring((v9 + 6), v16);
+    v9 = (v16 + 2);
+    goto L344;
+    L332:
+    if (62 != v3[v9]) goto L686;
+    v9 += 1;
+    L344:
+    if (v9 >= v13) goto L387;
+    v4[v7] = v3[v9];
+    v5[v7] = (v8 | 256);
+    v6[v7] = v15;
+    v9 += 1;
+    v7 += 1;
+    goto L344;
+    L387:
+    v9 = (v13 + 3);
+    goto L686;
+    L396:
+    if (98 != v12) goto L410;
+    v11 = 32;
+    goto L530;
+    L410:
+    if (117 != v12) goto L424;
+    v11 = 64;
+    goto L530;
+    L424:
+    if (105 != v12) goto L439;
+    v11 = 128;
+    goto L530;
+    L439:
+    if (43 == v12) goto L453;
+    if (45 != v12) goto L686;
+    L453:
+    if (62 != v3[v9]) goto L686;
+    v13 = (((v8 & 31) << 27) >> 27);
+    if (v10 == 0) goto L500;
+    $s0 = v13;
+    if (43 != v12) goto L493;
+    $s0 = v13;
+    $s1 = -1;
+    goto L494;
+    L493:
+    $s1 = 1;
+    L494:
+    v13 = ($s0 + $s1);
+    goto L517;
+    L500:
+    $s0 = v13;
+    if (43 != v12) goto L513;
+    $s0 = v13;
+    $s1 = 1;
+    goto L514;
+    L513:
+    $s1 = -1;
+    L514:
+    v13 = ($s0 + $s1);
+    L517:
+    v8 = ((v8 & -32) | (v13 & 31));
+    L530:
+    if (62 != v3[v9]) goto L566;
+    if (v10 == 0) goto L556;
+    v8 = (v8 & (v11 ^ -1));
+    goto L686;
+    L556:
+    v8 = (v8 | v11);
+    goto L686;
+    L566:
+    if (v3[v9] != 38) goto L667;
+    if (v9 >= (v3.length - 3)) goto L667;
+    if (59 != v3[(v9 + 3)]) goto L667;
+    if (116 != v3[(v9 + 2)]) goto L667;
+    if (108 == v3[(v9 + 1)]) goto L628;
+    if (103 != v3[(v9 + 1)]) goto L667;
+    L628:
+    $s0 = v4;
+    $s1 = v7;
+    if (v3[(v9 + 1)] != 108) goto L648;
+    $s0 = v4;
+    $s1 = v7;
+    $s2 = 60;
+    goto L650;
+    L648:
+    $s2 = 62;
+    L650:
+    $s0[$s1] = $s2;
+    v5[v7] = v8;
+    v7 += 1;
+    v9 += 2;
+    goto L686;
+    L667:
+    v4[v7] = v3[v9];
+    v5[v7] = v8;
+    v7 += 1;
+    L686:
+    v9 += 1;
+    goto L56;
+    L692:
+    v8 = v6[0];
+    v9 = v5[0];
+    v10 = 0;
+    v11 = 1;
+    L710:
+    if (v11 >= (v7 + 1)) goto L985;
+    if (v11 == v7) goto L746;
+    if (v8 != v6[v11]) goto L746;
+    if (v9 == v5[v11]) goto L979;
+    L746:
+    v12 = new StyledTextStream$Span();
+    v2.add(v12);
+    v12.text = String.valueOf(v4, v10, (v11 - v10));
+    if (32 != (v9 & 32)) goto L802;
+    v12.fontStyle = (v12.fontStyle | 1);
+    L802:
+    if (128 != (v9 & 128)) goto L825;
+    v12.fontStyle = (v12.fontStyle | 2);
+    L825:
+    if (64 != (v9 & 64)) goto L841;
+    v12.underline = 1;
+    L841:
+    v13 = (((v9 & 31) << 27) >> 27);
+    if (v13 == 0) goto L903;
+    v14 = this.text.getFont();
+    v15 = Math.min(Math.max(0, (3 + v13)), (StyledTextStream.fontRatio.length - 1));
+    v12.font = MiSWT.getScaledFont(v14, StyledTextStream.fontRatio[v15]);
+    L903:
+    if (256 != (v9 & 256)) goto L951;
+    v12.underline = 1;
+    v12.foreground = this.display.getSystemColor(36);
+    v12.href = v8;
+    v12.consumer = this.defaultHREFConsumer;
+    L951:
+    if (v11 != v7) goto L961;
+    goto L985;
+    L961:
+    v10 = v11;
+    v9 = v5[v11];
+    v8 = v6[v11];
+    L979:
+    v11 += 1;
+    goto L710;
+    L985:
+    return v2;
+}
+
+private String reduceLONGtags(String p0) {
+    if (-1 != p0.indexOf(60)) goto L12;
+    return p0;
+    L12:
+    p0 = p0.replaceAll("(?i)(<big>|</small>)", "<+>");
+    p0 = p0.replaceAll("(?i)(</big>|<small>)", "<->");
+    return p0;
+}
+
+public void setToolTipText(String p0) {
+    this.text.setToolTipText(p0);
+    return;
+}
+
+public void setSelectionListener(SelectionListener p0) {
+    this.widgetSelectedListener = p0;
+    return;
+}
+
+public void setEnabled(boolean p0) {
+    if (this.text.getEnabled() != p0) goto L12;
+    return;
+    L12:
+    this.text.setEnabled(p0);
+    v2 = this.actionRanges.iterator();
+    L30:
+    if (v2.hasNext() == 0) goto L107;
+    v3 = (StyleRange)v2.next();
+    v4 = (StyledTextStream$Span)v3.data;
+    if (p0 == 0) goto L74;
+    v3.foreground = v4.foreground;
+    goto L96;
+    L74:
+    v4.foreground = v3.foreground;
+    v3.foreground = this.display.getSystemColor(15);
+    L96:
+    this.text.setStyleRange(v3);
+    goto L30;
+    L107:
+    return;
+}
+
+public boolean isEnabled() {
+    return this.text.isEnabled();
+}
+
+public void notifyListeners(int p0, Event p1) {
+    if (13 != p0) goto L39;
+    if (null == this.widgetSelectedListener) goto L39;
+    p1.widget = this.text;
+    this.widgetSelectedListener.widgetSelected(new SelectionEvent(p1));
+    L39:
+    return;
+}
+
+public void onFirstAdd(Runnable p0) {
+    this.on_first_add = p0;
+    return;
+}
+
+public StyledTextStream insertSpans(StyledText p0, int p1, int p2, List p3) {
+    $a1 = new StyleRange[p3.size()];
+    v5 = $a1;
+    $a2 = new int[(p3.size() * 2)];
+    v6 = $a2;
+    this.stringBuilder.setLength(0);
+    v7 = p3.iterator();
+    L42:
+    if (v7.hasNext() == 0) goto L80;
+    v8 = (StyledTextStream$Span)v7.next();
+    this.stringBuilder.append(v8.text);
+    goto L42;
+    L80:
+    p0.replaceTextRange(p1, p2, this.stringBuilder.toString());
+    v7 = p1;
+    v8 = 0;
+    v9 = p3.iterator();
+    L108:
+    if (v9.hasNext() == 0) goto L190;
+    v10 = (StyledTextStream$Span)v9.next();
+    v11 = this.span2style(v7, v10, p0);
+    v5[v8] = v11;
+    v6[(v8 * 2)] = v11.start;
+    v6[((v8 * 2) + 1)] = v11.length;
+    v7 = (v7 + v11.length);
+    v8 += 1;
+    goto L108;
+    L190:
+    p0.setStyleRanges(p1, this.stringBuilder.length(), v6, v5);
+    return this;
+}
+
+public StyledTextStream add(StyledTextStream$Span p0) {
+    v2 = this.text.getCharCount();
+    this.text.append(p0.text);
+    v3 = this.span2style(v2, p0, this.text);
+    this.text.setStyleRange(v3);
+    if (this.is_auto_scroll == 0) goto L49;
+    this.scroll_to_end();
+    L49:
+    this.add2HTML(p0);
+    this.log_changed();
+    return this;
+}
+
+public StyledTextStream setLogChangedListener(function.Consumer p0) {
+    this.on_log_changed = p0;
+    return this;
+}
+
+private void log_changed() {
+    if (this.on_log_changed == null) goto L17;
+    this.on_log_changed.accept(this);
+    L17:
+    return;
+}
+
+public StyledTextStream add2HTML(StyledTextStream$Span p0) {
+    if (this.is_collect_html == 0) goto L31;
+    if (p0.is_add_to_html == 0) goto L31;
+    this.first_add_f();
+    this.html.append(p0.getHTML(this));
+    L31:
+    return this;
+}
+
+public StyledTextStream add2HTML(String p0) {
+    if (this.is_collect_html == 0) goto L20;
+    this.first_add_f();
+    this.html.append(p0);
+    L20:
+    return this;
+}
+
+private void first_add_f() {
+    if (this.html.length() != 0) goto L38;
+    if (this.on_first_add == null) goto L38;
+    v1 = this.on_first_add;
+    this.on_first_add = null;
+    v1.run();
+    this.on_first_add = v1;
+    L38:
+    return;
+}
+
+public boolean isAutoScroll() {
+    return this.is_auto_scroll;
+}
+
+public void setAutoScroll(boolean p0) {
+    this.is_auto_scroll = p0;
+    return;
+}
+
+private StyleRange span2style(int p0, StyledTextStream$Span p1, StyledText p2) {
+    v4 = new StyleRange();
+    v4.start = p0;
+    v4.length = p1.text.length();
+    v4.fontStyle = p1.fontStyle;
+    if (p1.font == null) goto L52;
+    v4.font = p1.font;
+    L52:
+    if (p1.background == null) goto L68;
+    v4.background = p1.background;
+    L68:
+    if (p1.foreground == null) goto L84;
+    v4.foreground = p1.foreground;
+    L84:
+    v4.underline = p1.underline;
+    if (p2 == this.text) goto L104;
+    return v4;
+    L104:
+    if (p1.toolTipText != null) goto L119;
+    p1.toolTipText = p1.href;
+    L119:
+    if (p1.href == null) goto L159;
+    p1.consumer_text = p1.href;
+    if (p1.consumer != null) goto L167;
+    if (p1.doubleClickConsumer != null) goto L167;
+    p1.consumer = this.defaultHREFConsumer;
+    goto L167;
+    L159:
+    p1.consumer_text = p1.text;
+    L167:
+    if (p1.consumer != null) goto L209;
+    if (p1.doubleClickConsumer != null) goto L209;
+    if (p1.mouseUpConsumer != null) goto L209;
+    if (p1.mouseDownConsumer != null) goto L209;
+    if (p1.menu != null) goto L209;
+    if (p1.toolTipText == null) goto L238;
+    L209:
+    v5 = new StyledTextStream$Span(p1);
+    v5.original_user_span = p1;
+    v4.data = v5;
+    this.attach_listeners(v4);
+    L238:
+    return v4;
+}
+
+private void scroll_to_end() {
+    v1 = (this.text.getLineCount() - 1);
+    this.text.setTopIndex(v1);
+    if (this.last_line == v1) goto L33;
+    this.display.update();
+    L33:
+    this.last_line = v1;
+    return;
+}
+
+public StyledTextStream add(String p0) {
+    return this.add(new StyledTextStream$Span(p0));
+}
+
+public StyledTextStream addSpaces(int p0) {
+    if (p0 >= 0) goto L15;
+    throw new IllegalArgumentException("number of spaces must be positive");
+    L15:
+    return this.add(" ".repeat(p0));
+}
+
+public StyledTextStream addCamelCase(double p0) {
+    return this.addCamelCase(new StyledTextStream$Span(), p0);
+}
+
+public StyledTextStream addCamelCase(StyledTextStream$Span p0, double p1) {
+    v4 = new DecimalFormat("#,##0.00");
+    v5 = v4.format(p1);
+    this.add(v5.substring(0, (v5.length() - 3)));
+    $s0 = this;
+    $s1 = new StyledTextStream$Span();
+    if (p0.font == null) goto L60;
+    $s0 = this;
+    $s1 = new StyledTextStream$Span();
+    $s2 = p0.font;
+    goto L67;
+    L60:
+    $s2 = this.text.getFont();
+    L67:
+    $s0.add($s1.setFont(MiSWT.getScaledFont($s2, 0.8500000238418579f)).setText(v5.substring((v5.length() - 3))));
+    return this;
+}
+
+public StyledTextStream nl() {
+    return this.add("\n");
+}
+
+public StyledTextStream add(int p0, String p1) {
+    v3 = new StyledTextStream$Span(p1);
+    v3.fontStyle = p0;
+    return this.add(v3);
+}
+
+public StyledTextStream add(StyledTextStream$Span p0, String p1) {
+    v3 = p0.text;
+    p0.text = p1;
+    this.add(p0);
+    p0.text = v3;
+    return this;
+}
+
+private void add_html_table(StyledTextStream$Cell[][] p0, Set p1) {
+    this.first_add_f();
+    this.html.append("<table");
+    if (p1 == null) goto L95;
+    if (p1.isEmpty() != 0) goto L95;
+    this.html.append(" style='");
+    v3 = p1.iterator();
+    L46:
+    if (v3.hasNext() == 0) goto L84;
+    v4 = (String)v3.next();
+    this.html.append(v4).append(59);
+    goto L46;
+    L84:
+    this.html.append("'");
+    L95:
+    this.html.append(">");
+    v3 = 0;
+    L108:
+    if (v3 >= p0.length) goto L470;
+    this.html.append("<tr>\n");
+    v4 = 0;
+    L128:
+    if (v4 >= p0[0].length) goto L464;
+    v5 = p0[v3][v4];
+    switch (v5.alignment) { 16384: L208, 131072: L214, 16777216: L220; default: L226 }
+    L208:
+    $s0 = "left";
+    goto L237;
+    L214:
+    $s0 = "right";
+    goto L237;
+    L220:
+    $s0 = "center";
+    goto L237;
+    L226:
+    throw new RuntimeException("unhandled aligment");
+    L237:
+    <?stack-underflow?>.append($s0);
+    v6 = (StyledTextStream$Span)v5.spans.getFirst().background;
+    if (v6 == null) goto L281;
+    this.html.append(" bgcolor=").append(MiSWT.color2hex(v6));
+    L281:
+    if (v5.styles == null) goto L368;
+    this.html.append(" style='");
+    v7 = v5.styles.iterator();
+    L312:
+    if (v7.hasNext() == 0) goto L357;
+    v8 = (String)v7.next();
+    this.html.append(v8);
+    this.html.append(59);
+    goto L312;
+    L357:
+    this.html.append("'");
+    L368:
+    this.html.append(">");
+    v7 = v5.spans.iterator();
+    L389:
+    if (v7.hasNext() == 0) goto L436;
+    v8 = (StyledTextStream$Span)v7.next();
+    if (v8.is_add_to_html == 0) goto L433;
+    this.html.append(v8.getHTML(this));
+    L433:
+    goto L389;
+    L436:
+    this.html.append("\n");
+    v4 = (v4 + p0[v3][v4].col_span);
+    goto L128;
+    L464:
+    v3 += 1;
+    goto L108;
+    L470:
+    this.html.append("</table>");
+    return;
+}
+
+public StyledTextStream$TableBuilder getTableBuilder() {
+    return new StyledTextStream$TableBuilder(this);
+}
+
+public void addSpans(StyledText p0, List p1) {
+    this.insertSpans(p0, p0.getCharCount(), 0, p1);
+    return;
+}
+
+public StyledTextStream$Table addTable(StyledTextStream$TableBuilder p0) {
+    if (p0.cells.isEmpty() != 0) goto L34;
+    if (p0.cells.size() != 1) goto L36;
+    if (p0.cells.getFirst() != StyledTextStream.RowEnd) goto L36;
+    L34:
+    return null;
+    L36:
+    v2 = new StyledTextStream$Table(this, p0);
+    this.tables.add(v2);
+    return v2;
+}
+
+public void dispose() {
+    if (this.is_disposed == 0) goto L8;
+    return;
+    L8:
+    if (this.text.isDisposed() != 0) goto L25;
+    this.text.dispose();
+    L25:
+    v1 = new LinkedList(this.tables);
+    v2 = v1.iterator();
+    L44:
+    if (v2.hasNext() == 0) goto L70;
+    v3 = (StyledTextStream$Table)v2.next();
+    v3.dispose();
+    goto L44;
+    L70:
+    this.is_disposed = 1;
+    if (this.toolTip == null) goto L94;
+    this.toolTip.dispose();
+    this.toolTip = null;
+    L94:
+    return;
+}
+
+private void mouse_moved(int p0, int p1) {
+    v3 = this.getStyleAt(p0, p1);
+    if (v3 != null) goto L27;
+    this.tool_tip_off();
+    this.text.setCursor(this.arrowCursor);
+    return;
+    L27:
+    v4 = (StyledTextStream$Span)v3.data;
+    if (v4.consumer != null) goto L84;
+    if (v4.doubleClickConsumer != null) goto L84;
+    if (v4.mouseUpConsumer != null) goto L84;
+    if (v4.mouseDownConsumer != null) goto L84;
+    if (v4.cursor != null) goto L84;
+    if (v4.menu == null) goto L95;
+    L84:
+    this.text.setCursor(this.clickCursor);
+    L95:
+    if (this.toolTip.isVisible() == 0) goto L113;
+    this.update_tool_tip(p0, p1, v4);
+    L113:
+    return;
+}
+
+public boolean isDisposed() {
+    return this.text.isDisposed();
+}
+
+private synthetic void lambda$new$2(StyledTextStream$SpanEvent p0) {
+    if (this.widgetSelectedListener == null) goto L64;
+    v2 = new Event();
+    v2.widget = this.text;
+    v3 = new SelectionEvent(v2);
+    v3.stateMask = p0.e.stateMask;
+    v3.text = p0.text;
+    this.widgetSelectedListener.widgetSelected(v3);
+    goto L93;
+    L64:
+    if (p0.text == null) goto L93;
+    if ((p0.e.stateMask & SWT.MODIFIER_MASK) != 0) goto L93;
+    program.Program.launch(p0.text);
+    L93:
+    return;
+}
+
+private synthetic void lambda$new$1(MouseEvent p0) {
+    this.mouse_moved(p0.x, p0.y);
+    return;
+}
+
+private synthetic void lambda$new$0(DisposeEvent p0) {
+    this.dispose();
+    return;
+}
+
+static void <clinit>() {
+    $a1 = new float[8];
+    $a1[0] = 0.5f;
+    $a1[1] = 0.6499999761581421f;
+    $a1[2] = 0.800000011920929f;
+    $a1[3] = 1.0f;
+    $a1[4] = 1.149999976158142f;
+    $a1[5] = 1.25f;
+    $a1[6] = 1.5f;
+    $a1[7] = 1.75f;
+    StyledTextStream.fontRatio = $a1;
+    StyledTextStream.RowEnd = null;
+    return;
+}

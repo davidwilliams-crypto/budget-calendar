@@ -1,0 +1,62 @@
+// ===== GridDataBuilder extends Object 
+ layout.GridData gd;
+
+public void <init>() {
+    super.<init>();
+    this.gd = new layout.GridData();
+    return;
+}
+
+public layout.GridData build() {
+    return this.gd;
+}
+
+public GridDataBuilder wHint(int p0) {
+    this.gd.widthHint = p0;
+    return this;
+}
+
+public GridDataBuilder hHint(int p0) {
+    this.gd.heightHint = p0;
+    return this;
+}
+
+public GridDataBuilder hSpan(int p0) {
+    this.gd.horizontalSpan = p0;
+    return this;
+}
+
+public GridDataBuilder vSpan(int p0) {
+    this.gd.verticalSpan = p0;
+    return this;
+}
+
+public GridDataBuilder hAlign(int p0) {
+    this.gd.horizontalAlignment = p0;
+    return this;
+}
+
+public GridDataBuilder vAlign(int p0) {
+    this.gd.verticalAlignment = p0;
+    return this;
+}
+
+public GridDataBuilder vGrab(boolean p0) {
+    this.gd.grabExcessVerticalSpace = p0;
+    return this;
+}
+
+public GridDataBuilder hGrab(boolean p0) {
+    this.gd.grabExcessHorizontalSpace = p0;
+    return this;
+}
+
+public GridDataBuilder hIndent(int p0) {
+    this.gd.horizontalIndent = p0;
+    return this;
+}
+
+public GridDataBuilder vIndent(int p0) {
+    this.gd.verticalIndent = p0;
+    return this;
+}

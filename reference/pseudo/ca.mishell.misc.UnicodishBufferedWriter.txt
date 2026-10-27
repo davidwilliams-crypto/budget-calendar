@@ -1,0 +1,154 @@
+// ===== UnicodishBufferedWriter extends BufferedWriter 
+private static final char[] hexd;
+
+public void <init>(Writer p0) {
+    super.<init>(p0);
+    return;
+}
+
+public static int char2unicodish(char p0, char[] p1, int p2) {
+    if (p0 >= 128) goto L35;
+    if (p0 == 44) goto L35;
+    if (p0 == 10) goto L35;
+    if (p0 == 13) goto L35;
+    if (p1 == null) goto L33;
+    p1[p2] = p0;
+    L33:
+    return 1;
+    L35:
+    if (p1 == null) goto L135;
+    $t1 = p2;  // value before increment
+    p2 += 1;
+    p1[$t1] = 38;
+    $t2 = p2;  // value before increment
+    p2 += 1;
+    p1[$t2] = 35;
+    $t3 = p2;  // value before increment
+    p2 += 1;
+    p1[$t3] = 120;
+    $t4 = p2;  // value before increment
+    p2 += 1;
+    p1[$t4] = UnicodishBufferedWriter.hexd[((p0 >>> 12) & 15)];
+    $t5 = p2;  // value before increment
+    p2 += 1;
+    p1[$t5] = UnicodishBufferedWriter.hexd[((p0 >>> 8) & 15)];
+    $t6 = p2;  // value before increment
+    p2 += 1;
+    p1[$t6] = UnicodishBufferedWriter.hexd[((p0 >>> 4) & 15)];
+    $t7 = p2;  // value before increment
+    p2 += 1;
+    p1[$t7] = UnicodishBufferedWriter.hexd[(p0 & 15)];
+    $t8 = p2;  // value before increment
+    p2 += 1;
+    p1[$t8] = 59;
+    L135:
+    return 8;
+}
+
+public static char[] str2unicodish(String p0) {
+    v1 = p0.toCharArray();
+    v2 = v1.length;
+    v3 = 0;
+    v4 = 0;
+    L13:
+    if (v4 >= v2) goto L37;
+    v3 = (v3 + UnicodishBufferedWriter.char2unicodish(v1[v4], null, 0));
+    v4 += 1;
+    goto L13;
+    L37:
+    if (v3 != v2) goto L44;
+    return v1;
+    L44:
+    $a1 = new char[v3];
+    v4 = $a1;
+    v5 = 0;
+    v6 = 0;
+    L55:
+    if (v5 >= v2) goto L83;
+    v6 = (v6 + UnicodishBufferedWriter.char2unicodish(v1[v5], v4, v6));
+    v5 += 1;
+    goto L55;
+    L83:
+    return v4;
+}
+
+public void write(String p0) {
+    v2 = UnicodishBufferedWriter.str2unicodish(p0);
+    super.write(v2);
+    return;
+}
+
+public void writeRaw(String p0) {
+    super.write(p0);
+    return;
+}
+
+public static String unicodish2str(String p0) {
+    v1 = p0.toCharArray();
+    v2 = v1.length;
+    v3 = 0;
+    $a1 = new char[v2];
+    v4 = $a1;
+    v5 = 0;
+    L18:
+    if (v5 >= v2) goto L143;
+    if ((v2 - v5) < 8) goto L126;
+    if (v1[v5] != 38) goto L126;
+    if (v1[(v5 + 1)] != 35) goto L126;
+    if (v1[(v5 + 2)] != 120) goto L126;
+    if (v1[(v5 + 7)] != 59) goto L126;
+    v6 = new String(v1, (v5 + 3), 4);
+    $t3 = v3;  // value before increment
+    v3 += 1;
+    v4[$t3] = (char)Integer.parseInt(v6, 16);
+    goto L120;
+    // handler for [76,106) catch Exception
+    L109:
+    v6 = $ex;
+    $t4 = v3;  // value before increment
+    v3 += 1;
+    v4[$t4] = 63;
+    L120:
+    v5 += 8;
+    goto L18;
+    L126:
+    $t5 = v3;  // value before increment
+    v3 += 1;
+    $t6 = v5;  // value before increment
+    v5 += 1;
+    v4[$t5] = v1[$t6];
+    goto L18;
+    L143:
+    return new String(v4, 0, v3);
+}
+
+public transient/varargs void printf(String p0, Object[] p1) {
+    this.write(String.format(p0, p1));
+    return;
+}
+
+public void td() {
+    return;
+}
+
+static void <clinit>() {
+    $a1 = new char[16];
+    $a1[0] = 48;
+    $a1[1] = 49;
+    $a1[2] = 50;
+    $a1[3] = 51;
+    $a1[4] = 52;
+    $a1[5] = 53;
+    $a1[6] = 54;
+    $a1[7] = 55;
+    $a1[8] = 56;
+    $a1[9] = 57;
+    $a1[10] = 97;
+    $a1[11] = 98;
+    $a1[12] = 99;
+    $a1[13] = 100;
+    $a1[14] = 101;
+    $a1[15] = 102;
+    UnicodishBufferedWriter.hexd = $a1;
+    return;
+}

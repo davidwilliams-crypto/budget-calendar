@@ -1,0 +1,114 @@
+// ===== RunningTime$stamp_location extends Record 
+private final String file_name;
+private final int line_no;
+
+private void <init>(String p0, int p1) {
+    super.<init>();
+    this.file_name = p0;
+    this.line_no = p1;
+    return;
+}
+
+public final String toString() {
+    return indy toString(this);
+}
+
+public final int hashCode() {
+    return indy hashCode(this);
+}
+
+public final boolean equals(Object p0) {
+    return indy equals(this, p0);
+}
+
+public String file_name() {
+    return this.file_name;
+}
+
+public int line_no() {
+    return this.line_no;
+}
+
+// ===== RunningTime extends Object 
+private static final double BILLION = 1000000000.0;
+private final String tag;
+private final long create_on;
+private long last_stamp;
+private boolean is_silent;
+private static final java.time.format.DateTimeFormatter dtf;
+
+public static double runningTimeSec(Runnable p0) {
+    v1 = System.nanoTime();
+    p0.run();
+    return ((double)(System.nanoTime() - v1) / 1000000000.0);
+}
+
+public void <init>(boolean p0, String p1) {
+    super.<init>();
+    this.tag = p1;
+    this.is_silent = p0;
+    this.create_on = System.nanoTime();
+    this.last_stamp = this.create_on;
+    if (p0 != 0) goto L62;
+    $a1 = new Object[2];
+    $a1[0] = p1;
+    $a1[1] = RunningTime.dtf.format(java.time.LocalDateTime.now());
+    System.err.printf("[%s: %s]\n", $a1);
+    L62:
+    return;
+}
+
+public void <init>(String p0) {
+    super.<init>(0, p0);
+    return;
+}
+
+public RunningTime setSilent(boolean p0) {
+    this.is_silent = p0;
+    return this;
+}
+
+private RunningTime$stamp_location get_stamp_location() {
+    v1 = new Throwable().getStackTrace();
+    v2 = v1;
+    v3 = v2.length;
+    v4 = 0;
+    L19:
+    if (v4 >= v3) goto L71;
+    v5 = v2[v4];
+    if (v5.getClassName().equals(RunningTime.getName()) != 0) goto L65;
+    return new RunningTime$stamp_location(v5.getFileName(), v5.getLineNumber());
+    L65:
+    v4 += 1;
+    goto L19;
+    L71:
+    return new RunningTime$stamp_location("?", -1);
+}
+
+public double stamp(String p0) {
+    v2 = System.nanoTime();
+    v4 = ((double)(v2 - this.last_stamp) / 1000000000.0);
+    if (this.is_silent != 0) goto L103;
+    v6 = ((double)(v2 - this.create_on) / 1000000000.0);
+    v8 = this.get_stamp_location();
+    $a1 = new Object[6];
+    $a1[0] = this.tag;
+    $a1[1] = v8.file_name;
+    $a1[2] = Integer.valueOf(v8.line_no);
+    $a1[3] = Double.valueOf(v6);
+    $a1[4] = Double.valueOf(v4);
+    $a1[5] = p0;
+    System.err.printf("[%s: [.*] (%s:%d) %7.3fs (%+7.3fs) -- %s]\n", $a1);
+    L103:
+    this.last_stamp = v2;
+    return v4;
+}
+
+public double elapsedSeconds() {
+    return ((double)(System.nanoTime() - this.create_on) / 1000000000.0);
+}
+
+static void <clinit>() {
+    RunningTime.dtf = java.time.format.DateTimeFormatter.ofPattern("yyyy/MM/dd HH:mm:ss");
+    return;
+}

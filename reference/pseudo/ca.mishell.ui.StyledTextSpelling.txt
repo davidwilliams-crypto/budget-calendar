@@ -1,0 +1,563 @@
+// ===== StyledTextSpelling$CustomSelector extends Object 
+
+public abstract Set getCustomSelection(StyledText p0, StyleRange p1);
+
+// ===== StyledTextSpelling$Speller extends Object 
+
+public abstract void initialize();
+
+public abstract void dispose();
+
+public abstract Set getSuggestions(String p0);
+
+public abstract void addWord(String p0);
+
+public boolean isSkipSpelling(String p0) {
+    if (StyledTextSpelling.isNumber(p0) != 0) goto L28;
+    if (StyledTextSpelling.isAllCapital(p0) != 0) goto L28;
+    if (StyledTextSpelling.isCamelCase(p0) != 0) goto L28;
+    if (StyledTextSpelling.isIdentifier(p0) == 0) goto L32;
+    L28:
+    $s0 = 1;
+    goto L33;
+    L32:
+    $s0 = 0;
+    L33:
+    return $s0;
+}
+
+// ===== StyledTextSpelling$SpellerThread extends Object 
+private final StyledTextSpelling$Speller speller;
+private final Set words_to_spell;
+private final Map spelled_words;
+private final Set ignore_words;
+private final Set text_controls;
+private final Thread speller_thread;
+private boolean is_spelling;
+
+public void addText(StyledText p0) {
+    this.text_controls.add(p0);
+    return;
+}
+
+public void removeText(StyledText p0) {
+    this.text_controls.remove(p0);
+    return;
+}
+
+public void <init>(Display p0, StyledTextSpelling$Speller p1) {
+    super.<init>();
+    this.words_to_spell = Collections.synchronizedSet(new HashSet());
+    this.spelled_words = Collections.synchronizedMap(new TreeMap(String.CASE_INSENSITIVE_ORDER));
+    this.ignore_words = Collections.synchronizedSortedSet(new TreeSet(String.CASE_INSENSITIVE_ORDER));
+    this.text_controls = Collections.synchronizedSet(new HashSet());
+    this.is_spelling = 1;
+    this.speller = p1;
+    this.speller_thread = new Thread(lambda[StyledTextSpelling$SpellerThread::lambda$new$0](this, p1, p0));
+    this.speller_thread.start();
+    p0.disposeExec(lambda[StyledTextSpelling$SpellerThread::lambda$new$5](this));
+    return;
+}
+
+public boolean isMisspelled(String p0) {
+    if (this.speller.isSkipSpelling(p0) == 0) goto L15;
+    return 0;
+    L15:
+    if (this.ignore_words.contains(p0) == 0) goto L30;
+    return 0;
+    L30:
+    v2 = (Set)this.spelled_words.get(p0);
+    if (v2 == null) goto L50;
+    return 1;
+    L50:
+    if (this.spelled_words.containsKey(p0) == 0) goto L65;
+    return 0;
+    L65:
+    v3 = this.words_to_spell;
+    monitorenter(this.words_to_spell);
+    if (this.words_to_spell.add(p0) == 0) goto L94;
+    this.words_to_spell.notify();
+    L94:
+    monitorexit(v3);
+    goto L106;
+    // handler for [72,96) catch any
+    // handler for [99,103) catch any
+    L99:
+    v4 = $ex;
+    monitorexit(v3);
+    throw v4;
+    L106:
+    return 0;
+}
+
+public Set getSuggestions(String p0) {
+    return (Set)this.spelled_words.get(p0);
+}
+
+public void add_word(String p0) {
+    this.ignore_words.add(p0);
+    this.speller.addWord(p0);
+    return;
+}
+
+public void add_ignore_word(String p0) {
+    this.ignore_words.add(p0.toLowerCase());
+    return;
+}
+
+private synthetic void lambda$new$5() {
+    this.is_spelling = 0;
+    v1 = this.words_to_spell;
+    monitorenter(this.words_to_spell);
+    this.words_to_spell.notify();
+    monitorexit(v1);
+    goto L31;
+    // handler for [12,23) catch any
+    // handler for [26,29) catch any
+    L26:
+    v2 = $ex;
+    monitorexit(v1);
+    throw v2;
+    L31:
+    this.speller_thread.join();
+    goto L49;
+    // handler for [31,38) catch InterruptedException
+    L41:
+    v1 = $ex;
+    v1.printStackTrace(System.err);
+    L49:
+    return;
+}
+
+private synthetic void lambda$new$0(StyledTextSpelling$Speller p0, Display p1) {
+    v3 = RunningTime.runningTimeSec(lambda[StyledTextSpelling$SpellerThread::lambda$new$1](p0));
+    L10:
+    if (this.is_spelling == 0) goto L187;
+    v6 = this.words_to_spell;
+    monitorenter(this.words_to_spell);
+    L25:
+    if (this.words_to_spell.isEmpty() == 0) goto L73;
+    this.words_to_spell.wait(500L);
+    if (p1 == null) goto L67;
+    if (p1.isDisposed() != 0) goto L67;
+    if (this.is_spelling != 0) goto L25;
+    L67:
+    monitorexit(v6);
+    goto L187;
+    L73:
+    v5 = (String)this.words_to_spell.iterator().next();
+    monitorexit(v6);
+    goto L106;
+    // handler for [25,70) catch any
+    // handler for [73,95) catch any
+    // handler for [98,103) catch any
+    L98:
+    v7 = $ex;
+    monitorexit(v6);
+    throw v7;
+    L106:
+    v6 = p0.getSuggestions(v5);
+    this.spelled_words.put(v5, v6);
+    this.words_to_spell.remove(v5);
+    if (v6 == null) goto L184;
+    v7 = this.text_controls;
+    monitorenter(this.text_controls);
+    this.text_controls.forEach(lambda[StyledTextSpelling$SpellerThread::lambda$new$2](p1));
+    monitorexit(v7);
+    goto L184;
+    // handler for [155,173) catch any
+    // handler for [176,181) catch any
+    L176:
+    v8 = $ex;
+    monitorexit(v7);
+    throw v8;
+    L184:
+    goto L10;
+    L187:
+    goto L200;
+    // handler for [10,187) catch Exception
+    L190:
+    v5 = $ex;
+    v5.printStackTrace(System.err);
+    L200:
+    p0.dispose();
+    StyledTextSpelling.threads_map.remove(p0);
+    this.text_controls.clear();
+    goto L230;
+    // handler for [200,225) catch Exception
+    L228:
+    v5 = $ex;
+    L230:
+    return;
+}
+
+private static synthetic void lambda$new$2(Display p0, StyledText p1) {
+    p0.asyncExec(lambda[StyledTextSpelling$SpellerThread::lambda$new$3](p1, p0));
+    return;
+}
+
+private static synthetic void lambda$new$3(StyledText p0, Display p1) {
+    if (p0.isDisposed() == 0) goto L8;
+    return;
+    L8:
+    v2 = (Boolean)p0.getData("$UpdatePending");
+    if (v2.booleanValue() != 0) goto L47;
+    p0.setData("$UpdatePending", Boolean.TRUE);
+    p1.timerExec(333, lambda[StyledTextSpelling$SpellerThread::lambda$new$4](p0));
+    L47:
+    return;
+}
+
+private static synthetic void lambda$new$4(StyledText p0) {
+    if (p0.isDisposed() == 0) goto L8;
+    return;
+    L8:
+    p0.setData("$UpdatePending", Boolean.FALSE);
+    p0.redraw();
+    return;
+}
+
+private static synthetic void lambda$new$1(StyledTextSpelling$Speller p0) {
+    p0.initialize();
+    goto L17;
+    // handler for [0,6) catch Exception
+    L9:
+    v1 = $ex;
+    v1.printStackTrace(System.err);
+    L17:
+    return;
+}
+
+// ===== StyledTextSpelling extends Object implements DisposeListener, LineStyleListener, MouseListener, KeyListener
+private static final Map threads_map;
+private static final String $UPDATE_PENDING = "$UpdatePending";
+private StyledTextSpelling$CustomSelector custom_selector;
+private regex.Pattern word_pattern;
+private final StyledText text;
+private StyledTextSpelling$SpellerThread thread;
+private final Color red_color;
+private final int half_char_w;
+static final String[] menu_short_cuts;
+
+public StyledTextSpelling setCustomHandler(StyledTextSpelling$CustomSelector p0) {
+    this.custom_selector = p0;
+    return this;
+}
+
+private static boolean isAllCapital(String p0) {
+    v1 = p0.length();
+    v2 = 0;
+    L7:
+    if (v2 >= v1) goto L31;
+    if (Character.isUpperCase(p0.charAt(v2)) != 0) goto L25;
+    return 0;
+    L25:
+    v2 += 1;
+    goto L7;
+    L31:
+    return 1;
+}
+
+private static boolean isNumber(String p0) {
+    v1 = p0.length();
+    v2 = 0;
+    L7:
+    if (v2 >= v1) goto L31;
+    if (Character.isDigit(p0.charAt(v2)) != 0) goto L25;
+    return 0;
+    L25:
+    v2 += 1;
+    goto L7;
+    L31:
+    return 1;
+}
+
+private static boolean isCamelCase(String p0) {
+    v1 = 0;
+    v2 = 0;
+    v3 = 0;
+    v4 = p0.length();
+    v5 = 0;
+    L15:
+    if (v5 >= v4) goto L75;
+    v6 = p0.charAt(v5);
+    if (Character.isDigit(v6) == 0) goto L44;
+    v3 += 1;
+    goto L69;
+    L44:
+    if (Character.isUpperCase(v6) == 0) goto L58;
+    v1 += 1;
+    goto L69;
+    L58:
+    if (Character.isLowerCase(v6) == 0) goto L69;
+    v2 += 1;
+    L69:
+    v5 += 1;
+    goto L15;
+    L75:
+    if (v1 <= 1) goto L84;
+    if (v2 > 0) goto L96;
+    L84:
+    if (v3 <= 0) goto L100;
+    if (v1 > 0) goto L96;
+    if (v2 <= 0) goto L100;
+    L96:
+    $s0 = 1;
+    goto L101;
+    L100:
+    $s0 = 0;
+    L101:
+    return $s0;
+}
+
+protected static boolean isIdentifier(String p0) {
+    if (p0.contains("_") != 0) goto L18;
+    if (p0.contains("$") == 0) goto L22;
+    L18:
+    $s0 = 1;
+    goto L23;
+    L22:
+    $s0 = 0;
+    L23:
+    return $s0;
+}
+
+public void setWordPatter(String p0) {
+    this.word_pattern = regex.Pattern.compile(p0);
+    return;
+}
+
+public void <init>(StyledText p0, StyledTextSpelling$Speller p1) {
+    super.<init>();
+    this.word_pattern = regex.Pattern.compile("(\\w|')+");
+    this.red_color = p0.getDisplay().getSystemColor(3);
+    v3 = new GC(p0);
+    v3.setFont(p0.getFont());
+    this.half_char_w = v3.getCharWidth(87);
+    v3.dispose();
+    this.text = p0;
+    p0.setData("$UpdatePending", Boolean.FALSE);
+    v4 = StyledTextSpelling.threads_map;
+    monitorenter(StyledTextSpelling.threads_map);
+    this.thread = (StyledTextSpelling$SpellerThread)StyledTextSpelling.threads_map.get(p1);
+    if (this.thread != null) goto L130;
+    this.thread = new StyledTextSpelling$SpellerThread(p0.getDisplay(), p1);
+    StyledTextSpelling.threads_map.put(p1, this.thread);
+    L130:
+    monitorexit(v4);
+    goto L144;
+    // handler for [77,133) catch any
+    // handler for [136,141) catch any
+    L136:
+    v5 = $ex;
+    monitorexit(v4);
+    throw v5;
+    L144:
+    this.thread.addText(p0);
+    p0.addDisposeListener(this);
+    p0.addLineStyleListener(this);
+    p0.addMouseListener(this);
+    p0.addKeyListener(this);
+    return;
+}
+
+public void dispose() {
+    this.text.removeMouseListener(this);
+    this.text.removeLineStyleListener(this);
+    this.text.removeDisposeListener(this);
+    this.text.removeKeyListener(this);
+    return;
+}
+
+public StyleRange getWordAt(int p0, int p1) {
+    v3 = this.text.getOffsetAtPoint(new Point(p0, p1));
+    if (v3 == -1) goto L169;
+    v4 = this.text.getLineAtOffset(v3);
+    v5 = this.text.getOffsetAtLine(v4);
+    v6 = this.text.getLine(v4);
+    v7 = (v3 - v5);
+    v8 = this.word_pattern.matcher(v6);
+    v9 = 0;
+    L74:
+    if (v8.find(v9) == 0) goto L169;
+    v10 = v8.start();
+    v11 = v8.end();
+    if (v10 > v7) goto L162;
+    if (v7 >= v11) goto L162;
+    v12 = v6.substring(v10, v11);
+    v13 = new StyleRange();
+    v13.data = v12;
+    v13.start = (v5 + v10);
+    v13.length = v12.length();
+    return v13;
+    L162:
+    v9 = v11;
+    goto L74;
+    L169:
+    return null;
+}
+
+public void widgetDisposed(DisposeEvent p0) {
+    this.thread.removeText(this.text);
+    return;
+}
+
+public void lineGetStyle(LineStyleEvent p0) {
+    v2 = new ArrayList();
+    v3 = this.word_pattern.matcher(p0.lineText);
+    v4 = 0;
+    L23:
+    if (v3.find(v4) == 0) goto L129;
+    v5 = v3.start();
+    v6 = v3.end();
+    v7 = p0.lineText.substring(v5, v6);
+    if (this.thread.isMisspelled(v7) == 0) goto L122;
+    v8 = new StyleRange((p0.lineOffset + v5), (v6 - v5), null, null);
+    v8.underline = 1;
+    v8.underlineStyle = 3;
+    v8.underlineColor = this.red_color;
+    v2.add(v8);
+    L122:
+    v4 = v6;
+    goto L23;
+    L129:
+    if (v2.isEmpty() != 0) goto L155;
+    $a3 = new StyleRange[0];
+    p0.styles = ([Lorg.eclipse.swt.custom.StyleRange;)v2.toArray($a3);
+    L155:
+    return;
+}
+
+public void mouseDoubleClick(MouseEvent p0) {
+    return;
+}
+
+public void mouseDown(MouseEvent p0) {
+    v2 = this.getWordAt(p0.x, p0.y);
+    if (v2 == null) goto L56;
+    if (p0.button != 3) goto L56;
+    if (this.thread.isMisspelled((String)v2.data) == 0) goto L56;
+    this.showSpellMenu(v2, null, p0.x, p0.y);
+    L56:
+    return;
+}
+
+private void showSpellMenu(StyleRange p0, Set p1, int p2, int p3) {
+    v5 = (String)p0.data;
+    if (p1 != null) goto L26;
+    if (this.thread.isMisspelled(v5) != 0) goto L26;
+    return;
+    L26:
+    v6 = new Menu(this.text);
+    v7 = this.text.toDisplay(p2, p3);
+    v6.setLocation(v7);
+    if (p1 == null) goto L66;
+    $s0 = p1;
+    goto L75;
+    L66:
+    $s0 = this.thread.getSuggestions(v5);
+    L75:
+    v8 = $s0;
+    if (v8.isEmpty() == 0) goto L117;
+    v9 = new MenuItem(v6, 8);
+    v9.setText("no suggestions");
+    v9.setEnabled(0);
+    goto L270;
+    L117:
+    if (v8.size() != 1) goto L168;
+    this.text.replaceTextRange(p0.start, p0.length, (String)v8.iterator().next());
+    this.text.redraw();
+    goto L270;
+    L168:
+    v9 = 0;
+    v10 = v8.iterator();
+    L180:
+    if (v10.hasNext() == 0) goto L270;
+    v11 = (String)v10.next();
+    v12 = (this.get_digit_shortcut(v9) + v11);
+    v9 += 1;
+    if (v9 <= 12) goto L230;
+    goto L270;
+    L230:
+    v13 = new MenuItem(v6, 8);
+    v13.setText(v12);
+    v13.addSelectionListener(SelectionListener.widgetSelectedAdapter(lambda[StyledTextSpelling::lambda$showSpellMenu$0](this, p0, v11)));
+    goto L180;
+    L270:
+    if (p1 != null) goto L359;
+    new MenuItem(v6, 2);
+    v9 = new MenuItem(v6, 8);
+    v9.setText("&Add to dictionary");
+    v9.addSelectionListener(SelectionListener.widgetSelectedAdapter(lambda[StyledTextSpelling::lambda$showSpellMenu$1](this, v5)));
+    v9 = new MenuItem(v6, 8);
+    v9.setText("&Ignore");
+    v9.addSelectionListener(SelectionListener.widgetSelectedAdapter(lambda[StyledTextSpelling::lambda$showSpellMenu$2](this, v5)));
+    L359:
+    v6.setVisible(1);
+    return;
+}
+
+private String get_digit_shortcut(int p0) {
+    if (p0 >= StyledTextSpelling.menu_short_cuts.length) goto L14;
+    return StyledTextSpelling.menu_short_cuts[p0];
+    L14:
+    return "";
+}
+
+public void mouseUp(MouseEvent p0) {
+    return;
+}
+
+public void keyPressed(KeyEvent p0) {
+    if (p0.keyCode != 32) goto L97;
+    if ((p0.stateMask & SWT.MODIFIER_MASK) != 262144) goto L97;
+    v2 = this.text.getCaret().getLocation();
+    v3 = this.getWordAt((v2.x - this.half_char_w), v2.y);
+    if (v3 == null) goto L97;
+    v4 = null;
+    if (this.custom_selector == null) goto L82;
+    v4 = this.custom_selector.getCustomSelection(this.text, v3);
+    L82:
+    this.showSpellMenu(v3, v4, v2.x, v2.y);
+    L97:
+    return;
+}
+
+public void keyReleased(KeyEvent p0) {
+    return;
+}
+
+private synthetic void lambda$showSpellMenu$2(String p0, SelectionEvent p1) {
+    this.thread.add_ignore_word(p0);
+    this.text.redraw();
+    return;
+}
+
+private synthetic void lambda$showSpellMenu$1(String p0, SelectionEvent p1) {
+    this.thread.add_word(p0);
+    this.text.redraw();
+    return;
+}
+
+private synthetic void lambda$showSpellMenu$0(StyleRange p0, String p1, SelectionEvent p2) {
+    this.text.replaceTextRange(p0.start, p0.length, p1);
+    this.text.redraw();
+    return;
+}
+
+static void <clinit>() {
+    StyledTextSpelling.threads_map = Collections.synchronizedMap(new HashMap());
+    $a2 = new String[10];
+    $a2[0] = "&1 ";
+    $a2[1] = "&2 ";
+    $a2[2] = "&3 ";
+    $a2[3] = "&4 ";
+    $a2[4] = "&5 ";
+    $a2[5] = "&6 ";
+    $a2[6] = "&7 ";
+    $a2[7] = "&8 ";
+    $a2[8] = "&9 ";
+    $a2[9] = "&0 ";
+    StyledTextSpelling.menu_short_cuts = $a2;
+    return;
+}

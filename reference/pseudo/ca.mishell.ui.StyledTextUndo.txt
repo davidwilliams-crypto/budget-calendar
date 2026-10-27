@@ -1,0 +1,229 @@
+// ===== StyledTextUndo$Change extends Object 
+final int start;
+final int len;
+final String replaced_text;
+final String added_text;
+static final synthetic boolean $assertionsDisabled;
+final synthetic StyledTextUndo this$0;
+
+public void <init>(StyledTextUndo p0, int p1, int p2, String p3, String p4) {
+    Objects.requireNonNull(p0);
+    this.this$0 = p0;
+    super.<init>();
+    this.start = p1;
+    this.len = p2;
+    this.replaced_text = p3;
+    this.added_text = p4;
+    p0.undo_size = (p0.undo_size + (p3.length() + p4.length()));
+    return;
+}
+
+public String toString() {
+    $a1 = new Object[4];
+    $a1[0] = Integer.valueOf(this.start);
+    $a1[1] = Integer.valueOf(this.len);
+    $a1[2] = this.replaced_text;
+    $a1[3] = this.added_text;
+    return "@%d[%d] '%s' -> '%s'".formatted($a1);
+}
+
+ void dispose() {
+    this.this$0.undo_size = (this.this$0.undo_size - (this.replaced_text.length() + this.added_text.length()));
+    if (StyledTextUndo$Change.$assertionsDisabled != 0) goto L51;
+    if (this.this$0.undo_size >= 0) goto L51;
+    throw new AssertionError();
+    L51:
+    return;
+}
+
+static void <clinit>() {
+    if (StyledTextUndo.desiredAssertionStatus() != 0) goto L12;
+    $s0 = 1;
+    goto L13;
+    L12:
+    $s0 = 0;
+    L13:
+    StyledTextUndo$Change.$assertionsDisabled = $s0;
+    return;
+}
+
+// ===== StyledTextUndo extends Object implements ExtendedModifyListener, KeyListener
+public static int UNLIMITED_UNDO;
+public static int DEFAULT_UNDO;
+private int undo_size;
+private final int undo_size_max;
+private Stack undo_stack;
+private Stack redo_stack;
+private final StyledText st;
+private boolean is_ignore_change;
+private boolean has_dropped_undo;
+
+private void <init>(StyledText p0, int p1) {
+    super.<init>();
+    this.undo_size = 0;
+    this.undo_stack = new Stack();
+    this.redo_stack = new Stack();
+    this.is_ignore_change = 0;
+    this.has_dropped_undo = 0;
+    this.st = p0;
+    this.st.addExtendedModifyListener(this);
+    this.st.addKeyListener(this);
+    if (p1 >= 0) goto L83;
+    if (p1 == StyledTextUndo.UNLIMITED_UNDO) goto L83;
+    throw new IllegalArgumentException("invalid UNDO limit");
+    L83:
+    this.undo_size_max = p1;
+    return;
+}
+
+public static StyledTextUndo addTo(StyledText p0) {
+    return new StyledTextUndo(p0, StyledTextUndo.DEFAULT_UNDO);
+}
+
+public static StyledTextUndo addTo(StyledText p0, int p1) {
+    return new StyledTextUndo(p0, p1);
+}
+
+public void dispose() {
+    this.reset();
+    this.st.removeExtendedModifyListener(this);
+    this.st.removeKeyListener(this);
+    return;
+}
+
+public void modifyText(ExtendedModifyEvent p0) {
+    if (this.is_ignore_change == 0) goto L8;
+    return;
+    L8:
+    if (p0.length != 0) goto L20;
+    $s0 = "";
+    goto L42;
+    L20:
+    $s0 = this.st.getText(p0.start, ((p0.start + p0.length) - 1));
+    L42:
+    v2 = $s0;
+    v3 = null;
+    if (this.undo_stack.isEmpty() != 0) goto L415;
+    v4 = (StyledTextUndo$Change)this.undo_stack.peek();
+    if (p0.length != 0) goto L284;
+    if (p0.replacedText.length() != 1) goto L284;
+    if (v4.replaced_text.isEmpty() != 0) goto L284;
+    v5 = Character.isWhitespace(p0.replacedText.charAt(0));
+    if (p0.start != (v4.start - 1)) goto L193;
+    v6 = Character.isWhitespace(v4.replaced_text.charAt(0));
+    if (v5 != 0) goto L160;
+    if (v5 == v6) goto L160;
+    if (v4.replaced_text.isBlank() == 0) goto L190;
+    L160:
+    v3 = new StyledTextUndo$Change(this, p0.start, 0, (p0.replacedText + v4.replaced_text), "");
+    L190:
+    goto L281;
+    L193:
+    if (p0.start != v4.start) goto L281;
+    v6 = Character.isWhitespace(v4.replaced_text.charAt((v4.replaced_text.length() - 1)));
+    if (v5 != 0) goto L251;
+    if (v5 == v6) goto L251;
+    if (v4.replaced_text.isBlank() == 0) goto L281;
+    L251:
+    v3 = new StyledTextUndo$Change(this, p0.start, 0, (v4.replaced_text + p0.replacedText), "");
+    L281:
+    goto L415;
+    L284:
+    if (v2.length() != 1) goto L415;
+    if ((v4.start + v4.len) != p0.start) goto L415;
+    if (v4.added_text.isEmpty() != 0) goto L415;
+    v5 = Character.isWhitespace(v2.charAt(0));
+    v6 = Character.isWhitespace(v4.added_text.charAt((v4.added_text.length() - 1)));
+    if (v5 != 0) goto L366;
+    if (v5 != v6) goto L415;
+    L366:
+    v3 = new StyledTextUndo$Change(this, v4.start, (v4.len + p0.length), (v4.replaced_text + p0.replacedText), (v4.added_text + v2));
+    L415:
+    if (v3 == null) goto L435;
+    (StyledTextUndo$Change)this.undo_stack.pop().dispose();
+    goto L457;
+    L435:
+    v3 = new StyledTextUndo$Change(this, p0.start, p0.length, p0.replacedText, v2);
+    L457:
+    this.undo_stack.push(v3);
+    L466:
+    if (this.redo_stack.isEmpty() != 0) goto L492;
+    (StyledTextUndo$Change)this.redo_stack.pop().dispose();
+    goto L466;
+    L492:
+    if (this.undo_size_max == StyledTextUndo.UNLIMITED_UNDO) goto L545;
+    L502:
+    if (this.undo_size <= this.undo_size_max) goto L545;
+    if (this.undo_stack.size() <= 0) goto L545;
+    (StyledTextUndo$Change)this.undo_stack.remove(0).dispose();
+    this.has_dropped_undo = 1;
+    goto L502;
+    L545:
+    return;
+}
+
+public void reset() {
+    this.undo_stack.clear();
+    this.redo_stack.clear();
+    this.is_ignore_change = 0;
+    this.undo_size = 0;
+    return;
+}
+
+public void keyPressed(KeyEvent p0) {
+    if ((p0.stateMask & 262144) != 262144) goto L46;
+    if (p0.keyCode != 122) goto L33;
+    this.undo();
+    p0.doit = 0;
+    goto L46;
+    L33:
+    if (p0.keyCode != 121) goto L46;
+    this.redo();
+    L46:
+    return;
+}
+
+public void redo() {
+    if (this.redo_stack.isEmpty() != 0) goto L80;
+    v1 = (StyledTextUndo$Change)this.redo_stack.pop();
+    this.is_ignore_change = 1;
+    this.undo_stack.push(v1);
+    this.st.replaceTextRange(v1.start, v1.replaced_text.length(), v1.added_text);
+    this.st.setSelectionRange(v1.start, v1.added_text.length());
+    this.is_ignore_change = 0;
+    L80:
+    return;
+}
+
+public void undo() {
+    if (this.undo_stack.isEmpty() != 0) goto L77;
+    v1 = (StyledTextUndo$Change)this.undo_stack.pop();
+    this.is_ignore_change = 1;
+    this.redo_stack.push(v1);
+    this.st.replaceTextRange(v1.start, v1.len, v1.replaced_text);
+    this.st.setSelectionRange(v1.start, v1.replaced_text.length());
+    this.is_ignore_change = 0;
+    L77:
+    return;
+}
+
+public boolean isPristine() {
+    if (this.has_dropped_undo != 0) goto L21;
+    if (this.undo_stack.isEmpty() == 0) goto L21;
+    $s0 = 1;
+    goto L22;
+    L21:
+    $s0 = 0;
+    L22:
+    return $s0;
+}
+
+public void keyReleased(KeyEvent p0) {
+    return;
+}
+
+static void <clinit>() {
+    StyledTextUndo.UNLIMITED_UNDO = -1;
+    StyledTextUndo.DEFAULT_UNDO = 102400;
+    return;
+}

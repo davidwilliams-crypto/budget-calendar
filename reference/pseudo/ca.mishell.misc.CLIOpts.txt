@@ -1,0 +1,787 @@
+// ===== CLIOpts$Arg extends Enum 
+public static final enum CLIOpts$Arg no_argment;
+public static final enum CLIOpts$Arg required_argument;
+private static final synthetic CLIOpts$Arg[] $VALUES;
+
+public static CLIOpts$Arg[] values() {
+    return ([Lca.mishell.misc.CLIOpts$Arg;)CLIOpts$Arg.$VALUES.clone();
+}
+
+public static CLIOpts$Arg valueOf(String p0) {
+    return (CLIOpts$Arg)Enum.valueOf(CLIOpts$Arg, p0);
+}
+
+private void <init>(String p0, int p1) {
+    super.<init>(p0, p1);
+    return;
+}
+
+private static synthetic CLIOpts$Arg[] $values() {
+    $a1 = new CLIOpts$Arg[2];
+    $a1[0] = CLIOpts$Arg.no_argment;
+    $a1[1] = CLIOpts$Arg.required_argument;
+    return $a1;
+}
+
+static void <clinit>() {
+    CLIOpts$Arg.no_argment = new CLIOpts$Arg("no_argment", 0);
+    CLIOpts$Arg.required_argument = new CLIOpts$Arg("required_argument", 1);
+    CLIOpts$Arg.$VALUES = CLIOpts$Arg.$values();
+    return;
+}
+
+// ===== CLIOpts$CustomSetters extends Object 
+ reflect.Method setterS;
+ reflect.Method setterV;
+
+private void <init>() {
+    super.<init>();
+    return;
+}
+
+static CLIOpts$CustomSetters get(Object p0, String p1) {
+    v2 = ("set" + p1.substring(0, 1).toUpperCase() + p1.substring(1));
+    v3 = null;
+    v4 = null;
+    $a1 = new Class[1];
+    $a1[0] = String;
+    v3 = p0.getClass().getMethod(v2, $a1);
+    goto L48;
+    // handler for [25,43) catch NoSuchMethodException
+    L46:
+    v5 = $ex;
+    L48:
+    $a2 = new Class[0];
+    v4 = p0.getClass().getMethod(v2, $a2);
+    goto L67;
+    // handler for [48,62) catch NoSuchMethodException
+    L65:
+    v5 = $ex;
+    L67:
+    if (v3 != null) goto L76;
+    if (v4 == null) goto L101;
+    L76:
+    v5 = new CLIOpts$CustomSetters();
+    v5.setterS = v3;
+    v5.setterV = v4;
+    return v5;
+    L101:
+    return null;
+}
+
+// ===== CLIOpts$DESCRIPTION extends Object implements annotation.Annotation
+
+public abstract String value();
+
+// ===== CLIOpts$Error extends Enum 
+public static final enum CLIOpts$Error ILLEGAL_OPTION;
+public static final enum CLIOpts$Error ILLEGAL_ARGUMENT;
+public static final enum CLIOpts$Error ARGUMENT_IS_MISSING;
+private static final synthetic CLIOpts$Error[] $VALUES;
+
+public static CLIOpts$Error[] values() {
+    return ([Lca.mishell.misc.CLIOpts$Error;)CLIOpts$Error.$VALUES.clone();
+}
+
+public static CLIOpts$Error valueOf(String p0) {
+    return (CLIOpts$Error)Enum.valueOf(CLIOpts$Error, p0);
+}
+
+private void <init>(String p0, int p1) {
+    super.<init>(p0, p1);
+    return;
+}
+
+private static synthetic CLIOpts$Error[] $values() {
+    $a1 = new CLIOpts$Error[3];
+    $a1[0] = CLIOpts$Error.ILLEGAL_OPTION;
+    $a1[1] = CLIOpts$Error.ILLEGAL_ARGUMENT;
+    $a1[2] = CLIOpts$Error.ARGUMENT_IS_MISSING;
+    return $a1;
+}
+
+static void <clinit>() {
+    CLIOpts$Error.ILLEGAL_OPTION = new CLIOpts$Error("ILLEGAL_OPTION", 0);
+    CLIOpts$Error.ILLEGAL_ARGUMENT = new CLIOpts$Error("ILLEGAL_ARGUMENT", 1);
+    CLIOpts$Error.ARGUMENT_IS_MISSING = new CLIOpts$Error("ARGUMENT_IS_MISSING", 2);
+    CLIOpts$Error.$VALUES = CLIOpts$Error.$values();
+    return;
+}
+
+// ===== CLIOpts$NOTES extends Object implements annotation.Annotation
+
+public abstract String value();
+
+// ===== CLIOpts$Opt extends Object 
+public final String name;
+public final CLIOpts$Arg has_arg;
+public final int val;
+
+public void <init>(String p0, CLIOpts$Arg p1, int p2) {
+    super.<init>();
+    this.name = p0;
+    this.has_arg = p1;
+    this.val = p2;
+    return;
+}
+
+public String toString() {
+    $a1 = new Object[4];
+    $a1[0] = Integer.valueOf(this.val);
+    $a1[1] = Integer.valueOf(this.val);
+    $a1[2] = this.name;
+    $s0 = "['%c'(%d)]%s%s;";
+    $s1 = $a1;
+    $s2 = $a1;
+    $s3 = 3;
+    if (this.has_arg != CLIOpts$Arg.no_argment) goto L50;
+    $s0 = "['%c'(%d)]%s%s;";
+    $s1 = $a1;
+    $s2 = $a1;
+    $s3 = 3;
+    $s4 = "";
+    goto L52;
+    L50:
+    $s4 = "=";
+    L52:
+    $s2[$s3] = $s4;
+    return String.format($s0, $s1);
+}
+
+// ===== CLIOpts$OptProcArg extends CLIOpts$Opt 
+private final CLIOpts$OptValueConsumer proc;
+
+public void <init>(String p0, CLIOpts$OptValueConsumer p1) {
+    super.<init>(p0, CLIOpts$Arg.required_argument, 0);
+    this.proc = p1;
+    return;
+}
+
+// ===== CLIOpts$OptProcNoArg extends CLIOpts$Opt 
+private final CLIOpts$OptValueConsumer proc;
+
+public void <init>(String p0, CLIOpts$OptValueConsumer p1) {
+    super.<init>(p0, CLIOpts$Arg.no_argment, 0);
+    this.proc = p1;
+    return;
+}
+
+// ===== CLIOpts$OptValueConsumer extends Object 
+
+public abstract void accept(String p0);
+
+// ===== CLIOpts$REQUIRED extends Object implements annotation.Annotation
+
+// ===== CLIOpts extends Object 
+protected final String[] argv;
+protected final String progname;
+private char optopt;
+private int optind;
+private int in_elm_pos;
+private int longind;
+private String optarg;
+private String lastOption;
+public static boolean opterr;
+private static final String $NO_DESCRIPTION = "      @@@ NO DESCRIPTION @@@\n";
+public static boolean is_debugging;
+
+public void <init>(String p0, String[] p1) {
+    super.<init>();
+    this.optopt = 0;
+    this.optind = 0;
+    this.in_elm_pos = 1;
+    this.longind = -1;
+    this.optarg = null;
+    this.lastOption = null;
+    this.progname = p0;
+    this.argv = p1;
+    return;
+}
+
+public static transient/varargs String[] parse(String p0, String[] p1, CLIOpts$Opt[] p2) {
+    return CLIOpts.parse(p0, p1, Collections.emptySet(), Collections.emptySet(), p2);
+}
+
+public static transient/varargs String[] parse(String p0, String[] p1, Set p2, Set p3, CLIOpts$Opt[] p4) {
+    v5 = new HashSet();
+    v6 = p4;
+    v7 = v6.length;
+    v8 = 0;
+    L21:
+    if (v8 >= v7) goto L100;
+    v9 = v6[v8];
+    if (v5.add(v9.name) != 0) goto L68;
+    throw new IllegalArgumentException(("option '" + v9.name + "' duplicated"));
+    L68:
+    if ((v9 instanceof CLIOpts$OptProcArg) != 0) goto L94;
+    if ((v9 instanceof CLIOpts$OptProcNoArg) != 0) goto L94;
+    throw new IllegalArgumentException("invalid type of Opt");
+    L94:
+    v8 += 1;
+    goto L21;
+    L100:
+    v6 = new CLIOpts(p0, p1);
+    v8 = 0;
+    v9 = new HashSet();
+    v10 = 0;
+    L126:
+    $t6 = v6.getoptLong(null, p4);
+    v7 = $t6;
+    if (-1 == $t6) goto L238;
+    if (v7 == 63) goto L155;
+    if (v7 != 58) goto L161;
+    L155:
+    v8 = 1;
+    goto L126;
+    L161:
+    v11 = v6.option().substring(2);
+    v10 = (v10 | v11.equals("help"));
+    if (p3.contains(v11) != 0) goto L227;
+    if (v9.contains(v11) == 0) goto L227;
+    $a8 = new Object[1];
+    $a8[0] = v11;
+    throw new IllegalArgumentException("a command line option '%s' is not repeatable.".formatted($a8));
+    L227:
+    v9.add(v11);
+    goto L126;
+    L238:
+    if (v8 == 0) goto L253;
+    throw new IllegalArgumentException("illegal command line");
+    L253:
+    if (v10 != 0) goto L328;
+    if (p2.isEmpty() != 0) goto L328;
+    v11 = p2.iterator();
+    L275:
+    if (v11.hasNext() == 0) goto L318;
+    v12 = (String)v11.next();
+    $a10 = new Object[1];
+    $a10[0] = v12;
+    System.err.printf("Required option '--%s' is missing\n", $a10);
+    goto L275;
+    L318:
+    throw new IllegalArgumentException("command line is missing required option(s)");
+    L328:
+    return v6.getArgs();
+}
+
+public int getopt(String p0) {
+    return this.getoptLong(p0, null);
+}
+
+public String optarg() {
+    return this.optarg;
+}
+
+public char optopt() {
+    return this.optopt;
+}
+
+public String option() {
+    return this.lastOption;
+}
+
+public int optind() {
+    return this.optind;
+}
+
+public int longindex() {
+    return this.longind;
+}
+
+public String[] getArgs() {
+    if (this.optind >= this.argv.length) goto L43;
+    $a1 = new String[(this.argv.length - this.optind)];
+    v1 = $a1;
+    System.arraycopy(this.argv, this.optind, v1, 0, v1.length);
+    return v1;
+    L43:
+    $a2 = new String[0];
+    return $a2;
+}
+
+public int getoptLong(String p0, CLIOpts$Opt[] p1) {
+    this.optarg = null;
+    this.longind = -1;
+    this.lastOption = null;
+    v3 = 0;
+    v4 = 63;
+    if (p0 == null) goto L79;
+    if (p0.startsWith("+") == 0) goto L43;
+    p0 = p0.substring(1);
+    goto L60;
+    L43:
+    if (p0.startsWith("-") == 0) goto L60;
+    p0 = p0.substring(1);
+    v3 = 1;
+    L60:
+    if (p0.startsWith(":") == 0) goto L79;
+    p0 = p0.substring(1);
+    v4 = 58;
+    L79:
+    if (this.in_elm_pos != 1) goto L646;
+    if (this.optind < this.argv.length) goto L112;
+    this.optopt = 0;
+    this.lastOption = "\ufffd\ufffd";
+    return -1;
+    L112:
+    if (this.argv[this.optind].isEmpty() != 0) goto L145;
+    if (this.argv[this.optind].charAt(0) == 45) goto L195;
+    L145:
+    if (v3 == 0) goto L193;
+    this.optopt = 1;
+    this.lastOption = Character.toString(this.optopt);
+    this.optarg = this.argv[this.optind];
+    this.optind = (this.optind + 1);
+    return this.optopt;
+    L193:
+    return -1;
+    L195:
+    if (this.argv[this.optind].length() != 1) goto L225;
+    this.optopt = 45;
+    this.lastOption = "-";
+    return -1;
+    L225:
+    if (this.argv[this.optind].equals("--") == 0) goto L265;
+    this.optind = (this.optind + 1);
+    this.lastOption = "--";
+    this.optopt = 0;
+    return -1;
+    L265:
+    if (this.argv[this.optind].startsWith("--") == 0) goto L646;
+    v5 = this.argv[this.optind].indexOf("=");
+    if (-1 == v5) goto L322;
+    $s0 = this.argv[this.optind].substring(2, v5);
+    goto L335;
+    L322:
+    $s0 = this.argv[this.optind].substring(2);
+    L335:
+    v6 = $s0;
+    this.lastOption = ("--" + v6);
+    v7 = 63;
+    v8 = null;
+    if (p1 == null) goto L405;
+    v9 = 0;
+    L362:
+    if (v9 >= p1.length) goto L405;
+    if (v6.equals(p1[v9].name) == 0) goto L399;
+    v8 = p1[v9];
+    this.longind = v9;
+    goto L405;
+    L399:
+    v9 += 1;
+    goto L362;
+    L405:
+    if (v8 != null) goto L420;
+    this.printError(CLIOpts$Error.ILLEGAL_OPTION);
+    goto L546;
+    L420:
+    this.optopt = (char)v8.val;
+    v7 = v8.val;
+    if (v8.has_arg != CLIOpts$Arg.no_argment) goto L468;
+    if (-1 == v5) goto L546;
+    this.printError(CLIOpts$Error.ILLEGAL_ARGUMENT);
+    v7 = 63;
+    goto L546;
+    L468:
+    if (-1 == v5) goto L497;
+    this.optarg = this.argv[this.optind].substring((v5 + 1));
+    goto L546;
+    L497:
+    this.optind = (this.optind + 1);
+    if (this.optind != this.argv.length) goto L533;
+    this.printError(CLIOpts$Error.ARGUMENT_IS_MISSING);
+    v7 = v4;
+    goto L546;
+    L533:
+    this.optarg = this.argv[this.optind];
+    L546:
+    this.optind = (this.optind + 1);
+    if ((v8 instanceof CLIOpts$OptProcArg) == 0) goto L602;
+    v9 = (CLIOpts$OptProcArg)v8;
+    v9.proc.accept(this.optarg);
+    goto L643;
+    // handler for [571,585) catch Exception
+    L588:
+    v11 = $ex;
+    v7 = 63;
+    v11.printStackTrace();
+    goto L643;
+    L602:
+    if ((v8 instanceof CLIOpts$OptProcNoArg) == 0) goto L643;
+    v10 = (CLIOpts$OptProcNoArg)v8;
+    v10.proc.accept(v6);
+    goto L643;
+    // handler for [617,629) catch Exception
+    L632:
+    v11 = $ex;
+    v7 = 63;
+    v11.printStackTrace();
+    L643:
+    return v7;
+    L646:
+    v6 = this.argv[this.optind].length();
+    v7 = this.argv[this.optind].charAt(this.in_elm_pos);
+    this.optopt = v7;
+    this.lastOption = ("-" + v7);
+    if (p0 == null) goto L712;
+    $t1 = p0.indexOf(v7);
+    v5 = $t1;
+    if (-1 != $t1) goto L759;
+    L712:
+    v7 = 63;
+    this.printError(CLIOpts$Error.ILLEGAL_OPTION);
+    if (this.in_elm_pos >= (v6 - 1)) goto L894;
+    this.optarg = this.argv[this.optind].substring((this.in_elm_pos + 1));
+    goto L894;
+    L759:
+    if (p0.length() <= (v5 + 1)) goto L870;
+    if (p0.charAt((v5 + 1)) != 58) goto L870;
+    if ((this.in_elm_pos + 1) >= v6) goto L819;
+    this.optarg = this.argv[this.optind].substring((this.in_elm_pos + 1));
+    goto L894;
+    L819:
+    if ((this.optind + 1) >= this.argv.length) goto L856;
+    $t2 = (this.optind + 1);
+    this.optind = $t2;
+    this.optarg = this.argv[$t2];
+    goto L894;
+    L856:
+    v7 = v4;
+    this.printError(CLIOpts$Error.ARGUMENT_IS_MISSING);
+    goto L894;
+    L870:
+    if ((this.in_elm_pos + 1) >= v6) goto L894;
+    this.in_elm_pos = (this.in_elm_pos + 1);
+    return v7;
+    L894:
+    this.optind = (this.optind + 1);
+    this.in_elm_pos = 1;
+    return v7;
+}
+
+public static String[] argsFromFile(File p0) {
+    $a1 = new String[0];
+    return ([Ljava.lang.String;)java.nio.file.Files.readAllLines(p0.toPath()).stream().filter(lambda[CLIOpts::lambda$argsFromFile$0]()).toList().toArray($a1);
+}
+
+private void printError(CLIOpts$Error p0) {
+    if (CLIOpts.opterr == 0) goto L99;
+    switch (p0.ordinal()) { 0: L36, 1: L58, 2: L80; default: L99 }
+    L36:
+    System.err.println((this.progname + ": illegal option -- '" + this.lastOption + "'"));
+    goto L99;
+    L58:
+    System.err.println((this.progname + ": no argument allowed for -- '" + this.lastOption + "'"));
+    goto L99;
+    L80:
+    System.err.println((this.progname + ": option requires an argument -- '" + this.lastOption + "'"));
+    L99:
+    return;
+}
+
+public static void printHelpMessage(Object p0, String p1, PrintStream p2) {
+    v3 = (CLIOpts$DESCRIPTION)p0.getClass().getAnnotation(CLIOpts$DESCRIPTION);
+    if (v3 == null) goto L42;
+    $a1 = new Object[1];
+    $a1[0] = p1;
+    p2.println(v3.value().formatted($a1));
+    goto L52;
+    L42:
+    p2.println((p1 + "      @@@ NO DESCRIPTION @@@\n"));
+    L52:
+    v4 = p0.getClass().getFields();
+    v5 = v4.length;
+    v6 = 0;
+    L69:
+    if (v6 >= v5) goto L587;
+    v7 = v4[v6];
+    v8 = v7.getModifiers();
+    if (reflect.Modifier.isStatic(v8) != 0) goto L581;
+    if (reflect.Modifier.isTransient(v8) != 0) goto L581;
+    if (reflect.Modifier.isFinal(v8) != 0) goto L581;
+    v9 = v7.getType();
+    v10 = v7.getName();
+    v11 = null;
+    if (CLIOpts$CustomSetters.get(p0, v10) == null) goto L148;
+    v12 = "?";
+    goto L440;
+    L148:
+    if (v9 != String) goto L174;
+    v11 = "=<string>";
+    v12 = (String)v7.get(p0);
+    goto L440;
+    L174:
+    if (v9 != Boolean.TYPE) goto L203;
+    v11 = "";
+    v12 = (v7.getBoolean(p0));
+    goto L440;
+    L203:
+    if (v9 != Integer.TYPE) goto L232;
+    v11 = "=<integer>";
+    v12 = (v7.getInt(p0));
+    goto L440;
+    L232:
+    if (v9 != Double.TYPE) goto L261;
+    v11 = "=<double>";
+    v12 = (v7.getDouble(p0));
+    goto L440;
+    L261:
+    if (v9 != [Ljava.lang.String;) goto L308;
+    v11 = "=<string>(+)";
+    v13 = ([Ljava.lang.String;)v7.get(p0);
+    v12 = "";
+    if (v13 == null) goto L305;
+    v12 = String.join(",", v13);
+    L305:
+    goto L440;
+    L308:
+    if (v9.isEnum() == 0) goto L425;
+    v13 = (Enum)v7.get(p0);
+    v12 = "";
+    if (v13 == null) goto L422;
+    v12 = v13.name();
+    $a2 = new Class[0];
+    $a3 = new Object[0];
+    v14 = ([Ljava.lang.Enum;)v9.getMethod("values", $a2).invoke(null, $a3);
+    $a4 = new String[v14.length];
+    v15 = $a4;
+    v16 = 0;
+    L380:
+    if (v16 >= v14.length) goto L407;
+    v15[v16] = v14[v16].name();
+    v16 += 1;
+    goto L380;
+    L407:
+    v11 = ("=<" + String.join("|", v15) + ">");
+    L422:
+    goto L440;
+    L425:
+    throw new IllegalArgumentException(("illegal field type '" + v10 + "'"));
+    L440:
+    if (v11 == null) goto L515;
+    $a6 = new Object[2];
+    $a7 = new Object[2];
+    $a7[0] = v10;
+    $a7[1] = v11;
+    $a6[0] = "%s%s".formatted($a7);
+    $s0 = p2;
+    $s1 = "  --%-30s %s\n";
+    $s2 = $a6;
+    $s3 = $a6;
+    $s4 = 1;
+    if (v7.isAnnotationPresent(CLIOpts$REQUIRED) == 0) goto L495;
+    $s0 = p2;
+    $s1 = "  --%-30s %s\n";
+    $s2 = $a6;
+    $s3 = $a6;
+    $s4 = 1;
+    $s5 = "*REQUIRED*";
+    goto L510;
+    L495:
+    $a8 = new Object[1];
+    $a8[0] = v12;
+    $s5 = "[%s]".formatted($a8);
+    L510:
+    $s3[$s4] = $s5;
+    $s0.printf($s1, $s2);
+    L515:
+    v3 = (CLIOpts$DESCRIPTION)v7.getAnnotation(CLIOpts$DESCRIPTION);
+    $s0 = p2;
+    if (v3 == null) goto L555;
+    $s0 = p2;
+    $s1 = v3.value();
+    if (v11 == null) goto L548;
+    $s0 = p2;
+    $s1 = v3.value();
+    $s2 = 8;
+    goto L549;
+    L548:
+    $s2 = 0;
+    L549:
+    $s1 = $s1.indent($s2);
+    goto L578;
+    L555:
+    if (v11 != null) goto L570;
+    $s1 = ("  --" + v10);
+    goto L573;
+    L570:
+    $s1 = "";
+    L573:
+    $s1 = ($s1 + "      @@@ NO DESCRIPTION @@@\n");
+    L578:
+    $s0.println($s1);
+    L581:
+    v6 += 1;
+    goto L69;
+    L587:
+    v4 = (CLIOpts$NOTES)p0.getClass().getAnnotation(CLIOpts$NOTES);
+    if (v3 == null) goto L617;
+    p2.println(v4.value());
+    L617:
+    return;
+}
+
+public static String[] parseInto(Object p0, String p1, String[] p2) {
+    v3 = new LinkedList();
+    v4 = new HashSet();
+    v5 = new HashSet();
+    v6 = 0;
+    v7 = p0.getClass().getFields();
+    v8 = v7.length;
+    v9 = 0;
+    L46:
+    if (v9 >= v8) goto L469;
+    v10 = v7[v9];
+    v11 = v10.getModifiers();
+    if (reflect.Modifier.isStatic(v11) != 0) goto L463;
+    if (reflect.Modifier.isTransient(v11) != 0) goto L463;
+    if (reflect.Modifier.isFinal(v11) != 0) goto L463;
+    v12 = v10.getType();
+    v13 = v10.getName();
+    v6 = (v6 | v13.equals("help"));
+    v15 = CLIOpts$CustomSetters.get(p0, v13);
+    if (v15 == null) goto L198;
+    v5.add(v13);
+    if (v15.setterS == null) goto L172;
+    v14 = new CLIOpts$OptProcArg(v13, lambda[CLIOpts::lambda$parseInto$0](v15, p0, v4, v13));
+    goto L437;
+    L172:
+    v14 = new CLIOpts$OptProcNoArg(v13, lambda[CLIOpts::lambda$parseInto$1](v15, p0, v4, v13));
+    goto L437;
+    L198:
+    if (v12 != String) goto L231;
+    v14 = new CLIOpts$OptProcArg(v13, lambda[CLIOpts::lambda$parseInto$2](v10, p0, v4, v13));
+    goto L437;
+    L231:
+    if (v12 != Boolean.TYPE) goto L265;
+    v14 = new CLIOpts$OptProcNoArg(v13, lambda[CLIOpts::lambda$parseInto$3](v10, p0, v4, v13));
+    goto L437;
+    L265:
+    if (v12 != Integer.TYPE) goto L299;
+    v14 = new CLIOpts$OptProcArg(v13, lambda[CLIOpts::lambda$parseInto$4](v10, p0, v4, v13));
+    goto L437;
+    L299:
+    if (v12 != Double.TYPE) goto L333;
+    v14 = new CLIOpts$OptProcArg(v13, lambda[CLIOpts::lambda$parseInto$5](v10, p0, v4, v13));
+    goto L437;
+    L333:
+    if (v12 != [Ljava.lang.String;) goto L388;
+    v5.add(v13);
+    v16 = ([Ljava.lang.String;)v10.get(p0);
+    v14 = new CLIOpts$OptProcArg(v13, lambda[CLIOpts::lambda$parseInto$6](v10, p0, v16, v4, v13));
+    goto L437;
+    L388:
+    if (v12.isEnum() == 0) goto L422;
+    v14 = new CLIOpts$OptProcArg(v13, lambda[CLIOpts::lambda$parseInto$7](v10, p0, v4, v13));
+    goto L437;
+    L422:
+    throw new IllegalArgumentException(("unsupported field type '" + v13 + "'"));
+    L437:
+    v3.add(v14);
+    if (v10.isAnnotationPresent(CLIOpts$REQUIRED) == 0) goto L463;
+    v4.add(v13);
+    L463:
+    v9 += 1;
+    goto L46;
+    L469:
+    if (v3.isEmpty() == 0) goto L487;
+    throw new IllegalArgumentException("no public fields declared");
+    L487:
+    if (v6 != 0) goto L513;
+    v3.add(new CLIOpts$OptProcNoArg("help", lambda[CLIOpts::lambda$parseInto$8](p0, p1)));
+    L513:
+    $a15 = new CLIOpts$Opt[0];
+    return CLIOpts.parse(p1, p2, v4, v5, ([Lca.mishell.misc.CLIOpts$Opt;)v3.toArray($a15));
+}
+
+private static synthetic void lambda$parseInto$8(Object p0, String p1, String p2) {
+    CLIOpts.printHelpMessage(p0, p1, System.out);
+    if (CLIOpts.is_debugging != 0) goto L18;
+    System.exit(0);
+    L18:
+    return;
+}
+
+private static synthetic void lambda$parseInto$7(reflect.Field p0, Object p1, HashSet p2, String p3, String p4) {
+    $a1 = new Class[1];
+    $a1[0] = String;
+    $a2 = new Object[1];
+    $a2[0] = p4;
+    p0.set(p1, p0.getType().getMethod("valueOf", $a1).invoke(null, $a2));
+    p2.remove(p3);
+    return;
+}
+
+private static synthetic void lambda$parseInto$6(reflect.Field p0, Object p1, String[] p2, HashSet p3, String p4, String p5) {
+    v6 = ([Ljava.lang.String;)p0.get(p1);
+    if (v6 == null) goto L21;
+    if (v6 != p2) goto L30;
+    L21:
+    $a1 = new String[1];
+    v7 = $a1;
+    goto L52;
+    L30:
+    $a2 = new String[(v6.length + 1)];
+    v7 = $a2;
+    System.arraycopy(v6, 0, v7, 0, v6.length);
+    L52:
+    v7[(v7.length - 1)] = p5;
+    p0.set(p1, v7);
+    p3.remove(p4);
+    return;
+}
+
+private static synthetic void lambda$parseInto$5(reflect.Field p0, Object p1, HashSet p2, String p3, String p4) {
+    p0.set(p1, Double.valueOf(Double.parseDouble(p4)));
+    p2.remove(p3);
+    return;
+}
+
+private static synthetic void lambda$parseInto$4(reflect.Field p0, Object p1, HashSet p2, String p3, String p4) {
+    p0.set(p1, Integer.valueOf(Integer.parseInt(p4)));
+    p2.remove(p3);
+    return;
+}
+
+private static synthetic void lambda$parseInto$3(reflect.Field p0, Object p1, HashSet p2, String p3, String p4) {
+    p0.setBoolean(p1, 1);
+    p2.remove(p3);
+    return;
+}
+
+private static synthetic void lambda$parseInto$2(reflect.Field p0, Object p1, HashSet p2, String p3, String p4) {
+    p0.set(p1, p4);
+    p2.remove(p3);
+    return;
+}
+
+private static synthetic void lambda$parseInto$1(CLIOpts$CustomSetters p0, Object p1, HashSet p2, String p3, String p4) {
+    $a1 = new Object[0];
+    p0.setterV.invoke(p1, $a1);
+    p2.remove(p3);
+    return;
+}
+
+private static synthetic void lambda$parseInto$0(CLIOpts$CustomSetters p0, Object p1, HashSet p2, String p3, String p4) {
+    $a1 = new Object[1];
+    $a1[0] = p4;
+    p0.setterS.invoke(p1, $a1);
+    p2.remove(p3);
+    return;
+}
+
+private static synthetic boolean lambda$argsFromFile$0(String p0) {
+    if (p0.startsWith("#") != 0) goto L14;
+    $s0 = 1;
+    goto L15;
+    L14:
+    $s0 = 0;
+    L15:
+    return $s0;
+}
+
+static void <clinit>() {
+    CLIOpts.opterr = 1;
+    CLIOpts.is_debugging = 0;
+    return;
+}

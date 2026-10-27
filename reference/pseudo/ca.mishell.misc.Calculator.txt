@@ -1,0 +1,245 @@
+// ===== Calculator$CalcDouble extends Object 
+ double doubleValue;
+
+private void <init>() {
+    super.<init>();
+    return;
+}
+
+// ===== Calculator extends Object 
+private static final NumberFormat parseFmt;
+private static final String $ETX = "\u2386";
+private static final ParsePosition parsePos;
+
+public void <init>() {
+    super.<init>();
+    return;
+}
+
+private static boolean isNumber(String p0, Calculator$CalcDouble p1) {
+    if (p0.contains("%") == 0) goto L18;
+    p0 = p0.replaceAll("%", "");
+    L18:
+    v2 = p0.length();
+    if (p0.startsWith("+") == 0) goto L49;
+    if (v2 != 1) goto L39;
+    return 0;
+    L39:
+    Calculator.parsePos.setIndex(1);
+    goto L56;
+    L49:
+    Calculator.parsePos.setIndex(0);
+    L56:
+    v3 = 1.0;
+    v5 = Calculator.parseFmt.parse(p0, Calculator.parsePos);
+    if (v5 != null) goto L77;
+    return 0;
+    L77:
+    v6 = v5.doubleValue();
+    if (Calculator.parsePos.getIndex() >= v2) goto L218;
+    if ((Calculator.parsePos.getIndex() + 1) == v2) goto L108;
+    return 0;
+    L108:
+    switch (p0.charAt((v2 - 1))) { 66: L202, 75: L188, 77: L195, 84: L209, 98: L202, 107: L188, 109: L195, 116: L209; default: L216 }
+    L188:
+    v3 = 1000.0;
+    goto L218;
+    L195:
+    v3 = 1000000.0;
+    goto L218;
+    L202:
+    v3 = 1000000000.0;
+    goto L218;
+    L209:
+    v3 = 1000000000000.0;
+    goto L218;
+    L216:
+    return 0;
+    L218:
+    if (p1 == null) goto L230;
+    p1.doubleValue = (v6 * v3);
+    L230:
+    return 1;
+}
+
+private static String next_token(StringTokenizer p0) {
+    L0:
+    if (p0.hasMoreTokens() == 0) goto L34;
+    v1 = p0.nextToken().trim().replaceAll("\\$", "");
+    if (v1.isEmpty() != 0) goto L31;
+    return v1;
+    L31:
+    goto L0;
+    L34:
+    return null;
+}
+
+private static Exception syntax_exception(String p0) {
+    if (p0.equals("\u2386") == 0) goto L19;
+    return new Exception("Unexpected end of expression");
+    L19:
+    return new Exception(("Syntax error near '" + p0 + "'"));
+}
+
+private static void calc(Stack p0, String p1) {
+    v2 = new Calculator$CalcDouble();
+    if (Calculator.isNumber(p1, v2) == 0) goto L31;
+    p0.push(Double.valueOf(v2.doubleValue));
+    goto L175;
+    L31:
+    if (p0.size() >= 2) goto L49;
+    throw new Exception("Not enough operands in the stack");
+    L49:
+    v3 = (Double)p0.pop().doubleValue();
+    v5 = (Double)p0.pop().doubleValue();
+    switch (p1.charAt(0)) { 42: L134, 43: L116, 44: L165, 45: L125, 46: L165, 47: L143; default: L165 }
+    L116:
+    v5 = (v5 + v3);
+    goto L165;
+    L125:
+    v5 = (v5 - v3);
+    goto L165;
+    L134:
+    v5 = (v5 * v3);
+    goto L165;
+    L143:
+    if (v3 != 0.0) goto L159;
+    throw new Exception("Division by zero!");
+    L159:
+    v5 = (v5 / v3);
+    L165:
+    p0.push(Double.valueOf(v5));
+    L175:
+    return;
+}
+
+public static synchronized double calculate(String p0) {
+    return Calculator.calculate(p0, 0.0, 0.0);
+}
+
+public static synchronized double calculate(String p0, double p1, double p2) {
+    if (p0.trim().isEmpty() == 0) goto L20;
+    throw new Exception("Empty expression");
+    L20:
+    v5 = new Stack();
+    v6 = new StringTokenizer((p0 + "\u2386"), " \t+-/*()\u2386", 1);
+    Calculator.process_expr(v5, v6, p1, p2);
+    if (v5.size() != 1) goto L73;
+    if (v6.hasMoreTokens() == 0) goto L79;
+    L73:
+    throw Calculator.syntax_exception("\u2386");
+    L79:
+    return (Double)v5.pop().doubleValue();
+}
+
+private static int weight(String p0) {
+    switch (p0.charAt(0)) { 42: L48, 43: L44, 44: L52, 45: L44, 46: L52, 47: L48; default: L52 }
+    L44:
+    $s0 = 1;
+    goto L53;
+    L48:
+    $s0 = 2;
+    goto L53;
+    L52:
+    $s0 = -1;
+    L53:
+    return $s0;
+}
+
+private static void process_expr(Stack p0, StringTokenizer p1, double p2, double p3) {
+    v7 = 1;
+    v8 = new Stack();
+    L12:
+    $t2 = Calculator.next_token(p1);
+    v6 = $t2;
+    if (null == $t2) goto L423;
+    if (v7 == 0) goto L296;
+    v9 = "-+".indexOf(v6.charAt(0));
+    if (v9 == -1) goto L89;
+    v6 = Calculator.next_token(p1);
+    if (v6 != null) goto L64;
+    throw Calculator.syntax_exception("\u2386");
+    L64:
+    if (Calculator.isNumber(v6, null) != 0) goto L89;
+    if (v6.equals("(") != 0) goto L89;
+    throw Calculator.syntax_exception(v6);
+    L89:
+    if (v6.equals("(") == 0) goto L130;
+    Calculator.process_expr(p0, p1, p2, p3);
+    if (v9 != 0) goto L124;
+    Calculator.calc(p0, "-1");
+    Calculator.calc(p0, "*");
+    L124:
+    v7 = 0;
+    goto L12;
+    L130:
+    if (v6.startsWith("%%") != 0) goto L150;
+    if (v6.startsWith("%") == 0) goto L252;
+    L150:
+    if (v9 != 0) goto L161;
+    $s0 = -1.0;
+    goto L162;
+    L161:
+    $s0 = 1.0;
+    L162:
+    v10 = $s0;
+    if (v6.startsWith("%%") == 0) goto L209;
+    v6 = ((((Calculator.parseFmt.parse(v6.substring(2)).doubleValue() * p3) / 100.0) * v10));
+    goto L240;
+    L209:
+    v6 = ((((Calculator.parseFmt.parse(v6.substring(1)).doubleValue() * p2) / 100.0) * v10));
+    L240:
+    Calculator.calc(p0, v6);
+    v7 = 0;
+    goto L12;
+    L252:
+    if (Calculator.isNumber(v6, null) != 0) goto L267;
+    throw Calculator.syntax_exception(v6);
+    L267:
+    $s0 = p0;
+    if (v9 != 0) goto L278;
+    $s0 = p0;
+    $s1 = "-";
+    goto L280;
+    L278:
+    $s1 = "+";
+    L280:
+    Calculator.calc($s0, ($s1 + v6));
+    v7 = 0;
+    goto L12;
+    L296:
+    if (v6.equals(")") != 0) goto L316;
+    if (v6.equals("\u2386") == 0) goto L340;
+    L316:
+    if (v8.empty() != 0) goto L339;
+    Calculator.calc(p0, (String)v8.pop());
+    goto L316;
+    L339:
+    return;
+    L340:
+    if (-1 != Calculator.weight(v6)) goto L355;
+    throw Calculator.syntax_exception(v6);
+    L355:
+    if (v8.empty() != 0) goto L409;
+    v9 = (String)v8.pop();
+    if (Calculator.weight(v9) < Calculator.weight(v6)) goto L395;
+    Calculator.calc(p0, v9);
+    goto L406;
+    L395:
+    v8.push(v9);
+    goto L409;
+    L406:
+    goto L355;
+    L409:
+    v8.push(v6);
+    v7 = 1;
+    goto L12;
+    L423:
+    throw Calculator.syntax_exception("\u2386");
+}
+
+static void <clinit>() {
+    Calculator.parseFmt = DecimalFormat.getNumberInstance();
+    Calculator.parsePos = new ParsePosition(0);
+    return;
+}

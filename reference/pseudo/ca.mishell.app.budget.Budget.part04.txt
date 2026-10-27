@@ -1,0 +1,2892 @@
+private boolean editPayment(Shell p0, Payment p1, SimpleCalendar p2) {
+    if (p1 != null) goto L8;
+    $s0 = 1;
+    goto L9;
+    L8:
+    $s0 = 0;
+    L9:
+    v4 = $s0;
+    v5 = new Shell(p0, 67680);
+    $s0 = v5;
+    if (v4 == 0) goto L38;
+    $s0 = v5;
+    $s1 = this.budgetIcon();
+    goto L54;
+    L38:
+    $s1 = this.getImage(Budget.image(p1.image_path), v5.getBackground());
+    L54:
+    $s0.setImage($s1);
+    $s0 = v5;
+    if (p1 != null) goto L69;
+    $s0 = v5;
+    $s1 = "New Payment";
+    goto L72;
+    L69:
+    $s1 = "Edit Payment";
+    L72:
+    $s0.setText($s1);
+    Budget.lastQuickPicks = null;
+    v6 = this.db.updateCount;
+    v7 = 0;
+    v8 = new Text(v5, 0);
+    v8.setText("2222-22-22");
+    v7 = (v8.computeSize(-1, -1).x + 4);
+    v8.dispose();
+    v8 = new layout.GridLayout();
+    v8.numColumns = 2;
+    v8.marginWidth = 10;
+    v8.marginHeight = 10;
+    v8.verticalSpacing = 5;
+    v8.horizontalSpacing = 5;
+    v5.setLayout(v8);
+    if (v4 == 0) goto L192;
+    $s0 = new Payment();
+    goto L193;
+    L192:
+    $s0 = p1;
+    L193:
+    v9 = $s0;
+    if (v4 == 0) goto L220;
+    if (this.cfg.useIndefiniteEndMode.boolValue == 0) goto L220;
+    v9.setEndMode(16);
+    L220:
+    v10 = v9.amount;
+    v12 = new layout.GridData();
+    v12.horizontalAlignment = 3;
+    v13 = this.makeField(v5, "Description:", v9.description, 400);
+    v13.setToolTipText("Use ';' as the separator. \nThe text before ';' will only be shown in the Calendar View.");
+    this.makeLabel(v5, "Category:");
+    v14 = new Combo(v5, 4);
+    v14.setLayoutData(new layout.GridData(768));
+    v14.setToolTipText("Clear this field to 'Uncategorize'\nUse File -> 'List of all payments' to rename or delete existing categories.");
+    v15 = this.db.getCategories();
+    v14.setItems(v15);
+    $s0 = v14;
+    if (v9.category == null) goto L348;
+    $s0 = v14;
+    $s1 = v9.category;
+    goto L351;
+    L348:
+    $s1 = "";
+    L351:
+    $s0.setText($s1);
+    if (v15.length == 0) goto L377;
+    v14.addModifyListener(new Budget$34(this, v14, v15));
+    L377:
+    v16 = v9.getURL();
+    if (this.opt_show_url == 0) goto L419;
+    $s0 = this;
+    $s1 = v5;
+    $s2 = "URL:";
+    if (v16 == null) goto L407;
+    $s0 = this;
+    $s1 = v5;
+    $s2 = "URL:";
+    $s3 = v16;
+    goto L410;
+    L407:
+    $s3 = "";
+    L410:
+    $s0 = $s0.makeField($s1, $s2, $s3, 400);
+    goto L420;
+    L419:
+    $s0 = null;
+    L420:
+    v17 = $s0;
+    this.makeLabel(v5, "Amount:");
+    v18 = new Composite(v5, 0);
+    v18.setLayout(new layout.GridLayout(3, 0));
+    (layout.GridLayout)v18.getLayout().marginHeight = 0;
+    (layout.GridLayout)v18.getLayout().marginWidth = 0;
+    v18.setLayoutData(new layout.GridData(768));
+    v19 = new Text(v18, 2048);
+    v19.setText((Budget.numFormatFrac2.format(Math.abs(v9.amount))));
+    v12 = new layout.GridData();
+    v12.widthHint = v7;
+    v19.setLayoutData(v12);
+    if (v4 != 0) goto L599;
+    v20 = this.getSixMonthsAvg(v9.description, this.initCal);
+    v19.setToolTipText(("Suggested amount is: " + Budget.numFormatFrac2.format(v20.pt)));
+    L599:
+    v20 = new Composite(v18, 0);
+    v20.setLayout(new layout.GridLayout(2, 0));
+    v21 = new Button(v20, 16);
+    v21.setText("Expense");
+    v22 = new Button(v20, 16);
+    v22.setText("Income");
+    v23 = new Button(v18, 32);
+    v23.setText("Disabled");
+    v23.setSelection(v9.disabled);
+    v23.setLayoutData(new layout.GridData(640));
+    v23.setToolTipText("Check it, if you want to disable this payment.\nThe payment transactions will still be placed in the SimpleCalendar,\nbut will not be used to calculate the balances.");
+    if (v9.amount <= 0.0) goto L740;
+    v22.setSelection(1);
+    goto L746;
+    L740:
+    v21.setSelection(1);
+    L746:
+    v19.addFocusListener(new Budget$35(this, v19, v22, v21));
+    if (v4 == 0) goto L781;
+    if (p2 == null) goto L781;
+    $s0 = p2.get();
+    goto L786;
+    L781:
+    $s0 = v9.startDate;
+    L786:
+    v24 = BudgetDB.sDate($s0);
+    this.makeLabel(v5, "Start Date:\n(YYYY-MM-DD)");
+    v25 = new Composite(v5, 0);
+    v25.setLayoutData(new layout.GridData(260));
+    v8 = new layout.GridLayout();
+    v8.numColumns = 3;
+    v8.marginWidth = 0;
+    v8.horizontalSpacing = 5;
+    v25.setLayout(v8);
+    v26 = new Text(v25, 2048);
+    v26.setText(v24);
+    v12 = new layout.GridData();
+    v12.widthHint = v7;
+    v12.verticalAlignment = 2;
+    v26.setLayoutData(v12);
+    v27 = new Button(v25, 8);
+    v27.setImage(new Image(this.display, Budget.icon("cal.bmp")));
+    v28 = new Label(v5, 0);
+    v28.setText("End: ");
+    v28.setFont(this.cfg.fontLabel.fontValue);
+    v28.setLayoutData(new layout.GridData(130));
+    v28 = new Composite(v5, 0);
+    v28.setLayout(new layout.GridLayout(2, 0));
+    (layout.GridLayout)v28.getLayout().verticalSpacing = 1;
+    (layout.GridLayout)v28.getLayout().marginHeight = 0;
+    v29 = new Button(v28, 16);
+    v29.setLayoutData(new layout.GridData(32));
+    v29.setData(Integer.valueOf(16));
+    v29.setText("Indefinite");
+    (layout.GridData)v29.getLayoutData().horizontalSpan = 2;
+    v30 = new Button(v28, 16);
+    v30.setLayoutData(new layout.GridData(32));
+    v30.setData(Integer.valueOf(48));
+    v30.setText("# of pays:");
+    v31 = new Composite(v28, 0);
+    v31.setLayout(new layout.GridLayout(2, 0));
+    (layout.GridLayout)v31.getLayout().marginHeight = 0;
+    v32 = new Budget$36(this);
+    v33 = new Text(v31, 2048);
+    v33.setText((v9.n_pays));
+    v33.addFocusListener(v32);
+    v12 = new layout.GridData();
+    v12.widthHint = (v7 / 2);
+    v33.setLayoutData(v12);
+    v34 = new Button(v28, 16);
+    v34.setLayoutData(new layout.GridData(32));
+    v34.setText("on date:");
+    v34.setData(Integer.valueOf(32));
+    v31 = new Composite(v28, 0);
+    v35 = new Text(v31, 2048);
+    if (v4 == 0) goto L1338;
+    if (p2 != null) goto L1348;
+    L1338:
+    v24 = BudgetDB.sDate(v9.endDate);
+    L1348:
+    v35.setText(v24);
+    v36 = new Button(v31, 8);
+    v36.setImage(new Image(this.display, Budget.icon("cal.bmp")));
+    v36.addSelectionListener(new Budget$37(this, v5, v35));
+    v31.setLayout(new layout.GridLayout(3, 0));
+    (layout.GridLayout)v31.getLayout().marginHeight = 0;
+    v37 = new Button(v28, 16);
+    v37.setLayoutData(new layout.GridData(32));
+    v37.setData(Integer.valueOf(64));
+    v37.setText("amount paid:");
+    v31 = new Composite(v28, 0);
+    v31.setLayout(new layout.GridLayout(2, 0));
+    (layout.GridLayout)v31.getLayout().marginHeight = 0;
+    v38 = new Text(v31, 2048);
+    v38.setText((v9.loan_amount));
+    v38.addFocusListener(v32);
+    v12 = new layout.GridData();
+    v12.widthHint = v7;
+    v38.setLayoutData(v12);
+    this.updateEndSelection(v9.getEndMode(), v29, v30, v33, v34, v35, v36, v37, v38);
+    this.makeLabel(v5, "Grace period (days):");
+    v39 = new Text(v5, 2048);
+    v39.setText((v9.grace_period_days));
+    v39.setToolTipText("Use '0' to disable");
+    v12 = new layout.GridData();
+    v12.widthHint = v7;
+    v12.verticalAlignment = 2;
+    v39.setLayoutData(v12);
+    this.makeLabel(v5, "Pay Every:");
+    v40 = new Composite(v5, 0);
+    v40.setLayoutData(new layout.GridData(260));
+    v8 = new layout.GridLayout();
+    v8.numColumns = 5;
+    v8.marginWidth = 0;
+    v8.horizontalSpacing = 5;
+    v40.setLayout(v8);
+    v41 = new Text(v40, 2048);
+    v41.setText((v9.frequency));
+    v41.addFocusListener(v32);
+    v12 = new layout.GridData();
+    v12.widthHint = v7;
+    v12.verticalAlignment = 2;
+    v41.setLayoutData(v12);
+    $s0 = v41;
+    if (v9.freq_type == 87) goto L1828;
+    $s0 = v41;
+    $s1 = 1;
+    goto L1829;
+    L1828:
+    $s1 = 0;
+    L1829:
+    $s0.setEnabled($s1);
+    v41.addModifyListener(new Budget$38(this, v30, v33, v29, v34, v35, v36, v37, v38));
+    v42 = new Composite(v40, 0);
+    v42.setLayout(new layout.GridLayout(4, 0));
+    v43 = this.makeRadio(v42, "Day(s)", 100, v9.freq_type);
+    v44 = this.makeRadio(v42, "Week(s)", 119, v9.freq_type);
+    v45 = this.makeRadio(v42, "Month(s)", 109, v9.freq_type);
+    v46 = this.makeRadio(v42, "Year(s)", 121, v9.freq_type);
+    v47 = this.makeRadio(v42, this.get_nth_week_msg(v26.getText()), 87, v9.freq_type);
+    v12 = new layout.GridData(768);
+    v12.horizontalSpan = 4;
+    v47.setLayoutData(v12);
+    v48 = this.makeRadio(v42, "", 76, v9.freq_type);
+    v12 = new layout.GridData(768);
+    v12.horizontalSpan = 4;
+    v48.setLayoutData(v12);
+    v49 = lambda[Budget::lambda$editPayment$0](this, v26, v48, v45);
+    v49.update();
+    v50 = new Budget$39(this, v30, v33, v29, v34, v35, v36, v37, v38, v41, v47);
+    v43.addSelectionListener(v50);
+    v44.addSelectionListener(v50);
+    v45.addSelectionListener(v50);
+    v46.addSelectionListener(v50);
+    new Label(v5, 0);
+    v51 = new Composite(v5, 0);
+    v51.setLayoutData(new layout.GridData(260));
+    v8 = new layout.GridLayout();
+    v8.numColumns = 4;
+    v8.marginWidth = 0;
+    v8.horizontalSpacing = 5;
+    v51.setLayout(v8);
+    v52 = new Button(v51, 32);
+    v52.setText("Business Days Only");
+    v52.setSelection(v9.isNoWeekends());
+    v53 = new Button(v51, 32);
+    v53.setText("Early Pay");
+    v53.setToolTipText("Check this option if you want to pay on Fridays\ninstead of Mondays.");
+    v53.setSelection(v9.isEarlyPay());
+    v53.setEnabled(v9.isNoWeekends());
+    v52.addSelectionListener(new Budget$40(this, v53, v52));
+    v54 = new Button(v51, 32);
+    v54.setText("Tentative");
+    v54.setSelection(v9.isTentative());
+    $s0 = v54;
+    if (v9.getEndMode() == 64) goto L2346;
+    $s0 = v54;
+    $s1 = 1;
+    goto L2347;
+    L2346:
+    $s1 = 0;
+    L2347:
+    $s0.setEnabled($s1);
+    v54.setToolTipText("Tentative transactions will automatically slide to the current date (if the current\ndate is in range) until adjusted or marked as paid. If transaction reaches the end \nof the pay period with no adjustment it will be removed from the calendar.\nCheck documentation for more details.");
+    v54.addSelectionListener(new Budget$41(this, v52, v54, v37, v39));
+    v55 = new Button(v51, 32);
+    v55.setText("Sticky");
+    v55.setSelection(v9.isSticky());
+    v55.setToolTipText("Override transaction's default amount with the last adjustment\nin the calendar before this transaction's date, if available.\n");
+    $s0 = v52;
+    if (v54.getSelection() != 0) goto L2432;
+    $s0 = v52;
+    $s1 = 1;
+    goto L2433;
+    L2432:
+    $s1 = 0;
+    L2433:
+    $s0.setEnabled($s1);
+    $s0 = v37;
+    if (v54.getSelection() != 0) goto L2450;
+    $s0 = v37;
+    $s1 = 1;
+    goto L2451;
+    L2450:
+    $s1 = 0;
+    L2451:
+    $s0.setEnabled($s1);
+    $s0 = v39;
+    if (v54.getSelection() != 0) goto L2468;
+    $s0 = v39;
+    $s1 = 1;
+    goto L2469;
+    L2468:
+    $s1 = 0;
+    L2469:
+    $s0.setEnabled($s1);
+    v27.addSelectionListener(new Budget$42(this, v5, v26, v33, v35, v47, v49));
+    v26.addModifyListener(new Budget$43(this, v47, v26, v49));
+    v56 = new Budget$44(this, v29, v30, v33, v34, v35, v36, v37, v38, v54);
+    v30.addSelectionListener(v56);
+    v29.addSelectionListener(v56);
+    v34.addSelectionListener(v56);
+    v37.addSelectionListener(v56);
+    this.makeLabel(v5, "Mark as:");
+    v57 = new Composite(v5, 0);
+    v57.setLayoutData(new layout.GridData(260));
+    v8 = new layout.GridLayout();
+    v8.numColumns = 3;
+    v8.marginWidth = 0;
+    v8.horizontalSpacing = 5;
+    v57.setLayout(v8);
+    v58 = this.makeRadio(v57, "None", 94, v9.flag_value);
+    v59 = this.makeRadio(v57, "Paid", 59, v9.flag_value);
+    v60 = this.makeRadio(v57, "Important", 35, v9.flag_value);
+    v61 = new Button(v57, 0);
+    v62 = new Label(v57, 0);
+    v62.setText("     ");
+    v62.setLayoutData(new layout.GridData(4, 4, 0, 0));
+    v61.setText("Highlighting");
+    v63 = v9.getDefaultHilighting();
+    if (v63 == -1) goto L2806;
+    v64 = new Color(this.display, (v63 >> 16), ((v63 >> 8) & 255), (v63 & 255));
+    v62.setBackground(v64);
+    L2806:
+    v64 = new Budget$Info(this);
+    v64.cal = new SimpleCalendar(99990101);
+    v64.pmt = v9;
+    v64.bg_color = v63;
+    v64.bg_label = v62;
+    v65 = new Menu(v5, 8);
+    v65.setData(v64);
+    v61.setMenu(v65);
+    v65.addMenuListener(this.hilighting_menu_listener);
+    v61.addSelectionListener(new Budget$45(this, v65));
+    this.makeLabel(v5, "Image:");
+    v66 = new Composite(v5, 0);
+    v66.setLayoutData(new layout.GridData(260));
+    v67 = new layout.RowLayout();
+    v67.marginBottom = 0;
+    v67.marginTop = 0;
+    v67.marginHeight = 0;
+    v67.spacing = 3;
+    v66.setLayout(v67);
+    v68 = new Button(v66, 0);
+    v68.setImage(this.getImage(Budget.icon("no-img.bmp"), v68.getBackground()));
+    v68.setToolTipText("Click here to select an image");
+    if (v9.image_path == null) goto L3081;
+    if (v9.image_path.length() <= 0) goto L3081;
+    v68.setImage(this.getImage(Budget.image(v9.image_path), v68.getBackground()));
+    v68.setData(v9.image_path);
+    v68.setToolTipText(v9.image_path);
+    L3081:
+    v68.addSelectionListener(new Budget$46(this, v5, v68));
+    v69 = new Label(v66, 0);
+    v69.setText(" Quick\n Picks:");
+    v13.addModifyListener(new Budget$47(this, v66, v13, v14, v68));
+    v14.addModifyListener(new Budget$48(this, v66, v13, v14, v68));
+    this.updateQuickPicks(v66, (v13.getText() + " " + v14.getText()), v68);
+    v70 = new Label(v5, 258);
+    v12 = new layout.GridData();
+    v12.horizontalSpan = 2;
+    v12.horizontalAlignment = 4;
+    v70.setLayoutData(v12);
+    v71 = v5;
+    v72 = this.getButtonDim(v71, "--Delete--");
+    if (v4 != 0) goto L3387;
+    v71 = new Composite(v5, 0);
+    v12 = new layout.GridData(4, 128, 1, 0);
+    v12.horizontalSpan = 2;
+    v71.setLayoutData(v12);
+    v71.setLayout(new layout.GridLayout(2, 0));
+    v73 = new Button(v71, 16777224);
+    v73.setText("Delete");
+    v12 = new layout.GridData(16384, 128, 1, 0);
+    v12.widthHint = v72.x;
+    v12.heightHint = v72.y;
+    v73.setLayoutData(v12);
+    v73.setData(v9);
+    v73.addSelectionListener(new Budget$49(this, v5));
+    L3387:
+    v73 = new Composite(v71, 0);
+    v12 = new layout.GridData();
+    $s0 = v12;
+    if (v4 == 0) goto L3419;
+    $s0 = v12;
+    $s1 = 2;
+    goto L3420;
+    L3419:
+    $s1 = 1;
+    L3420:
+    $s0.horizontalSpan = $s1;
+    v12.horizontalAlignment = 3;
+    v73.setLayoutData(v12);
+    v67 = new layout.RowLayout();
+    v67.pack = 0;
+    v67.justify = 1;
+    v67.spacing = 10;
+    if (v4 != 0) goto L3481;
+    v67.marginBottom = 0;
+    v67.marginTop = 0;
+    L3481:
+    v73.setLayout(v67);
+    v74 = new Button(v73, 16777224);
+    v74.setText("Ok");
+    v74.setLayoutData(new layout.RowData(v72.x, v72.y));
+    v74.addSelectionListener(new Budget$50(this, v13, v17, v19, v21, v26, v38, v37, v33, v41, v44, v45, v46, v47, v48, v58, v59, v60, v35, v14, v9, v4, v23, v29, v30, v34, p2, v10, v5, v68, v52, v53, v54, v55, v64, v39));
+    v74.setData(null);
+    v75 = new Button(v73, 16777224);
+    v75.setText("Cancel");
+    v75.setLayoutData(new layout.RowData(v72.x, v72.y));
+    v75.addSelectionListener(new Budget$51(this, v5));
+    v5.setDefaultButton(v74);
+    v76 = v5.computeSize(-1, -1);
+    v5.setLocation(this.centerLoc(v76));
+    v5.setSize(v76);
+    v5.setVisible(1);
+    v5.setFocus();
+    this.edit_ok = 0;
+    L3730:
+    if (v5.isDisposed() != 0) goto L3759;
+    if (this.display.readAndDispatch() != 0) goto L3730;
+    this.display.sleep();
+    goto L3730;
+    L3759:
+    if (this.edit_ok == 0) goto L3812;
+    if (v4 == 0) goto L3789;
+    this.db.add(v9);
+    Budget.edit_payments_new_pmt = v9;
+    goto L3812;
+    L3789:
+    this.db.updateMoveUndo(v9);
+    this.db.update(v9);
+    Budget.edit_payments_new_pmt = null;
+    L3812:
+    if (v6 == this.db.updateCount) goto L3828;
+    $s0 = 1;
+    goto L3829;
+    L3828:
+    $s0 = 0;
+    L3829:
+    return $s0;
+}
+
+protected int showSplitOrChange(Shell p0, SimpleCalendar p1) {
+    v3 = new Budget$1SplitValue(this);
+    v4 = new Shell(p0, 67680);
+    v4.setImage(this.budgetIcon());
+    v4.setText("Payment's Amount Changed");
+    v5 = new layout.GridLayout();
+    v5.numColumns = 1;
+    v5.marginWidth = 10;
+    v5.marginHeight = 10;
+    v5.verticalSpacing = 10;
+    v5.horizontalSpacing = 10;
+    v4.setLayout(v5);
+    v6 = new Label(v4, 0);
+    v6.setText("You have changed the payment's amount with past transactions.\n\nWhat do you want to do?\n");
+    v7 = new Button(v4, 16);
+    v7.setSelection(1);
+    v7.setText(("Change the FUTURE transactions* only starting on " + Budget.sdate(p1)));
+    v8 = new Button(v4, 16);
+    v8.setText("Change ALL the transactions* -- past and future");
+    v6 = new Label(v4, 0);
+    v6.setText("* -- manually adjusted transactions are not affected.");
+    v9 = new Composite(v4, 0);
+    v10 = new layout.GridData();
+    v10.horizontalSpan = 2;
+    v10.horizontalAlignment = 3;
+    v9.setLayoutData(v10);
+    v11 = new layout.RowLayout();
+    v11.pack = 0;
+    v11.justify = 1;
+    v11.spacing = 10;
+    v9.setLayout(v11);
+    v12 = this.getButtonDim(v9, "--Cancel--");
+    v13 = new Button(v9, 16777224);
+    v13.setText("Accept");
+    v13.setLayoutData(new layout.RowData(v12.x, v12.y));
+    v13.addSelectionListener(new Budget$52(this, v3, v8, v4));
+    v13.setData(null);
+    v14 = new Button(v9, 16777224);
+    v14.setText("Cancel");
+    v14.setLayoutData(new layout.RowData(v12.x, v12.y));
+    v14.addSelectionListener(new Budget$53(this, v4));
+    v4.setDefaultButton(v13);
+    v4.pack();
+    v4.setLocation(this.centerLoc(v4.getSize()));
+    v4.open();
+    L425:
+    if (v4.isDisposed() != 0) goto L454;
+    if (this.display.readAndDispatch() != 0) goto L425;
+    this.display.sleep();
+    goto L425;
+    L454:
+    return v3.value;
+}
+
+ String remove_slash_r(String p0) {
+    v2 = new StringBuffer(p0);
+    v3 = 0;
+    L11:
+    if (v3 >= v2.length()) goto L44;
+    if (13 != v2.charAt(v3)) goto L38;
+    v2.deleteCharAt(v3);
+    goto L11;
+    L38:
+    v3 += 1;
+    goto L11;
+    L44:
+    return v2.toString();
+}
+
+static String remove_new_lines(String p0) {
+    v1 = new StringBuffer(p0);
+    v2 = 0;
+    L11:
+    if (v2 >= v1.length()) goto L55;
+    if (13 == v1.charAt(v2)) goto L39;
+    if (10 != v1.charAt(v2)) goto L49;
+    L39:
+    v1.setCharAt(v2, 32);
+    goto L11;
+    L49:
+    v2 += 1;
+    goto L11;
+    L55:
+    return v1.toString();
+}
+
+private boolean licAgree() {
+    v1 = new Budget$editInfo(this);
+    v2 = "";
+    v3 = new BufferedReader(new FileReader(Budget.LICENSE_TXT));
+    L31:
+    $t4 = v3.readLine();
+    v4 = $t4;
+    if (null == $t4) goto L54;
+    v2 = (v2 + v4 + "\n");
+    goto L31;
+    L54:
+    v3.close();
+    goto L75;
+    // handler for [13,58) catch Exception
+    L61:
+    v3 = $ex;
+    this.showError(this.mainShell, "Unable to load license");
+    return 0;
+    L75:
+    if (v2.trim().length() != 0) goto L98;
+    this.showError(this.mainShell, "Unable to display license");
+    return 0;
+    L98:
+    v3 = new Shell(this.mainShell, 67680);
+    v3.setImage(this.budgetIcon());
+    v3.setText("Budget Calendar License Agreement");
+    v4 = new layout.GridLayout();
+    v4.numColumns = 1;
+    v4.marginWidth = 10;
+    v4.marginHeight = 10;
+    v4.verticalSpacing = 5;
+    v4.horizontalSpacing = 5;
+    v3.setLayout(v4);
+    v5 = new Text(v3, 2626);
+    v5.setEditable(0);
+    v5.setText(v2);
+    v5.setLayoutData(new layout.GridData(1808));
+    v6 = new Composite(v3, 0);
+    v7 = new layout.GridData();
+    v7.horizontalSpan = 2;
+    v7.horizontalAlignment = 3;
+    v6.setLayoutData(v7);
+    v8 = new layout.RowLayout();
+    v8.pack = 0;
+    v8.justify = 1;
+    v8.spacing = 10;
+    v6.setLayout(v8);
+    v9 = this.getButtonDim(v6, "--Cancel--");
+    v10 = new Button(v6, 16777224);
+    v10.setText("I agree");
+    v10.setLayoutData(new layout.RowData(v9.x, v9.y));
+    v10.addSelectionListener(new Budget$54(this, v1, v3));
+    v10.setData(null);
+    v11 = new Button(v6, 16777224);
+    v11.setText("Cancel");
+    v11.setLayoutData(new layout.RowData(v9.x, v9.y));
+    v11.addSelectionListener(new Budget$55(this, v3));
+    v3.setDefaultButton(v10);
+    v12 = new Point(640, 480);
+    v3.setLocation(this.centerLoc(v12));
+    v3.setSize(v12);
+    v3.setVisible(1);
+    v3.setFocus();
+    L469:
+    if (v3.isDisposed() != 0) goto L497;
+    if (this.display.readAndDispatch() != 0) goto L469;
+    this.display.sleep();
+    goto L469;
+    L497:
+    return v1.update;
+}
+
+private void showLog(Shell p0, String p1) {
+    v3 = new Shell(p0, 67680);
+    v3.setImage(this.getImage(Budget.icon("note.png"), v3.getBackground()));
+    v3.setText("Log");
+    v4 = new layout.GridLayout();
+    v4.numColumns = 1;
+    v4.marginWidth = 10;
+    v4.marginHeight = 10;
+    v4.verticalSpacing = 5;
+    v4.horizontalSpacing = 5;
+    v3.setLayout(v4);
+    v5 = new Text(v3, 2818);
+    v5.setText(p1);
+    v5.setEditable(0);
+    v5.setLayoutData(new layout.GridData(1808));
+    v6 = new Composite(v3, 0);
+    v7 = new layout.GridData();
+    v7.horizontalSpan = 2;
+    v7.horizontalAlignment = 3;
+    v6.setLayoutData(v7);
+    v8 = new layout.RowLayout();
+    v8.pack = 0;
+    v8.justify = 1;
+    v8.spacing = 10;
+    v6.setLayout(v8);
+    v9 = this.getButtonDim(v6, "--Cancel--");
+    v10 = new Button(v6, 16777224);
+    v10.setText("Ok");
+    v10.setEnabled(0);
+    v10.setLayoutData(new layout.RowData(v9.x, v9.y));
+    v10.addSelectionListener(new Budget$56(this, v3));
+    v10.setData(null);
+    v11 = new Button(v6, 16777224);
+    v11.setText("Cancel");
+    v11.setLayoutData(new layout.RowData(v9.x, v9.y));
+    v11.addSelectionListener(new Budget$57(this, v3));
+    v3.setDefaultButton(v10);
+    v12 = new Point(640, 480);
+    v3.setLocation(this.centerLoc(v12));
+    v3.setSize(v12);
+    v3.setVisible(1);
+    v3.setFocus();
+    L383:
+    if (v3.isDisposed() != 0) goto L411;
+    if (this.display.readAndDispatch() != 0) goto L383;
+    this.display.sleep();
+    goto L383;
+    L411:
+    return;
+}
+
+private boolean editNotes(Shell p0) {
+    v2 = new Budget$editInfo(this);
+    v3 = this.db.notes;
+    v4 = new Shell(p0, 67680);
+    v4.setImage(this.getImage(Budget.icon("note.png"), v4.getBackground()));
+    v4.setText("Budget Calendar Notes");
+    v5 = new layout.GridLayout();
+    v5.numColumns = 1;
+    v5.marginWidth = 10;
+    v5.marginHeight = 10;
+    v5.verticalSpacing = 5;
+    v5.horizontalSpacing = 5;
+    v4.setLayout(v5);
+    v6 = new Text(v4, 2818);
+    $s0 = v6;
+    if (v3 != null) goto L131;
+    $s0 = v6;
+    $s1 = "";
+    goto L132;
+    L131:
+    $s1 = v3;
+    L132:
+    $s0.setText($s1);
+    v6.setLayoutData(new layout.GridData(1808));
+    v6.setToolTipText("Use ^Enter or ^S for quick save.");
+    v6.addKeyListener(new Budget$58(this, v6, v2, v4));
+    v7 = new Composite(v4, 0);
+    v8 = new layout.GridData();
+    v8.horizontalSpan = 2;
+    v8.horizontalAlignment = 3;
+    v7.setLayoutData(v8);
+    v9 = new layout.RowLayout();
+    v9.pack = 0;
+    v9.justify = 1;
+    v9.spacing = 10;
+    v7.setLayout(v9);
+    v10 = this.getButtonDim(v7, "--Cancel--");
+    v11 = new Button(v7, 16777224);
+    v11.setText("Ok");
+    v11.setLayoutData(new layout.RowData(v10.x, v10.y));
+    v11.addSelectionListener(new Budget$59(this, v6, v2, v4));
+    v11.setData(null);
+    v12 = new Button(v7, 16777224);
+    v12.setText("Cancel");
+    v12.setLayoutData(new layout.RowData(v10.x, v10.y));
+    v12.addSelectionListener(new Budget$60(this, v4));
+    v4.setDefaultButton(v11);
+    v13 = new Point(640, 480);
+    v4.setLocation(this.centerLoc(v13));
+    v4.setSize(v13);
+    v4.setVisible(1);
+    v4.setFocus();
+    L441:
+    if (v4.isDisposed() != 0) goto L470;
+    if (this.display.readAndDispatch() != 0) goto L441;
+    this.display.sleep();
+    goto L441;
+    L470:
+    return v2.update;
+}
+
+private boolean editPmtNote(Shell p0, SimpleCalendar p1, Payment p2, String p3) {
+    v5 = new Budget$editInfo(this);
+    v6 = p2.getNote(p1.get());
+    v7 = new Shell(p0, 67680);
+    $s0 = v7;
+    $s1 = this;
+    if (p2 != this.db.adjustments) goto L56;
+    $s0 = v7;
+    $s1 = this;
+    $s2 = Budget.icon("note.png");
+    goto L63;
+    L56:
+    $s2 = Budget.image(p2.image_path);
+    L63:
+    $s0.setImage($s1.getImage($s2, v7.getBackground()));
+    $s0 = v7;
+    if (p3 == null) goto L86;
+    $s0 = v7;
+    $s1 = p3;
+    goto L99;
+    L86:
+    $s1 = (Budget.sdate(p1) + ": " + p2.description);
+    L99:
+    $s0.setText($s1);
+    v8 = new layout.GridLayout();
+    v8.numColumns = 1;
+    v8.marginWidth = 10;
+    v8.marginHeight = 10;
+    v8.verticalSpacing = 5;
+    v8.horizontalSpacing = 5;
+    v7.setLayout(v8);
+    v9 = new Label(v7, 0);
+    v9.setText("Note (keep it reasonable):");
+    v10 = new Text(v7, 2050);
+    $s0 = v10;
+    if (v6 != null) goto L196;
+    $s0 = v10;
+    $s1 = "";
+    goto L198;
+    L196:
+    $s1 = v6;
+    L198:
+    $s0.setText($s1);
+    v10.setLayoutData(new layout.GridData(1808));
+    v10.setToolTipText("Use ^Enter or ^S for quick save.");
+    v10.addKeyListener(new Budget$61(this, v10, p2, p1, v5, v7));
+    v11 = new Composite(v7, 0);
+    v12 = new layout.GridData();
+    v12.horizontalSpan = 2;
+    v12.horizontalAlignment = 3;
+    v11.setLayoutData(v12);
+    v13 = new layout.RowLayout();
+    v13.pack = 0;
+    v13.justify = 1;
+    v13.spacing = 10;
+    v11.setLayout(v13);
+    v14 = this.getButtonDim(v11, "--Cancel--");
+    v15 = new Button(v11, 16777224);
+    v15.setText("Ok");
+    v15.setLayoutData(new layout.RowData(v14.x, v14.y));
+    v15.addSelectionListener(new Budget$62(this, v10, p2, p1, v5, v7));
+    v15.setData(null);
+    v16 = new Button(v11, 16777224);
+    v16.setText("Cancel");
+    v16.setLayoutData(new layout.RowData(v14.x, v14.y));
+    v16.addSelectionListener(new Budget$63(this, v7));
+    v7.setDefaultButton(v15);
+    v17 = new Point(Math.max(400, (v14.x * 4)), Math.max((v14.y * 7), 280));
+    v7.setLocation(this.centerLoc(v17));
+    v7.setSize(v17);
+    v7.setVisible(1);
+    v7.setFocus();
+    L534:
+    if (v7.isDisposed() != 0) goto L563;
+    if (this.display.readAndDispatch() != 0) goto L534;
+    this.display.sleep();
+    goto L534;
+    L563:
+    return v5.update;
+}
+
+private String selectImage(Shell p0) {
+    v2 = new Shell(p0, 67680);
+    v2.setImage(this.budgetIcon());
+    v2.setText("Select an image...");
+    this.return_val = null;
+    v3 = new Budget$64(this, v2);
+    v4 = Budget.image("");
+    v5 = new File(v4);
+    v6 = v5.listFiles();
+    Arrays.sort(v6);
+    v2.setBackground(this.cfg.bgColorWindow.colorValue);
+    v2.setLayout(new layout.GridLayout());
+    v7 = new Composite(v2, 0);
+    v7.setLayout(new layout.RowLayout());
+    v7.setBackground(this.cfg.bgColorWindow.colorValue);
+    v8 = new Button(v7, 0);
+    v8.setText("View Zoom-");
+    v8.setToolTipText("Decrease the view image size");
+    v9 = new Button(v7, 0);
+    v9.setText("View Zoom+");
+    v9.setToolTipText("Increase the view image size");
+    v10 = new Composite(v2, 0);
+    v10.setBackground(this.cfg.bgColorWindow.colorValue);
+    v11 = this.display.getPrimaryMonitor().getZoom();
+    this.fill_images(v10, v3, v6, v4);
+    v12 = lambda[Budget::lambda$selectImage$0](this, v11, v10, v3, v6, v4, v2);
+    v8.addSelectionListener(SelectionListener.widgetSelectedAdapter(lambda[Budget::lambda$selectImage$1](this, v12)));
+    v9.addSelectionListener(SelectionListener.widgetSelectedAdapter(lambda[Budget::lambda$selectImage$2](this, v12)));
+    v13 = v2.computeSize(-1, -1);
+    v2.setSize(v13);
+    v2.setLocation(this.centerLoc(v13));
+    v2.setVisible(1);
+    v2.setFocus();
+    L325:
+    if (v2.isDisposed() != 0) goto L353;
+    if (this.display.readAndDispatch() != 0) goto L325;
+    this.display.sleep();
+    goto L325;
+    L353:
+    return this.return_val;
+}
+
+private void fill_images(Composite p0, MouseAdapter p1, File[] p2, String p3) {
+    v5 = new Label(p0, 0);
+    v5.setImage(this.getImage(Budget.icon("no-img.bmp"), this.cfg.bgColorWindow.colorValue));
+    v5.addMouseListener(p1);
+    v5.setData("");
+    v6 = new layout.GridLayout();
+    v6.marginWidth = 10;
+    v6.marginHeight = 10;
+    v6.horizontalSpacing = 9;
+    v6.verticalSpacing = 9;
+    v6.numColumns = ((int)Math.sqrt((double)p2.length) + 1);
+    p0.setLayout(v6);
+    v7 = (float)this.cfg.image_selection_zoom;
+    v8 = this.display.getPrimaryMonitor().getZoom();
+    if (v8 == 0) goto L150;
+    if ((float)v8 == v7) goto L150;
+    $s0 = (v7 / (float)v8);
+    goto L151;
+    L150:
+    $s0 = 1.0f;
+    L151:
+    v9 = $s0;
+    v10 = 0;
+    L156:
+    if (v10 >= p2.length) goto L263;
+    if (p2[v10].isDirectory() != 0) goto L257;
+    v5 = new Label(p0, 8388608);
+    v5.setBackground(this.cfg.bgColorWindow.colorValue);
+    v11 = p2[v10].getPath().substring(p3.length());
+    v5.setImage(this.getScaledImage(Budget.image(v11), this.cfg.bgColorWindow.colorValue, v9));
+    v5.setData(v11);
+    v5.addMouseListener(p1);
+    L257:
+    v10 += 1;
+    goto L156;
+    L263:
+    return;
+}
+
+private Point centerLoc(Point p0) {
+    if (this.mainShell.getVisible() == 0) goto L20;
+    $s0 = this.mainShell.getBounds();
+    goto L27;
+    L20:
+    $s0 = this.display.getBounds();
+    L27:
+    v2 = $s0;
+    v3 = Math.min(p0.x, v2.width);
+    v4 = Math.min(p0.y, v2.height);
+    return new Point((v2.x + ((v2.width - v3) / 2)), (v2.y + ((v2.height - v4) / 2)));
+}
+
+private int getDayOfWeek(SimpleCalendar p0) {
+    if (this.getFirstDayOfWeek() != 0) goto L14;
+    return p0.get(6);
+    L14:
+    v2 = p0.get(6);
+    if (v2 != 0) goto L30;
+    $s0 = 7;
+    goto L31;
+    L30:
+    $s0 = v2;
+    L31:
+    return $s0;
+}
+
+private int getLastDayOfWeek() {
+    return (this.getFirstDayOfWeek() + 6);
+}
+
+private void fillPickDate(Composite p0, SimpleCalendar p1) {
+    v4 = p1.getActualMaximum(1);
+    v7 = new SimpleCalendar(p1);
+    v8 = new SimpleCalendar(this.initCal);
+    v9 = new SimpleCalendar((SimpleCalendar)p0.getData("initial"));
+    v7.set(1, 1);
+    v10 = p0.getChildren();
+    v5 = 0;
+    L66:
+    if (v5 >= v10.length) goto L88;
+    v10[v5].dispose();
+    v5 += 1;
+    goto L66;
+    L88:
+    p0.setData(v7);
+    v11 = null;
+    v12 = new Composite(p0, 0);
+    v13 = new layout.GridData(256);
+    v13.horizontalSpan = 7;
+    v12.setLayoutData(v13);
+    v12.setLayout(new layout.GridLayout(6, 0));
+    v14 = new Button(v12, 8);
+    v14.setText("<<");
+    v14.setToolTipText("Previous Year");
+    v14.addSelectionListener(new Budget$65(this));
+    v15 = new Button(v12, 8);
+    v15.setText("<");
+    v15.setToolTipText("Previous Month");
+    v15.addSelectionListener(new Budget$66(this));
+    v16 = new SimpleDateFormat("MMMMMMMMMMMMM,yyyy");
+    v17 = new Button(v12, 16777216);
+    v17.setForeground(this.cfg.colorCurrentMonth.colorValue);
+    v17.setBackground(this.cfg.bgColorWindow.colorValue);
+    v18 = new layout.GridData(768);
+    v18.widthHint = this.calendarLabelWidthHint(v17, "     ");
+    v17.setText(v16.format(v7.getTime()));
+    v17.setLayoutData(v18);
+    v17.addSelectionListener(new Budget$67(this, v16));
+    v18 = new Button(v12, 8);
+    v18.setText(">");
+    v18.setToolTipText("Next Month");
+    v18.addSelectionListener(new Budget$68(this));
+    v19 = new Button(v12, 8);
+    v19.setText(">>");
+    v19.setToolTipText("Next Year");
+    v19.addSelectionListener(new Budget$69(this));
+    v20 = new Button(v12, 8);
+    v20.setText("Today");
+    v20.setToolTipText("Set Today Year and Month");
+    v20.addSelectionListener(new Budget$70(this));
+    v5 = 0;
+    L481:
+    if (v5 >= 7) goto L583;
+    v11 = new Label(p0, 16777216);
+    v11.setText(this.getWDayName(v5).substring(0, 3));
+    v11.setForeground(this.cfg.colorDatePickerHeader.colorValue);
+    v11.setBackground(this.cfg.bgColorDatePickerHeader.colorValue);
+    v11.setLayoutData(new layout.GridData(768));
+    v11.setFont(this.cfg.fontDate.fontValue);
+    v5 += 1;
+    goto L481;
+    L583:
+    $t23 = this.getDayOfWeek(v7);
+    v6 = $t23;
+    if ($t23 <= this.getFirstDayOfWeek()) goto L659;
+    v5 = this.getFirstDayOfWeek();
+    L605:
+    if (v5 >= v6) goto L659;
+    v11 = new Label(p0, 0);
+    v11.setLayoutData(new layout.GridData(1808));
+    v11.setBackground(this.cfg.bgColorCellOtherMonths.colorValue);
+    v5 += 1;
+    goto L605;
+    L659:
+    v21 = new Budget$71(this);
+    v3 = 1;
+    L671:
+    if (v3 > v4) goto L815;
+    v7.set(1, v3);
+    v11 = new Label(p0, 131072);
+    v11.setLayoutData(new layout.GridData(1808));
+    $s0 = v11;
+    if (v7.lt(v8) == 0) goto L738;
+    $s0 = v11;
+    $s1 = this.cfg.bgColorCell.colorValue;
+    goto L748;
+    L738:
+    $s1 = this.cfg.bgColorCellPast.colorValue;
+    L748:
+    $s0.setBackground($s1);
+    v11.setForeground(this.cfg.colorCalendarDay.colorValue);
+    v11.setText((v3));
+    v11.addMouseListener(v21);
+    if (v9.equals(v7) == 0) goto L809;
+    v11.setForeground(this.cfg.colorCalendarToday.colorValue);
+    L809:
+    v3 += 1;
+    goto L671;
+    L815:
+    v7.set(1, v4);
+    $t29 = this.getDayOfWeek(v7);
+    v6 = $t29;
+    if (this.getLastDayOfWeek() == $t29) goto L900;
+    v5 = v6;
+    L844:
+    if (v5 >= this.getLastDayOfWeek()) goto L900;
+    v11 = new Label(p0, 0);
+    v11.setLayoutData(new layout.GridData(1808));
+    v11.setBackground(this.cfg.bgColorCellOtherMonths.colorValue);
+    v5 += 1;
+    goto L844;
+    L900:
+    return;
+}
+
+private int getFirstDayOfWeek() {
+    if (this.cfg.firstDayOfWeekIsSunday.boolValue == 0) goto L17;
+    $s0 = 0;
+    goto L18;
+    L17:
+    $s0 = 1;
+    L18:
+    return $s0;
+}
+
+private void centerShell(Shell p0) {
+    v2 = p0.computeSize(-1, -1);
+    p0.setLocation(this.centerLoc(v2));
+    p0.setSize(v2);
+    p0.setVisible(1);
+    p0.setFocus();
+    return;
+}
+
+private SimpleCalendar pickDate(Shell p0, SimpleCalendar p1) {
+    return this.pickDate(p0, p1, "Pick a Date");
+}
+
+private SimpleCalendar pickDate(Shell p0, SimpleCalendar p1, String p2) {
+    v4 = new Shell(p0, 67680);
+    v4.setImage(this.budgetIcon());
+    v4.setText(p2);
+    v5 = new layout.GridLayout();
+    v5.numColumns = 7;
+    v5.makeColumnsEqualWidth = 1;
+    v5.marginWidth = 10;
+    v5.marginHeight = 10;
+    v5.verticalSpacing = 2;
+    v5.horizontalSpacing = 2;
+    v4.setLayout(v5);
+    v4.setData("initial", new SimpleCalendar(p1));
+    this.fillPickDate(v4, p1);
+    v6 = v4.computeSize(-1, -1);
+    v6.y = (v6.y + (v6.y / 5));
+    v4.setLocation(this.centerLoc(v6));
+    v4.setSize(v6);
+    v4.setVisible(1);
+    v4.setFocus();
+    this.pickDateCal = null;
+    L166:
+    if (v4.isDisposed() != 0) goto L195;
+    if (this.display.readAndDispatch() != 0) goto L166;
+    this.display.sleep();
+    goto L166;
+    L195:
+    return this.pickDateCal;
+}
+
+private Point getButtonDim(Composite p0, String p1) {
+    v3 = new Button(p0, 16777224);
+    v3.setText(p1);
+    v4 = v3.computeSize(-1, -1);
+    v3.dispose();
+    return v4;
+}
+
+private Point getTextExtent(Font p0, String p1) {
+    v3 = new GC(this.display);
+    v3.setFont(p0);
+    v4 = v3.stringExtent(p1);
+    v3.dispose();
+    return v4;
+}
+
+private boolean confirmYesNo(Shell p0, String p1) {
+    v3 = new MessageBox(p0, 196);
+    v3.setText("Confirmation");
+    v3.setMessage(p1);
+    if (64 != v3.open()) goto L37;
+    $s0 = 1;
+    goto L38;
+    L37:
+    $s0 = 0;
+    L38:
+    return $s0;
+}
+
+private int confirmYesNoCancel(Shell p0, String p1) {
+    v3 = new MessageBox(p0, 452);
+    v3.setText("Confirmation");
+    v3.setMessage(p1);
+    return v3.open();
+}
+
+private String prompt(Shell p0, Image p1, String p2, String p3, String p4, int p5) {
+    this.prompt_was_ctrl_ok = 0;
+    this.prompt_was_alt_ok = 0;
+    v7 = new Budget$1ExpenseFlag(this);
+    v8 = new Shell(p0, 67680);
+    v8.setImage(this.budgetIcon());
+    v8.setText(p2);
+    v8.setBackground(v8.getDisplay().getSystemColor(22));
+    v8.setBackgroundMode(1);
+    if (p1 == null) goto L79;
+    v8.setImage(p1);
+    L79:
+    v9 = new layout.GridLayout();
+    v9.marginWidth = 10;
+    v9.marginHeight = 10;
+    v9.verticalSpacing = 10;
+    v8.setLayout(v9);
+    v10 = new Link(v8, 0);
+    v10.setText(p3);
+    v10.setLinkForeground(this.cfg.colorCurrentMonth.colorValue);
+    v11 = new Composite(v8, 0);
+    v11.setLayout(new layout.GridLayout(2, 0));
+    v11.setLayoutData(new layout.GridData(768));
+    v12 = new Button(v11, 32);
+    if (Budget.PROMPT_EXPENSE != (p5 & Budget.PROMPT_EXPENSE)) goto L282;
+    v12.setText("expense");
+    v7.expense = p4.startsWith("-");
+    v12.setSelection(v7.expense);
+    if (v7.expense == 0) goto L262;
+    p4 = p4.substring(1);
+    L262:
+    v12.addSelectionListener(new Budget$72(this, v7, v12));
+    goto L287;
+    L282:
+    v12.dispose();
+    L287:
+    v13 = new Text(v11, 2048);
+    v13.setText(p4);
+    if ((p5 & Budget.PROMPT_PASSWORD) != Budget.PROMPT_PASSWORD) goto L327;
+    v13.setEchoChar(42);
+    L327:
+    v13.setLayoutData(new layout.GridData(768));
+    v13.addVerifyListener(new Budget$73(this, p5));
+    v10.addSelectionListener(new Budget$74(this, v13, p5, v7, v12));
+    this.return_val = null;
+    v13.addSelectionListener(new Budget$75(this, v13, v8));
+    v14 = v8;
+    if (Budget.PROMPT_REMOVE_ADJUSTMENT != (p5 & Budget.PROMPT_REMOVE_ADJUSTMENT)) goto L527;
+    v14 = new Composite(v8, 0);
+    v14.setLayoutData(new layout.GridData(4, 128, 1, 0));
+    v14.setLayout(new layout.GridLayout(2, 0));
+    v15 = new Button(v14, 16777224);
+    v15.setText("Remove adjustment");
+    v15.setToolTipText("Click here to remove adjustment and dismiss this dialog.\nBeware: no confirmation asked!\n");
+    v15.setLayoutData(new layout.GridData(16384, 128, 1, 0));
+    v15.addSelectionListener(new Budget$76(this, v7, v8));
+    L527:
+    v15 = new Composite(v14, 0);
+    v16 = new layout.GridData();
+    v16.horizontalSpan = 1;
+    v16.horizontalAlignment = 3;
+    v15.setLayoutData(v16);
+    v17 = new layout.RowLayout();
+    v17.pack = 0;
+    v17.justify = 1;
+    v17.spacing = 10;
+    if (Budget.PROMPT_REMOVE_ADJUSTMENT != (p5 & Budget.PROMPT_REMOVE_ADJUSTMENT)) goto L619;
+    v17.marginBottom = 0;
+    v17.marginTop = 0;
+    L619:
+    v15.setLayout(v17);
+    v18 = this.getButtonDim(v15, "--Cancel--");
+    v19 = new Button(v15, 16777224);
+    v19.setText("Ok");
+    v19.setLayoutData(new layout.RowData(v18.x, v18.y));
+    v19.addSelectionListener(new Budget$77(this, v13, v8));
+    v20 = new Button(v15, 16777224);
+    v20.setText("Cancel");
+    v20.setLayoutData(new layout.RowData(v18.x, v18.y));
+    v20.addSelectionListener(new Budget$78(this, v8));
+    v15 = v8.computeSize(-1, -1);
+    v8.setLocation(this.centerLoc(v15));
+    v8.setSize(v15);
+    v8.setVisible(1);
+    v13.setFocus();
+    v13.setSelection(0, v13.getText().length());
+    L810:
+    if (v8.isDisposed() != 0) goto L839;
+    if (this.display.readAndDispatch() != 0) goto L810;
+    this.display.sleep();
+    goto L810;
+    L839:
+    if (this.return_val == null) goto L920;
+    if (Budget.PROMPT_EXPENSE != (p5 & Budget.PROMPT_EXPENSE)) goto L920;
+    if (this.return_val.startsWith("+") == 0) goto L893;
+    if (v7.expense == 0) goto L893;
+    return ("0:" + this.return_val.substring(1));
+    L893:
+    if (v7.expense == 0) goto L907;
+    $s0 = "1:";
+    goto L910;
+    L907:
+    $s0 = "0:";
+    L910:
+    return ($s0 + this.return_val);
+    L920:
+    if (this.return_val != null) goto L951;
+    if (v7.remove_adjustment == 0) goto L951;
+    if (Budget.PROMPT_REMOVE_ADJUSTMENT != (p5 & Budget.PROMPT_REMOVE_ADJUSTMENT)) goto L951;
+    return "2:";
+    L951:
+    return this.return_val;
+}
+
+private void setMenu(Control p0, Menu p1) {
+    if (this.cfg.oneButtonMouse.boolValue == 0) goto L26;
+    p0.addMouseListener(new Budget$79(this, p1));
+    L26:
+    return;
+}
+
+private Payment duplicatePayment(Payment p0) {
+    if (p0 == null) goto L51;
+    if (this.db == null) goto L51;
+    v2 = p0.clonePayment();
+    v2.description = (v2.description + "(dup)");
+    this.db.add(v2);
+    this.editPayment(this.mainShell, v2, null);
+    return v2;
+    L51:
+    return null;
+}
+
+private boolean showPayments(Shell p0) {
+    v2 = new Shell(p0, 67696);
+    v2.setImage(new Image(this.display, Budget.icon("det.bmp")));
+    v2.setText("Payments");
+    v3 = this.db.updateCount;
+    v2.setBackground(this.cfg.bgColorWindow.colorValue);
+    v2.setLayout(new layout.FillLayout());
+    v4 = new Composite(v2, 0);
+    v5 = new layout.GridLayout(2, 0);
+    v5.marginWidth = 5;
+    v5.marginHeight = 5;
+    v4.setLayout(v5);
+    v6 = new Group(v4, 0);
+    v6.setText("Filter");
+    v6.setLayoutData(new layout.GridData(768));
+    v6.setLayout(new layout.GridLayout(2, 0));
+    v7 = new Text(v6, 2048);
+    v7.setLayoutData(new layout.GridData(768));
+    v7.setToolTipText(Budget.filterToolTipText);
+    v7.setText(Budget.allPaymentsSavedFilter);
+    v8 = new Button(v6, 0);
+    v8.setText("Clear");
+    v9 = new Group(v4, 0);
+    v9.setText("Colors");
+    v9.setLayoutData(new layout.GridData(272));
+    v5 = new layout.GridLayout(4, 0);
+    v5.horizontalSpacing = 10;
+    v9.setLayout(v5);
+    v10 = new Table(v4, 67584);
+    v11 = new Budget$82(this, v7, v10);
+    v12 = new Link(v9, 0);
+    v12.setText("<a>Active</a> transactions");
+    v12.setData("range:active");
+    v12.addSelectionListener(v11);
+    v12 = new Link(v9, 0);
+    v12.setText("<a>Past</a> transactions");
+    v12.setForeground(this.cfg.colorPastPayment.colorValue);
+    v12.setData("range:past");
+    v12.addSelectionListener(v11);
+    v12 = new Link(v9, 0);
+    v12.setText("<a>Future</a> transactions");
+    v12.setForeground(this.cfg.colorFuturePayment.colorValue);
+    v12.setData("range:future");
+    v12.addSelectionListener(v11);
+    v12 = new Link(v9, 0);
+    v12.setText("<a>Disabled</a> payment");
+    v12.setForeground(this.cfg.colorDisabledPayment.colorValue);
+    v12.setData("range:disabled");
+    v12.addSelectionListener(v11);
+    v11 = new layout.GridData();
+    v11.horizontalAlignment = 4;
+    v11.verticalAlignment = 4;
+    v11.grabExcessHorizontalSpace = 1;
+    v11.grabExcessVerticalSpace = 1;
+    v11.horizontalSpan = 2;
+    v10.setLayoutData(v11);
+    v10.setData("filter", Budget.allPaymentsSavedFilter);
+    v12 = new Button(v4, 8);
+    v12.setText("Close");
+    v11 = new layout.GridData(131072, 0, 1, 0);
+    v11.horizontalSpan = 2;
+    v12.setLayoutData(v11);
+    v12.addSelectionListener(new Budget$83(this, v2));
+    v7.addSelectionListener(new Budget$84(this, v10, v7));
+    v8.addSelectionListener(new Budget$85(this, v7, v10));
+    v13 = new Budget$86(this, v10);
+    v14 = new TableColumn(v10, 16384);
+    v14.setText("Img.");
+    v14.setWidth(30);
+    v14 = new TableColumn(v10, 131072);
+    v14.setText("Amount");
+    v14.setWidth(80);
+    v14.addSelectionListener(v13);
+    v14.setData("comp", Budget.amount_comp);
+    v14 = new TableColumn(v10, 16384);
+    v14.setText("Category");
+    v14.setWidth(120);
+    v14.addSelectionListener(v13);
+    v14.setData("comp", Budget.cat_comp);
+    v14 = new TableColumn(v10, 16384);
+    v14.setText("Description");
+    v14.setWidth(300);
+    v14.addSelectionListener(v13);
+    v14.setData("comp", Budget.desc_comp);
+    Budget.sortColumn = v14;
+    Budget.sort_direction = 1;
+    $s0 = Budget.sortColumn;
+    $s1 = this;
+    if (Budget.sort_direction != 1) goto L867;
+    $s0 = Budget.sortColumn;
+    $s1 = this;
+    $s2 = Budget.icon("up.gif");
+    goto L873;
+    L867:
+    $s2 = Budget.icon("down.gif");
+    L873:
+    $s0.setImage($s1.getImage($s2, this.cfg.bgColorWindow.colorValue));
+    v14 = new TableColumn(v10, 16777216);
+    v14.setText("Start Date");
+    v14.setWidth(100);
+    v14.addSelectionListener(v13);
+    v14.setData("comp", Budget.start_date_comp);
+    v14 = new TableColumn(v10, 16777216);
+    v14.setText("End Date");
+    v14.setWidth(100);
+    v14.addSelectionListener(v13);
+    v14.setData("comp", Budget.end_date_comp);
+    v14 = new TableColumn(v10, 131072);
+    v14.setText("# of pays");
+    v14.setWidth(80);
+    v14.addSelectionListener(v13);
+    v14.setData("comp", Budget.n_pays_comp);
+    v14 = new TableColumn(v10, 131072);
+    v14.setText("freq.");
+    v14.setWidth(50);
+    v14.addSelectionListener(v13);
+    v14.setData("comp", Budget.freq_comp);
+    v14 = new TableColumn(v10, 16384);
+    v14.setText("Bus.");
+    v14.setWidth(40);
+    v14 = new TableColumn(v10, 16384);
+    v14.setText("flags");
+    v14.setWidth(50);
+    this.fillPaymentsTable(v10, null);
+    v10.addSelectionListener(new Budget$87(this, v2, v10));
+    v15 = new Menu(v2, 0);
+    v16 = new MenuItem(v15, 8);
+    v16.setText("&Edit");
+    v16.addSelectionListener(new Budget$88(this, v10, v2));
+    v16 = new MenuItem(v15, 8);
+    v16.setText("&Add a new payment");
+    v16.addSelectionListener(new Budget$89(this, v2, v10));
+    v16 = new MenuItem(v15, 2);
+    v16 = new MenuItem(v15, 8);
+    v16.setText("&Duplicate payment");
+    v16.addSelectionListener(new Budget$90(this, v10));
+    v16 = new MenuItem(v15, 2);
+    v16 = new MenuItem(v15, 8);
+    v16.setText("Delete payment");
+    v16.addSelectionListener(new Budget$91(this, v10, v2));
+    v16 = new MenuItem(v15, 2);
+    v16 = new MenuItem(v15, 8);
+    v16.setText("Add a 'wild' transaction");
+    v16.addSelectionListener(new Budget$92(this, v10, v2));
+    v16 = new MenuItem(v15, 2);
+    v16 = new MenuItem(v15, 64);
+    v16.setText("All transactions");
+    v17 = new Menu(v2, 4);
+    v16.setMenu(v17);
+    v17.setData("payment_table", v10);
+    v17.setData("shell", v2);
+    v17.addMenuListener(this.all_transactions_menu_listener);
+    v16 = new MenuItem(v15, 64);
+    v16.setText("Matched transactions");
+    v17 = new Menu(v2, 4);
+    v16.setMenu(v17);
+    v17.setData("payment_table", v10);
+    v17.setData("shell", v2);
+    v17.setData("matching-only", "yes");
+    v17.addMenuListener(this.all_transactions_menu_listener);
+    v16 = new MenuItem(v15, 2);
+    v16 = new MenuItem(v15, 8);
+    v16.setText("Edit Category");
+    v16.addSelectionListener(new Budget$93(this, v10, v2));
+    v16 = new MenuItem(v15, 8);
+    v16.setText("Delete Category");
+    v16.addSelectionListener(new Budget$94(this, v10, v2));
+    v16 = new MenuItem(v15, 2);
+    v16 = new MenuItem(v15, 8);
+    v16.setText("Filter description");
+    v16.addSelectionListener(new Budget$95(this, v10, v7));
+    v16 = new MenuItem(v15, 8);
+    v16.setText("Filter category");
+    v16.addSelectionListener(new Budget$96(this, v10, v7));
+    v10.setMenu(v15);
+    this.setMenu(v10, v15);
+    v10.setHeaderVisible(1);
+    v10.setLinesVisible(1);
+    v17 = v2.computeSize(-1, -1);
+    v17.y = Math.max(600, Math.min(v17.y, 600));
+    v17.x = (v17.x + 30);
+    v2.setLocation(this.centerLoc(v17));
+    v2.setSize(v17);
+    v2.setVisible(1);
+    v2.setFocus();
+    v10.setTopIndex(0);
+    L1821:
+    if (v2.isDisposed() != 0) goto L1849;
+    if (this.display.readAndDispatch() != 0) goto L1821;
+    this.display.sleep();
+    goto L1821;
+    L1849:
+    if (v3 == this.db.updateCount) goto L1864;
+    $s0 = 1;
+    goto L1865;
+    L1864:
+    $s0 = 0;
+    L1865:
+    return $s0;
+}
+
+private void createNew() {
+    if (0 != this.saveDB()) goto L9;
+    return;
+    L9:
+    this.fileName = null;
+    this.dbKey = null;
+    this.curCal = new SimpleCalendar(this.initCal);
+    this.curCal.set(1, 1);
+    v1 = new StringBuffer();
+    this.db = BudgetDB.load(null, null, v1, this.curCal, this.cfg.futureNMonths.intValue, this.cfg.unlimitedHistory.boolValue);
+    if (this.db != null) goto L108;
+    this.showError(this.mainShell, "Unable to initialize the new budget database.");
+    System.exit(1);
+    L108:
+    this.calc_min_date();
+    this.updateMonthLabelMenu();
+    this.updateShellTitle();
+    if (this.calendarView == null) goto L131;
+    this.updateCalendarView();
+    L131:
+    this.showHint();
+    return;
+}
+
+private Image budgetIcon() {
+    return this.getImage(Budget.icon("budget.png"), this.white_color);
+}
+
+private void showHint() {
+    v1 = new Shell(this.display.getActiveShell(), 65568);
+    v1.setImage(this.budgetIcon());
+    v1.setText("New Budget...");
+    v2 = new layout.GridLayout();
+    v2.numColumns = 2;
+    v2.marginWidth = 10;
+    v2.marginHeight = 10;
+    v2.verticalSpacing = 15;
+    v2.horizontalSpacing = 15;
+    v2.makeColumnsEqualWidth = 0;
+    v1.setLayout(v2);
+    v3 = new Label(v1, 0);
+    v3.setImage(this.budgetIcon());
+    v4 = new Composite(v1, 0);
+    v4.setLayout(new layout.GridLayout(1, 0));
+    v5 = new Link(v4, 64);
+    v5.setText("You created a new budget!\nHave a glance at the <a>docs</a>, and the <a>tutorial</a>.");
+    v5.setLayoutData(new layout.GridData(450, -1));
+    v5.addSelectionListener(new Budget$97(this));
+    v6 = new SimpleCalendar().set(1, 1);
+    v3 = new Label(v4, 64);
+    v3.setText(("\nEnter the starting balance on " + Budget.sdate(v6) + ":"));
+    v3.setLayoutData(new layout.GridData(450, -1));
+    v5.setFont(v3.getFont());
+    v7 = new Text(v4, 2048);
+    v7.setText("0");
+    v8 = new layout.GridData(70, -1);
+    v8.horizontalIndent = 15;
+    v7.setLayoutData(v8);
+    v3 = new Label(v4, 64);
+    v3.setText("leave this unchanged if not known, and change it later by double clicking on the balance field of a day.");
+    v3.setForeground(this.cfg.colorDisabledPayment.colorValue);
+    v8 = new layout.GridData(435, -1);
+    v8.horizontalIndent = 15;
+    v3.setLayoutData(v8);
+    v3 = new Label(v4, 64);
+    v3.setText("\nAdding payments -- right click on a day cell and choose 'Add a new payment' menu item\n");
+    v3.setLayoutData(new layout.GridData(450, -1));
+    v9 = new Button(v4, 32);
+    v9.setSelection(this.cfg.oneButtonMouse.boolValue);
+    v9.setText("I use a one button mouse (or see File->preferences later)");
+    v8 = new layout.GridData(450, -1);
+    v8.verticalIndent = 20;
+    v9.setLayoutData(v8);
+    v10 = new Button(v1, 8);
+    v10.setText("Ok");
+    v8 = new layout.GridData(16777216, 0, 1, 0);
+    v8.horizontalSpan = 2;
+    v10.setLayoutData(v8);
+    v10.addSelectionListener(new Budget$98(this, v7, v1, v9, v6));
+    v11 = v1.computeSize(-1, -1);
+    v1.setLocation(this.centerLoc(v11));
+    v1.setSize(v11);
+    v1.setVisible(1);
+    v7.setFocus();
+    v7.setSelection(0, 10);
+    L550:
+    if (v1.isDisposed() != 0) goto L578;
+    if (this.display.readAndDispatch() != 0) goto L550;
+    this.display.sleep();
+    goto L550;
+    L578:
+    return;
+}
+
+private String getHomePath() {
+    if (this.budgetStickMode == 0) goto L11;
+    return Budget.dirData;
+    L11:
+    v1 = Budget.dirHome;
+    if (v1 == null) goto L98;
+    if (File.separator.equals("\\") == 0) goto L98;
+    v2 = (v1 + "\\Documents");
+    v3 = new File(v2);
+    if (v3.exists() == 0) goto L66;
+    if (v3.isDirectory() == 0) goto L66;
+    v1 = v2;
+    goto L98;
+    L66:
+    v2 = (v1 + "\\My Documents");
+    v3 = new File(v2);
+    if (v3.exists() == 0) goto L98;
+    if (v3.isDirectory() == 0) goto L98;
+    v1 = v2;
+    L98:
+    return v1;
+}
+
+private boolean save(boolean p0) {
+    if (this.fileName == null) goto L11;
+    if (p0 == 0) goto L149;
+    L11:
+    v2 = new FileDialog(this.mainShell, 8192);
+    $a2 = new String[1];
+    $a2[0] = "*.bgt";
+    v3 = $a2;
+    v2.setText("Save as...");
+    v2.setFilterExtensions(v3);
+    v2.setFilterPath(this.getHomePath());
+    v4 = v2.open();
+    if (v4 == null) goto L76;
+    if (v4.length() != 0) goto L78;
+    L76:
+    return 0;
+    L78:
+    if (-1 != v4.indexOf(".bgt")) goto L99;
+    v4 = (v4 + ".bgt");
+    L99:
+    v5 = new File(v4);
+    if (v5.exists() == 0) goto L139;
+    if (0 != this.confirmYesNo(this.mainShell, ("The '" + v4 + "' file already exists.\nDo you want to overwrite it ?"))) goto L139;
+    return 0;
+    L139:
+    this.fileName = v4;
+    this.updateShellTitle();
+    L149:
+    v2 = new StringBuffer();
+    if (0 != this.db.save(this.fileName, this.dbKey, v2)) goto L191;
+    this.showError(this.mainShell, v2.toString());
+    return 0;
+    L191:
+    this.addRecentFile(new File(this.fileName).getAbsolutePath());
+    this.saveRc();
+    return 1;
+}
+
+private boolean saveDB() {
+    if (this.fileName != null) goto L34;
+    if (this.db.size() != 0) goto L29;
+    if (this.db.adjustmentsSize() != 0) goto L29;
+    return 1;
+    L29:
+    return this.saveNewBudget();
+    L34:
+    v1 = new StringBuffer();
+    if (0 != this.db.save(this.fileName, this.dbKey, v1)) goto L76;
+    this.showError(this.mainShell, v1.toString());
+    return 0;
+    L76:
+    return 1;
+}
+
+private static String html_name(String p0) {
+    if (Budget.runningOnMac == 0) goto L57;
+    v1 = ("file://" + p0.replace(92, 47));
+    L20:
+    $t1 = v1.indexOf(" ");
+    v2 = $t1;
+    if (-1 == $t1) goto L55;
+    v1 = (v1.substring(0, v2) + "%20" + v1.substring((v2 + 1)));
+    goto L20;
+    L55:
+    return v1;
+    L57:
+    return ("file://" + p0.replace(92, 47));
+}
+
+private void createEditMenu(Menu p0) {
+    v2 = new Menu(p0);
+    v3 = new MenuItem(p0, 64);
+    v3.setText("&Edit");
+    v3.setMenu(v2);
+    v2.addMenuListener(new Budget$99(this));
+    v4 = new MenuItem(v2, 8);
+    this.undoMoveMenuItem = v4;
+    v4.setText("&Undo transaction move");
+    v4.addSelectionListener(new Budget$100(this));
+    return;
+}
+
+private void createFileMenu(Menu p0) {
+    v2 = new Menu(p0);
+    v3 = new MenuItem(p0, 64);
+    v3.setText("&File");
+    v3.setMenu(v2);
+    v2.addMenuListener(new Budget$101(this, v2));
+    v4 = new MenuItem(v2, 8);
+    v4.setText("&New");
+    v4.addSelectionListener(new Budget$102(this));
+    v4 = new MenuItem(v2, 8);
+    v4.setText("&Open...");
+    v4.addSelectionListener(new Budget$103(this));
+    v4 = new MenuItem(v2, 8);
+    v4.setText("&Save");
+    v4.addSelectionListener(new Budget$104(this));
+    v4 = new MenuItem(v2, 8);
+    v4.setText("save &As");
+    v4.addSelectionListener(new Budget$105(this));
+    v4 = new MenuItem(v2, 8);
+    this.passwordMenuItem = v4;
+    v4.setText("pass&Word");
+    v4.addSelectionListener(new Budget$106(this));
+    $s0 = this.passwordMenuItem;
+    if (this.dbKey != null) goto L240;
+    $s0 = this.passwordMenuItem;
+    if (this.cfg.encryption.boolValue == 0) goto L244;
+    $s0 = this.passwordMenuItem;
+    L240:
+    $s1 = 1;
+    goto L245;
+    L244:
+    $s1 = 0;
+    L245:
+    $s0.setEnabled($s1);
+    v4 = new MenuItem(v2, 8);
+    v4.setText("&List of all payments");
+    v4.addSelectionListener(new Budget$107(this));
+    v4 = new MenuItem(v2, 2);
+    v4 = new MenuItem(v2, 8);
+    v4.setText("edit notes");
+    v4.addSelectionListener(new Budget$108(this));
+    v4 = new MenuItem(v2, 2);
+    this.addMenuItem(v2, -2, "preferences", new Budget$109(this));
+    v4 = new MenuItem(v2, 2);
+    v4 = new MenuItem(v2, 8);
+    v4.setText("&Print this month");
+    v4.addSelectionListener(new Budget$110(this));
+    v4 = new MenuItem(v2, 8);
+    v4.setText("&Excel report");
+    if (this.excel_prg != null) goto L434;
+    v4.setEnabled(0);
+    goto L447;
+    L434:
+    v4.addSelectionListener(new Budget$111(this));
+    L447:
+    v4 = new MenuItem(v2, 8);
+    v4.setText("&Detailed report");
+    v4.addSelectionListener(new Budget$112(this));
+    v4 = new MenuItem(v2, 8);
+    v4.setText("&Unpaid && paid report");
+    v4.addSelectionListener(SelectionListener.widgetSelectedAdapter(lambda[Budget::lambda$createFileMenu$0](this)));
+    v4 = new MenuItem(v2, 2);
+    v4 = new MenuItem(v2, 2);
+    this.recentFilesMenuIndex = v2.indexOf(v4);
+    if (Budget.runningOnMac != 0) goto L585;
+    v4 = new MenuItem(v2, 8);
+    v4.setText("E&xit");
+    v4.addSelectionListener(new Budget$113(this));
+    L585:
+    return;
+}
+
+private boolean askRegistration() {
+    v1 = this.prompt(this.mainShell, null, "Registration", "Enter registration key: ", "", 0);
+    if (v1 != null) goto L26;
+    return 0;
+    L26:
+    v1 = v1.trim();
+    if (Budget.isValidKey(v1) != 0) goto L51;
+    this.showError(this.mainShell, "The entered key is INVALID!");
+    return 0;
+    L51:
+    this.trial_version = 0;
+    this.updateShellTitle();
+    this.showInfo(this.mainShell, "Registration complete.\nThank you for using Budget Calendar");
+    this.cfg.regkey = v1;
+    this.cfg.unlimitedHistory.boolValue = 1;
+    this.cfg.unlimitedHistory.enabled = 1;
+    this.saveRc();
+    return 1;
+}
+
+private static int parseInt(String p0) {
+    v1 = 0;
+    v2 = 0;
+    L4:
+    if (v2 >= p0.length()) goto L29;
+    if (Character.isDigit(p0.charAt(v2)) == 0) goto L29;
+    v2 += 1;
+    goto L4;
+    L29:
+    v1 = Integer.parseInt(p0.substring(0, v2));
+    goto L43;
+    // handler for [2,39) catch Exception
+    L42:
+    v2 = $ex;
+    L43:
+    return v1;
+}
+
+private static int getVersion(String p0) {
+    v1 = p0.split("[.]");
+    $a1 = new int[3];
+    $a1[0] = 1000000;
+    $a1[1] = 10000;
+    $a1[2] = 1;
+    v2 = $a1;
+    v3 = 0;
+    v4 = 0;
+    L33:
+    if (v4 >= Math.min(v1.length, 3)) goto L65;
+    v3 = (v3 + (Budget.parseInt(v1[v4]) * v2[v4]));
+    v4 += 1;
+    goto L33;
+    L65:
+    return v3;
+}
+
+private void addMenuItem(Menu p0, int p1, String p2, Listener p3) {
+    if (Budget.runningOnMac == 0) goto L121;
+    v5 = Display.getDefault().getSystemMenu();
+    if (v5 == null) goto L121;
+    v6 = v5.getItems();
+    v7 = v6.length;
+    v8 = 0;
+    L34:
+    if (v8 >= v7) goto L121;
+    v9 = v6[v8];
+    if (v9.getID() != p1) goto L115;
+    v10 = v9.getListeners(13);
+    v11 = v10.length;
+    v12 = 0;
+    L74:
+    if (v12 >= v11) goto L103;
+    v13 = v10[v12];
+    v9.removeListener(13, v13);
+    v12 += 1;
+    goto L74;
+    L103:
+    v9.addListener(13, p3);
+    goto L121;
+    L115:
+    v8 += 1;
+    goto L34;
+    L121:
+    v5 = new MenuItem(p0, 8);
+    v5.setText(p2);
+    v5.addListener(13, p3);
+    return;
+}
+
+private void createHelpMenu(Menu p0) {
+    v2 = new Menu(p0);
+    v3 = new MenuItem(p0, 64);
+    v3.setText("&Help");
+    v3.setMenu(v2);
+    v4 = new MenuItem(v2, 8);
+    v4.setText("&Help ");
+    v4.addSelectionListener(new Budget$114(this));
+    v4 = new MenuItem(v2, 8);
+    v4.setText("&Tutorial");
+    v4.addSelectionListener(new Budget$115(this));
+    v4 = new MenuItem(v2, 8);
+    v4.setText("&Check for Updates Online");
+    v4.addSelectionListener(new Budget$116(this));
+    this.addMenuItem(v2, -1, "&About", new Budget$117(this));
+    if (this.trial_version == 0) goto L199;
+    v4 = new MenuItem(v2, 2);
+    v4 = new MenuItem(v2, 8);
+    v4.setText("&Register");
+    v4.addSelectionListener(new Budget$118(this));
+    L199:
+    return;
+}
+
+private void updateCalendarView() {
+    if (this.do_calendar_update != 1) goto L9;
+    return;
+    L9:
+    this.do_best_fit = 0;
+    this.flash_cell = null;
+    this.labelInFocus = null;
+    this.notesText.setText(this.db.notes);
+    this.notesText.setToolTipText(this.db.notes);
+    v1 = this.calendarView.getChildren();
+    this.calendarView.getParent().setRedraw(0);
+    v2 = 0;
+    L73:
+    if (v2 >= v1.length) goto L91;
+    v1[v2].dispose();
+    v2 += 1;
+    goto L73;
+    L91:
+    v2 = this.dragSources.iterator();
+    L99:
+    if (v2.hasNext() == 0) goto L123;
+    (dnd.DragSource)v2.next().dispose();
+    goto L99;
+    L123:
+    v2 = this.tempWidgets.iterator();
+    L131:
+    if (v2.hasNext() == 0) goto L155;
+    (Widget)v2.next().dispose();
+    goto L131;
+    L155:
+    this.dragSources.clear();
+    v2 = this.dropTargets.iterator();
+    L170:
+    if (v2.hasNext() == 0) goto L194;
+    (dnd.DropTarget)v2.next().dispose();
+    goto L170;
+    L194:
+    this.dropTargets.clear();
+    this.createCalendarView(this.calendarScroll, this.calendarView, this.curCal);
+    this.calendarView.layout();
+    if (this.lastCreateViewCal == null) goto L255;
+    if ((this.lastCreateViewCal.get() / 100) == (this.curCal.get() / 100)) goto L263;
+    L255:
+    this.show_current(this.calendarScroll);
+    L263:
+    this.lastCreateViewCal = new SimpleCalendar(this.curCal);
+    this.calendarView.getParent().setRedraw(1);
+    this.graphCanvas.redraw();
+    this.setMonthLabel();
+    this.mainShell.setRedraw(1);
+    this.monthLabel.redraw();
+    return;
+}
+
+private void adjustBalance(SimpleCalendar p0) {
+    v2 = this.db.getDay(p0);
+    v3 = Budget.numFormatFrac2;
+    v4 = v3.format(v2.closing_balance);
+    v7 = v2.getUnadjustedBalance();
+    L29:
+    $s0 = this;
+    $s1 = this.mainShell;
+    $s2 = null;
+    $s3 = "Balance Adjustment";
+    if (v2.closing_balance_adjusted == 0) goto L65;
+    $s0 = this;
+    $s1 = this.mainShell;
+    $s2 = null;
+    $s3 = "Balance Adjustment";
+    $s4 = ("\nBalance before adjustment: <a href=\"" + v3.format(v7) + "\">" + v3.format(v7) + "</a>.");
+    goto L68;
+    L65:
+    $s4 = "";
+    L68:
+    $s4 = ("Enter new balance adjustment (formulas are allowed):" + $s4);
+    $s5 = v4;
+    if (v2.closing_balance_adjusted == 0) goto L88;
+    $s4 = ("Enter new balance adjustment (formulas are allowed):" + $s4);
+    $s5 = v4;
+    $s6 = Budget.PROMPT_REMOVE_ADJUSTMENT;
+    goto L89;
+    L88:
+    $s6 = 0;
+    L89:
+    v4 = $s0.prompt($s1, $s2, $s3, $s4, $s5, $s6);
+    if (v4 != null) goto L100;
+    return;
+    L100:
+    if (v2.closing_balance_adjusted == 0) goto L131;
+    if (v4.equals("2:") == 0) goto L131;
+    this.db.removeAdjustment(p0);
+    this.updateCalendarView();
+    return;
+    L131:
+    v5 = Calculator.calculate(v4, 0.0, 0.0);
+    goto L161;
+    // handler for [131,140) catch Exception
+    L143:
+    v9 = $ex;
+    this.showError(this.mainShell, v9.getMessage());
+    goto L29;
+    L161:
+    this.db.updateAdjustment(p0, v5);
+    this.updateCalendarView();
+    return;
+}
+
+private double get_best_saving(SimpleCalendar p0, int p1, double p2, double p3, String p4) {
+    v8 = 1000000000.0;
+    v10 = new SimpleCalendar(p0);
+    v11 = new SimpleCalendar(p0);
+    v11.add(2, p1);
+    v11.set(1, 1);
+    L41:
+    if (v10.gt(v11) != 0) goto L113;
+    $t3 = this.db.getDay(v10);
+    v12 = $t3;
+    if (null != $t3) goto L70;
+    goto L113;
+    L70:
+    if (v12.closing_balance_adjusted == 0) goto L80;
+    p2 = 0.0;
+    L80:
+    if (v8 <= (v12.closing_balance - p2)) goto L102;
+    v8 = (v12.closing_balance - p2);
+    L102:
+    v10.add(1, 1);
+    goto L41;
+    L113:
+    if ("$".equals(p4) == 0) goto L132;
+    if (v8 > p3) goto L151;
+    L132:
+    if ("$$".equals(p4) == 0) goto L158;
+    if (v8 >= p3) goto L158;
+    L151:
+    return ((-v8) + p3);
+    L158:
+    return 0.0;
+}
+
+private double[] getBestSavings(SimpleCalendar p0) {
+    $a1 = new double[p0.getActualMaximum(1)];
+    v2 = $a1;
+    v3 = new SimpleCalendar(p0).setDayOne();
+    v4 = 0;
+    L23:
+    if (v4 >= v2.length) goto L75;
+    v2[v4] = (-this.get_best_saving(v3, this.cfg.maxSavingNMonths.intValue, 0.0, this.cfg.minBalance4MaxSaving.doubleValue, "$"));
+    v4 += 1;
+    v3.nextDay();
+    goto L23;
+    L75:
+    return v2;
+}
+
+private double[] getMonthPlusMinus(SimpleCalendar p0) {
+    $a1 = new double[p0.getActualMaximum(1)];
+    v2 = $a1;
+    v3 = new SimpleCalendar(p0).setDayOne();
+    v4 = 0.0;
+    v6 = 0;
+    L26:
+    if (v6 >= v2.length) goto L212;
+    v7 = this.db.getDay(v3);
+    if (null != v7) goto L52;
+    goto L212;
+    L52:
+    v8 = v7.getRegulars();
+    v9 = 0.0;
+    if (v8 == null) goto L117;
+    v11 = v8.iterator();
+    L74:
+    if (v11.hasNext() == 0) goto L117;
+    v12 = (Payment)v11.next();
+    if (v12.disabled != 0) goto L114;
+    v9 = (v9 + v12.amount);
+    L114:
+    goto L74;
+    L117:
+    v11 = 0.0;
+    if (v7.hasTransactions() == 0) goto L184;
+    v13 = v7.transactions.iterator();
+    L138:
+    if (v13.hasNext() == 0) goto L184;
+    v14 = (Transaction)v13.next();
+    if (v14.pmt.disabled != 0) goto L181;
+    v11 = (v11 + v14.amount);
+    L181:
+    goto L138;
+    L184:
+    v4 = (v4 + (v9 - v11));
+    v2[v6] = (-v4);
+    v6 += 1;
+    v3.nextDay();
+    goto L26;
+    L212:
+    return v2;
+}
+
+ long truncate_to_10(double p0) {
+    if (this.cfg.minBalance4MaxSaving.doubleValue >= 100.0) goto L21;
+    $s0 = 1;
+    goto L23;
+    L21:
+    $s0 = 10;
+    L23:
+    v3 = $s0;
+    $s0 = (((long)(Math.abs(p0) / (10.0 * (double)v3)) * 10L) * (long)v3);
+    if (p0 >= 0.0) goto L53;
+    $s0 = (((long)(Math.abs(p0) / (10.0 * (double)v3)) * 10L) * (long)v3);
+    $s1 = -1;
+    goto L54;
+    L53:
+    $s1 = 1;
+    L54:
+    return ($s0 * (long)$s1);
+}
+
+ double roundUp(double p0) {
+    return (Math.ceil((p0 / 10.0)) * 10.0);
+}
+
+private String getSavingsAmounts(double p0) {
+    v3 = Budget.numFormatFrac2;
+    v4 = ("<a href=\"" + v3.format(p0) + "\">" + v3.format(p0) + "</a>");
+    if (p0 >= -1000.0) goto L105;
+    p0 = (double)(((int)p0 / 1000) * 1000);
+    v4 = (v4 + " (<a href=\"" + v3.format(p0) + "\">" + v3.format(p0) + "</a>");
+    if (p0 > -1000.0) goto L96;
+    p0 = (p0 / 2.0);
+    v4 = (v4 + ", <a href=\"" + v3.format(p0) + "\">" + v3.format(p0) + "</a>)");
+    goto L105;
+    L96:
+    v4 = (v4 + ")");
+    L105:
+    return v4;
+}
+
+private boolean adjustAmount(SimpleCalendar p0, Payment p1, double p2) {
+    v5 = Budget.numFormatFrac2;
+    v6 = v5.format(p2);
+    v7 = "";
+    v8 = "\n";
+    v9 = (double)this.truncate_to_10(this.get_best_saving(p0, this.cfg.maxSavingNMonths.intValue, p2, this.cfg.minBalance4MaxSaving.doubleValue, "$"));
+    if (v9 == 0.0) goto L82;
+    v7 = ("You may put " + this.getSavingsAmounts(v9) + " to 'Savings'.\n");
+    goto L145;
+    L82:
+    v9 = this.roundUp(this.get_best_saving(p0, this.cfg.maxSavingNMonths.intValue, p2, this.cfg.minBalance4MaxSaving.doubleValue, "$$"));
+    if (v9 == 0.0) goto L145;
+    v7 = ("You may want to borrow <a href=\"" + v5.format(v9) + "\">" + v5.format(v9) + "</a> from 'Savings'.\n");
+    L145:
+    v11 = this.getSixMonthsAvg(p1.description, p0);
+    if (0.0 == (double)v11.np) goto L184;
+    v8 = ("Six months average is <a>" + v5.format(v11.pt) + "</a>.\n");
+    L184:
+    $s0 = this;
+    $s1 = this.mainShell;
+    $s2 = null;
+    $s3 = "Amount Adjustment";
+    $s4 = ("Enter the new amount, formulas are allowed.\nStandard amount is <a>" + v5.format(p1.amount) + "</a>. " + v8 + v7 + "Use: %n to calculate week's income percentage, or %%n month's income percentage.");
+    $s5 = v6;
+    $s6 = Budget.PROMPT_EXPENSE;
+    if (p2 == p1.amount) goto L231;
+    $s0 = this;
+    $s1 = this.mainShell;
+    $s2 = null;
+    $s3 = "Amount Adjustment";
+    $s4 = ("Enter the new amount, formulas are allowed.\nStandard amount is <a>" + v5.format(p1.amount) + "</a>. " + v8 + v7 + "Use: %n to calculate week's income percentage, or %%n month's income percentage.");
+    $s5 = v6;
+    $s6 = Budget.PROMPT_EXPENSE;
+    $s7 = Budget.PROMPT_REMOVE_ADJUSTMENT;
+    goto L232;
+    L231:
+    $s7 = 0;
+    L232:
+    v6 = $s0.prompt($s1, $s2, $s3, $s4, $s5, ($s6 | $s7));
+    if (v6 != null) goto L245;
+    return 0;
+    L245:
+    if (p2 == p1.amount) goto L273;
+    if (v6.equals("2:") == 0) goto L273;
+    this.remove_adjustment(p1, p0);
+    return 1;
+    L273:
+    v11 = v6.startsWith("1:");
+    v6 = v6.substring(2).trim();
+    if (v6.length() != 0) goto L304;
+    return 0;
+    L304:
+    if (v6.equals("$") != 0) goto L326;
+    if (v6.equals("$$") == 0) goto L368;
+    L326:
+    v12 = this.get_best_saving(p0, this.cfg.maxSavingNMonths.intValue, p2, this.cfg.minBalance4MaxSaving.doubleValue, v6);
+    v6 = v5.format(v12);
+    goto L184;
+    L368:
+    v12 = 0.0;
+    v14 = 0.0;
+    if (v6.contains("%") == 0) goto L399;
+    v12 = this.getWeekIncome(p0);
+    v14 = this.getMonthIncome(p0);
+    L399:
+    v9 = Calculator.calculate(v6, v12, v14);
+    if (v9 <= 0.0) goto L427;
+    if (v11 == 0) goto L427;
+    v9 = (-v9);
+    L427:
+    if (v6.contains("%") == 0) goto L450;
+    v6 = v5.format(v9);
+    goto L184;
+    L450:
+    goto L471;
+    // handler for [399,447) catch Exception
+    L453:
+    v16 = $ex;
+    this.showError(this.mainShell, v16.getMessage());
+    goto L184;
+    L471:
+    v12 = Budget.numFormatFrac2;
+    if (p1.amount <= 0.0) goto L519;
+    if (v9 >= 0.0) goto L519;
+    if (0 != this.confirmYesNo(this.mainShell, ("This type of transactions is Income.\nThe adjusted amount is negative (" + v12.format(v9) + "). Is this correct?"))) goto L562;
+    goto L184;
+    L519:
+    if (p1.amount >= 0.0) goto L562;
+    if (v9 <= 0.0) goto L562;
+    if (0 != this.confirmYesNo(this.mainShell, ("This type of transactions is Expense.\nThe adjusted amount is positive (" + v12.format(v9) + "). Is this correct?"))) goto L562;
+    goto L184;
+    L562:
+    p1.setCustomAmount(p0.get(), v9);
+    this.db.update(p1);
+    if (this.prompt_was_ctrl_ok == 0) goto L638;
+    v13 = this.pickWildPaymentDialog(this.mainShell, null, p0, v9);
+    if (v13 == null) goto L638;
+    v13.setCustomAmount(p0.get(), (v13.getAmountBeforeDate(p0.get()) - v9));
+    this.db.update(v13);
+    L638:
+    if (this.prompt_was_alt_ok == 0) goto L657;
+    this.editPmtNote(this.mainShell, p0, p1, null);
+    L657:
+    this.scheduleUpdateCalendarView();
+    return 1;
+}
+
+private double getWeekIncome(SimpleCalendar p0) {
+    v2 = 0.0;
+    v4 = new SimpleCalendar(p0);
+    L12:
+    if (v4.getDayOfWeek() == this.getFirstDayOfWeek()) goto L35;
+    v4.add(1, -1);
+    goto L12;
+    L35:
+    v5 = 0;
+    L38:
+    if (v5 >= 7) goto L139;
+    v6 = this.db.getDay(v4);
+    if (v6.hasTransactions() == 0) goto L125;
+    v7 = v6.transactionIterator();
+    L71:
+    if (v7.hasNext() == 0) goto L125;
+    v8 = (Transaction)v7.next();
+    if (v8.pmt.disabled != 0) goto L122;
+    if (v8.amount <= 0.0) goto L122;
+    v2 = (v2 + v8.amount);
+    L122:
+    goto L71;
+    L125:
+    v4.add(1, 1);
+    v5 += 1;
+    goto L38;
+    L139:
+    return v2;
+}
+
+private double getMonthIncome(SimpleCalendar p0) {
+    v2 = 0.0;
+    v4 = new SimpleCalendar(p0);
+    v4.set(1, 1);
+    L20:
+    if (v4.getYm() != p0.getYm()) goto L123;
+    v5 = this.db.getDay(v4);
+    if (v5.hasTransactions() == 0) goto L112;
+    v6 = v5.transactionIterator();
+    L58:
+    if (v6.hasNext() == 0) goto L112;
+    v7 = (Transaction)v6.next();
+    if (v7.pmt.disabled != 0) goto L109;
+    if (v7.amount <= 0.0) goto L109;
+    v2 = (v2 + v7.amount);
+    L109:
+    goto L58;
+    L112:
+    v4.add(1, 1);
+    goto L20;
+    L123:
+    return v2;
+}
+
+private void deleteTransaction(SimpleCalendar p0, Payment p1) {
+    p1.setNoTransaction(p0.get());
+    this.db.update(p1);
+    return;
+}
+
+static double toDouble(String p0) {
+    if (p0.startsWith("+") == 0) goto L16;
+    p0 = p0.substring(1);
+    L16:
+    v1 = Budget.numFormatFrac2.parse(p0.replaceAll("\\$", "")).doubleValue();
+    goto L42;
+    // handler for [0,36) catch Exception
+    L39:
+    v3 = $ex;
+    v1 = 0.0;
+    L42:
+    return v1;
+}
+
+private double parseDouble(String p0) {
+    v2 = Double.parseDouble(p0.replaceAll("\\$", ""));
+    goto L21;
+    // handler for [0,14) catch Exception
+    L17:
+    v4 = $ex;
+    v2 = 0.0;
+    L21:
+    return v2;
+}
+
+private String getDesc(String p0) {
+    v2 = p0.indexOf(59);
+    if (-1 == v2) goto L19;
+    p0 = p0.substring(0, v2);
+    L19:
+    if (this.calendarDescriptionMaxLen == -1) goto L54;
+    $t1 = p0.length();
+    v3 = $t1;
+    if ($t1 <= this.calendarDescriptionMaxLen) goto L54;
+    p0 = (p0.substring(0, (v3 - 3)) + "...");
+    L54:
+    return p0;
+}
+
+public static String escape_html_text(String p0) {
+    if (p0 == null) goto L11;
+    if (p0.isEmpty() == 0) goto L15;
+    L11:
+    return "";
+    L15:
+    v1 = new StringBuilder((p0.length() + 16));
+    v2 = 0;
+    L32:
+    if (v2 >= p0.length()) goto L199;
+    v3 = p0.codePointAt(v2);
+    v2 = (v2 + Character.charCount(v3));
+    switch (v3) { 34: L137, 38: L104, 39: L148, 60: L115, 62: L126; default: L159 }
+    L104:
+    v1.append("&amp;");
+    goto L196;
+    L115:
+    v1.append("&lt;");
+    goto L196;
+    L126:
+    v1.append("&gt;");
+    goto L196;
+    L137:
+    v1.append("&quot;");
+    goto L196;
+    L148:
+    v1.append("&#39;");
+    goto L196;
+    L159:
+    if (v3 > 255) goto L176;
+    v1.append((char)v3);
+    goto L196;
+    L176:
+    v1.append("&#x").append(Integer.toHexString(v3)).append(59);
+    L196:
+    goto L32;
+    L199:
+    return v1.toString();
+}
+
+private void splitPayment(Budget$Info p0) {
+    if (p0.interactive == 0) goto L41;
+    $s0 = this.confirmYesNo(this.mainShell, ("Payment: '" + this.getDesc(p0.pmt.description) + "'\nDo you want to alter transactions starting from " + Budget.sdate(p0.cal) + "?\n\nThe Edit Payment dialog will be shown to allow altering of: amount, scheduling, description, etc.\n\nNote that preceding and manually adjusted transactions are not affected.\n"));
+    goto L42;
+    L41:
+    $s0 = 1;
+    L42:
+    v2 = $s0;
+    if (v2 == 0) goto L766;
+    v3 = new SimpleCalendar(p0.cal);
+    v3.add(1, -1);
+    v4 = this.db.getDay(v3);
+    if (v4 != null) goto L87;
+    $s0 = nan;
+    goto L92;
+    L87:
+    $s0 = v4.closing_balance;
+    L92:
+    v5 = $s0;
+    v7 = p0.pmt.clonePayment();
+    v7.startDate = p0.cal.get();
+    v8 = ("BUG REPORT:\n#1 BEFORE TRIM\nPLEASE copy and paste all of the output, and\nemail to support@mishell.ca\nApp version: " + Budget.budgetVersion + "\n\n\n\nORG PMT: " + this.db.isPaymentInDB(p0.pmt) + String.valueOf(p0.pmt) + "\n\nNEW PMT: " + this.db.isPaymentInDB(v7) + String.valueOf(v7));
+    $s0 = v7;
+    if (p0.pmt.getEndMode() != 16) goto L176;
+    $s0 = v7;
+    $s1 = 16;
+    goto L178;
+    L176:
+    $s1 = 32;
+    L178:
+    $s0.setEndMode($s1);
+    if (v7.endDate >= v7.startDate) goto L204;
+    v7.endDate = v7.startDate;
+    L204:
+    if (p0.pmt.hilighting == null) goto L279;
+    v9 = p0.pmt.hilighting.iterator();
+    L226:
+    if (v9.hasNext() == 0) goto L279;
+    v10 = (Payment$Hilight)v9.next();
+    if (v10.date < v7.startDate) goto L276;
+    v7.setHilighting(v10.date, v10.bg_color);
+    L276:
+    goto L226;
+    L279:
+    this.db.add(v7);
+    if (p0.pmt.endDate > v3.get()) goto L315;
+    if (p0.pmt.getEndMode() != 16) goto L326;
+    L315:
+    p0.pmt.endDate = v3.get();
+    L326:
+    p0.pmt.setEndMode(32);
+    p0.pmt.clear(p0.cal.get());
+    p0.pmt.clearAfter(p0.cal.get());
+    p0.pmt.setNoTransaction(p0.cal.get());
+    this.db.update(p0.pmt);
+    if (p0.interactive == 0) goto L747;
+    v8 = (v8 + "\n\n#2 BEFORE edit\n\nORG PMT: " + this.db.isPaymentInDB(p0.pmt) + String.valueOf(p0.pmt) + "\n\nNEW PMT: " + this.db.isPaymentInDB(v7) + String.valueOf(v7));
+    v9 = v7.startDate;
+    this.editPayment(this.mainShell, v7, null);
+    v8 = (v8 + "\n\n#3 AFTER edit\n\nORG PMT: " + this.db.isPaymentInDB(p0.pmt) + String.valueOf(p0.pmt) + "\n\nNEW PMT: " + this.db.isPaymentInDB(v7) + String.valueOf(v7));
+    if (this.db.isPaymentInDB(v7) == 0) goto L550;
+    if (p0.pmt.amount == p0.amount) goto L540;
+    v7.setCustomAmount(p0.cal.get(), p0.amount);
+    L540:
+    this.db.update(v7);
+    L550:
+    if (v7.startDate < v9) goto L731;
+    v4 = this.db.getDay(v3);
+    if (v4 == null) goto L590;
+    if (v4.closing_balance == v5) goto L590;
+    $s0 = 1;
+    goto L591;
+    L590:
+    $s0 = 0;
+    L591:
+    v10 = $s0;
+    if (this.db.isPaymentInDB(p0.pmt) == 0) goto L612;
+    if (v10 == 0) goto L728;
+    L612:
+    v8 = (v8 + "\n\n#4 FAILURE! -- will exit post this point.\n\nORG PMT: " + this.db.isPaymentInDB(p0.pmt) + String.valueOf(p0.pmt) + "\n\nNEW PMT: " + this.db.isPaymentInDB(v7) + String.valueOf(v7) + "\n**** " + v3.toString() + " balances do not match, was:" + v5 + ", now:" + v4.closing_balance);
+    v11 = 1;
+    if (v10 == 0) goto L709;
+    if (v7.isEarlyPay() == 0) goto L709;
+    if ((v4.closing_balance - v5) != v7.amount) goto L709;
+    v8 = (v8 + "\n### *probably* okay, this is the result of Yearly Pay option");
+    v11 = 0;
+    L709:
+    if (v11 == 0) goto L728;
+    this.showLog(this.mainShell, v8);
+    System.exit(1);
+    L728:
+    goto L740;
+    L731:
+    v8 = (v8 + "\n\n#5 SKIP! -- didn't compare balances, the start date is moved to be before the split date\n\n");
+    L740:
+    this.updateCalendarView();
+    goto L766;
+    L747:
+    v7.amount = p0.amount;
+    this.db.update(v7);
+    L766:
+    return;
+}
+
+private Payment duplicate_transaction(Payment p0, SimpleCalendar p1, double p2) {
+    v5 = p0.clonePayment();
+    v5.amount = p2;
+    $t1 = p1.get();
+    v5.endDate = $t1;
+    v5.startDate = $t1;
+    v5.n_pays = 1;
+    v5.setEndMode(48);
+    this.db.add(v5);
+    this.scheduleUpdateCalendarView();
+    return v5;
+}
+
+private void fillDeletedTransactionsMenu(Menu p0, Set p1, Shell p2) {
+    v4 = -1;
+    v5 = -1;
+    v6 = null;
+    v7 = null;
+    v8 = null;
+    v9 = null;
+    v10 = p1.iterator();
+    L26:
+    if (v10.hasNext() == 0) goto L333;
+    v11 = (PaymentOption)v10.next();
+    if (v4 == -1) goto L67;
+    if (v4 == SimpleCalendar.getYear(v11.date)) goto L152;
+    L67:
+    v4 = SimpleCalendar.getYear(v11.date);
+    v6 = new MenuItem(p0, 64);
+    v6.setText((v4));
+    v8 = new Menu(p0);
+    v6.setMenu(v8);
+    if (v4 != this.curCal.getYear()) goto L152;
+    v6.setImage(this.getImage(Budget.icon("nxt.gif"), this.mainShell.getBackground()));
+    L152:
+    if (v5 == -1) goto L171;
+    if (v5 == SimpleCalendar.getYm(v11.date)) goto L270;
+    L171:
+    v5 = SimpleCalendar.getYm(v11.date);
+    v7 = new MenuItem(v8, 64);
+    v9 = new Menu(v8);
+    v7.setMenu(v9);
+    v7.setText(this.monthName[SimpleCalendar.getMonth(v11.date)]);
+    if (SimpleCalendar.getYm(v11.date) != this.curCal.getYm()) goto L270;
+    v7.setImage(this.getImage(Budget.icon("nxt.gif"), this.mainShell.getBackground()));
+    L270:
+    v12 = new MenuItem(v9, 8);
+    v12.setText((SimpleCalendar.getDay(v11.date)));
+    v12.setData(v11);
+    if (p2 == null) goto L321;
+    v12.setData("closeThisShell", p2);
+    L321:
+    v12.addSelectionListener(this.deletedOptSelected);
+    goto L26;
+    L333:
+    return;
+}
+
+private void fillAllTransactionsMenu(Payment p0, Menu p1, Filter p2, boolean p3, SimpleCalendar p4, SelectionAdapter p5) {
+    v7 = Budget.numFormatFrac2;
+    v9 = new Vector(10);
+    v10 = 0.0;
+    v12 = 0.0;
+    v14 = this.curCal.getYm();
+    v15 = new SimpleCalendar(this.minDate);
+    L44:
+    $t3 = this.db.getDay(v15);
+    v8 = $t3;
+    if (null == $t3) goto L186;
+    if (v8.hasTransactions() == 0) goto L177;
+    v16 = v8.transactionIterator();
+    L75:
+    if (v16.hasNext() == 0) goto L177;
+    v17 = (Transaction)v16.next();
+    if (v17.pmt.description.equals(p0.description) == 0) goto L174;
+    if (p3 == 0) goto L145;
+    if (p2 == null) goto L145;
+    if (p2.isMatch(p0, v17.amount, v15.get()) != 0) goto L145;
+    goto L75;
+    L145:
+    v9.add(new Budget$TranInfo(this, v15.get(), v17.amount, v17.pmt));
+    L174:
+    goto L75;
+    L177:
+    v15.nextDay();
+    goto L44;
+    L186:
+    v15 = -1;
+    v16 = -1;
+    v17 = null;
+    v18 = null;
+    v19 = null;
+    v20 = null;
+    v21 = new Vector();
+    v22 = null;
+    v23 = null;
+    v24 = v9.iterator();
+    L226:
+    if (v24.hasNext() == 0) goto L447;
+    v25 = (Budget$TranInfo)v24.next();
+    if (v15 == SimpleCalendar.getYear(v25.date)) goto L302;
+    v22 = new Budget$TranInfo(this, v25.date, 0.0, new Vector());
+    v21.add(v22);
+    v15 = SimpleCalendar.getYear(v25.date);
+    L302:
+    if (v16 == SimpleCalendar.getYm(v25.date)) goto L359;
+    v23 = new Budget$TranInfo(this, v25.date, 0.0, new Vector());
+    v22.subinfo.add(v23);
+    v16 = SimpleCalendar.getYm(v25.date);
+    L359:
+    v23.subinfo.add(v25);
+    if (v25.pmt.disabled != 0) goto L444;
+    v23.amount = (v23.amount + v25.amount);
+    v22.amount = (v22.amount + v25.amount);
+    v10 = (v10 + v25.amount);
+    if (SimpleCalendar.getYm(v23.date) > v14) goto L444;
+    v12 = (v12 + v25.amount);
+    L444:
+    goto L226;
+    L447:
+    if (v21.size() != 0) goto L506;
+    v17 = new MenuItem(p1, 8);
+    v17.setEnabled(0);
+    $s0 = v17;
+    if (this.cfg.unlimitedHistory.boolValue == 0) goto L494;
+    $s0 = v17;
+    $s1 = "";
+    goto L497;
+    L494:
+    $s1 = " -- try enabling 'Unlimited history' in Preferences";
+    L497:
+    $s0.setText(("No transactions found" + $s1));
+    return;
+    L506:
+    v24 = v21.iterator();
+    L513:
+    if (v24.hasNext() == 0) goto L1094;
+    v22 = (Budget$TranInfo)v24.next();
+    v17 = new MenuItem(p1, 64);
+    v17.setText((SimpleCalendar.getYear(v22.date) + Budget.AMOUNT_SEP + v7.format(v22.amount)));
+    v19 = new Menu(p1);
+    v17.setMenu(v19);
+    if (SimpleCalendar.getYear(v22.date) != p4.getYear()) goto L633;
+    v17.setImage(this.getImage(Budget.icon("nxt.gif"), this.mainShell.getBackground()));
+    L633:
+    v25 = v22.subinfo.iterator();
+    L643:
+    if (v25.hasNext() == 0) goto L1091;
+    v23 = (Budget$TranInfo)v25.next();
+    if (v23.subinfo.size() <= 1) goto L793;
+    v18 = new MenuItem(v19, 64);
+    v20 = new Menu(v19);
+    v18.setMenu(v20);
+    v18.setText((this.monthName[SimpleCalendar.getMonth(v23.date)] + "-" + SimpleCalendar.getYear(v23.date) + Budget.AMOUNT_SEP + v7.format(v23.amount)));
+    if (SimpleCalendar.getYm(v23.date) != p4.getYm()) goto L797;
+    v18.setImage(this.getImage(Budget.icon("nxt.gif"), this.mainShell.getBackground()));
+    goto L797;
+    L793:
+    v20 = v19;
+    L797:
+    v26 = v23.subinfo.iterator();
+    L807:
+    if (v26.hasNext() == 0) goto L1088;
+    v27 = (Budget$TranInfo)v26.next();
+    v28 = new MenuItem(v20, 8);
+    if (p2 == null) goto L868;
+    if (p2.isMatch(p0, v27.amount, v27.date) == 0) goto L868;
+    $s0 = 1;
+    goto L869;
+    L868:
+    $s0 = 0;
+    L869:
+    v29 = $s0;
+    $s0 = v28;
+    if (v29 == 0) goto L884;
+    $s0 = v28;
+    $s1 = "* ";
+    goto L887;
+    L884:
+    $s1 = "";
+    L887:
+    $s0.setText(($s1 + Budget.sdate(v27.date) + Budget.AMOUNT_SEP + v7.format(v27.amount) + p0.getOneLineNote(v27.date)));
+    v28.setData(v27);
+    $s0 = v28;
+    if (v27.pmt.disabled != 0) goto L949;
+    $s0 = v28;
+    $s1 = 1;
+    goto L950;
+    L949:
+    $s1 = 0;
+    L950:
+    $s0.setEnabled($s1);
+    v28.addSelectionListener(p5);
+    if (SimpleCalendar.getYm(v27.date) != p4.getYm()) goto L1005;
+    if (v20 != v19) goto L1005;
+    v28.setImage(this.getImage(Budget.icon("nxt.gif"), this.mainShell.getBackground()));
+    L1005:
+    if (v29 == 0) goto L1085;
+    v30 = v28;
+    L1014:
+    if (null == v30.getParent()) goto L1085;
+    $t16 = v30.getParent().getParentItem();
+    v30 = $t16;
+    if (null == $t16) goto L1085;
+    if (v30.getParent().getParentItem() != null) goto L1052;
+    goto L1085;
+    L1052:
+    v31 = v30.getText();
+    if (v31.startsWith("* ") != 0) goto L1082;
+    v30.setText(("* " + v31));
+    L1082:
+    goto L1014;
+    L1085:
+    goto L807;
+    L1088:
+    goto L643;
+    L1091:
+    goto L513;
+    L1094:
+    if (v21.size() <= 0) goto L1164;
+    new MenuItem(p1, 2);
+    v24 = new MenuItem(p1, 8);
+    v24.setEnabled(0);
+    v24.setText(("Total: " + v7.format(v10) + " (" + v7.format(v12) + "/" + v7.format((v10 - v12)) + ")"));
+    L1164:
+    if (p3 != 0) goto L1271;
+    v24 = this.db.getAllDeletedOptions(p0.description, this.minDate.get(), this.maxDate.get());
+    if (v24.isEmpty() != 0) goto L1271;
+    new MenuItem(p1, 2);
+    v25 = new MenuItem(p1, 64);
+    v25.setText("deleted transactions");
+    v26 = new Menu(p1);
+    v25.setMenu(v26);
+    this.fillDeletedTransactionsMenu(v26, v24, (Shell)p1.getData("shell"));
+    L1271:
+    return;
+}
+
+private void add_six_mi(Menu p0, String p1, double p2) {
+    if (Double.isNaN(p2) != 0) goto L61;
+    v5 = Budget.numFormatFrac2;
+    v6 = new MenuItem(p0, 8);
+    v6.setText((p1 + ":\t" + v5.format(p2)));
+    v6.setData(v5.format(p2));
+    v6.addSelectionListener(this.six_months_avg_sa);
+    L61:
+    return;
+}
+
+private void add_rem_item(Menu p0, String p1) {
+    v3 = new MenuItem(p0, 8);
+    v3.setText(p1);
+    v3.setData(p1);
+    v3.addSelectionListener(this.six_months_avg_sa);
+    return;
+}
+
+private Color int2color(int p0) {
+    return new Color(this.display, ((p0 >> 16) & 255), ((p0 >> 8) & 255), (p0 & 255));
+}
+
+private RGB[] get_customer_rgbs(BudgetDB p0) {
+    v2 = new HashSet();
+    v3 = 0;
+    L10:
+    if (v3 >= p0.size()) goto L96;
+    v4 = p0.get(v3);
+    if (v4.hilighting == null) goto L90;
+    v5 = v4.hilighting.iterator();
+    L43:
+    if (v5.hasNext() == 0) goto L90;
+    v6 = (Payment$Hilight)v5.next();
+    v7 = Budget.get_RGB(v6.bg_color);
+    if (v7 == null) goto L87;
+    v2.add(v7);
+    L87:
+    goto L43;
+    L90:
+    v3 += 1;
+    goto L10;
+    L96:
+    return ([Lorg.eclipse.swt.graphics.RGB;)v2.toArray(lambda[Budget::lambda$get_customer_rgbs$0]());
+}
+
+private static RGB get_RGB(int p0) {
+    v1 = Budget.hilight_color;
+    v2 = v1.length;
+    v3 = 0;
+    L9:
+    if (v3 >= v2) goto L33;
+    v4 = v1[v3];
+    if (v4 != p0) goto L27;
+    return null;
+    L27:
+    v3 += 1;
+    goto L9;
+    L33:
+    return new RGB(((p0 >> 16) & 255), ((p0 >> 8) & 255), (p0 & 255));
+}
+
+private void set_pmt_flag(Payment p0, int p1, char p2, double p3) {
+    p0.setFlag(p1, p2);
+    if (p0.isTentative() == 0) goto L26;
+    if (p2 != 59) goto L26;
+    p0.setCustomAmount(p1, p3);
+    L26:
+    if (p0.isTentative() == 0) goto L42;
+    this.db.update(p0);
+    L42:
+    return;
+}
+
+private void remove_adjustment(Payment p0, SimpleCalendar p1) {
+    if (p0.getEndMode() != 64) goto L24;
+    if (this.db.isRegularPaymentOn(p0, p1.get()) != 0) goto L31;
+    L24:
+    if (p0.isSticky() == 0) goto L42;
+    L31:
+    p0.clear(p1.get());
+    goto L54;
+    L42:
+    p0.setCustomAmount(p1.get(), p0.amount);
+    L54:
+    this.db.update(p0);
+    this.updateCalendarView();
+    return;
+}
+
+private boolean isOldPayment(Payment p0, SimpleCalendar p1, SimpleCalendar p2) {
+    if (p0.amount != 0.0) goto L11;
+    return 0;
+    L11:
+    if (p0.getEndMode() != 16) goto L22;
+    return 0;
+    L22:
+    if (null == p0.getOpt(p1.get(), p2.get())) goto L40;
+    return 0;
+    L40:
+    if (p0.endDate <= p1.get()) goto L53;
+    return 0;
+    L53:
+    return 1;
+}
+
+private Payment pickWildPaymentDialog(Shell p0, String p1, SimpleCalendar p2, double p3) {
+    if (p1 != null) goto L8;
+    $s0 = 1;
+    goto L9;
+    L8:
+    $s0 = 0;
+    L9:
+    v6 = $s0;
+    v7 = new Budget$1pmtRc(this);
+    v8 = new Shell(p0, 65584);
+    $s0 = v8;
+    if (v6 == 0) goto L76;
+    $s0 = v8;
+    $s1 = Budget.numFormatFrac2.format(Math.abs(p3));
+    if (p3 >= 0.0) goto L65;
+    $s0 = v8;
+    $s1 = Budget.numFormatFrac2.format(Math.abs(p3));
+    $s2 = " to..";
+    goto L68;
+    L65:
+    $s2 = " from..";
+    L68:
+    $s1 = ("Select a payment to transfer " + $s1 + $s2);
+    goto L79;
+    L76:
+    $s1 = "Add a transaction of...";
+    L79:
+    $s0.setText($s1);
+    if (p1 != null) goto L90;
+    p1 = "";
+    L90:
+    v9 = new layout.GridLayout();
+    v9.numColumns = 1;
+    v9.marginWidth = 10;
+    v9.marginHeight = 10;
+    v9.verticalSpacing = 5;
+    v9.horizontalSpacing = 5;
+    v8.setLayout(v9);
+    $s0 = new Label(v8, 0);
+    if (v6 == 0) goto L158;
+    $s0 = new Label(v8, 0);
+    $s1 = "ONLY showing DISABLED and STICKY payments!\n";
+    goto L161;
+    L158:
+    $s1 = "";
+    L161:
+    $s0.setText(($s1 + "Type to reduce the selection list..."));
+    v10 = new Text(v8, 2048);
+    v10.setText(p1);
+    v10.setLayoutData(new layout.GridData(768));
+    v10.setEditable(1);
+    v10.selectAll();
+    v11 = new Tree(v8, 67584);
+    v11.setLayoutData(new layout.GridData(1808));
+    v12 = new TreeColumn(v11, 16384);
+    v12.setWidth(20);
+    v13 = new TreeColumn(v11, 16384);
+    v13.setWidth(25);
+    v14 = (this.getTextExtent(v11.getFont(), "-100,000.00").x + 6);
+    v15 = new TreeColumn(v11, 16384);
+    v15.setWidth(250);
+    v16 = new TreeColumn(v11, 131072);
+    v16.setWidth(v14);
+    this.fillWildPaymentTable(v11, p1, v6, p2);
+    v11.addSelectionListener(new Budget$147(this, v11, v7, v8));
+    v10.addKeyListener(new Budget$148(this, v11, v7, v8));
+    v10.addModifyListener(new Budget$149(this, v11, v10, v6, p2));
+    v17 = new Composite(v8, 0);
+    v18 = new layout.GridData();
+    v18.horizontalSpan = 2;
+    v18.horizontalAlignment = 4;
+    v18.grabExcessHorizontalSpace = 1;
+    v17.setLayoutData(v18);
+    v17.setLayout(new layout.GridLayout(2, 0));
+    if (v6 == 0) goto L508;
+    new Label(v17, 0).setLayoutData(new layout.GridData(544));
+    goto L561;
+    L508:
+    v19 = new Button(v17, 16777224);
+    v19.setLayoutData(new layout.GridData(544));
+    v19.setText("New payment...");
+    v19.addSelectionListener(new Budget$150(this, v8, p2));
+    L561:
+    v19 = new Button(v17, 16777224);
+    v19.setLayoutData(new layout.GridData(640));
+    v19.setText("Cancel");
+    v19.addSelectionListener(new Budget$151(this, v8));
+    v20 = v8.computeSize(-1, 480);
+    v8.setLocation(this.centerLoc(v20));
+    v8.setSize(v20);
+    v8.setVisible(1);
+    v8.setFocus();
+    v10.setFocus();
+    L660:
+    if (v8.isDisposed() != 0) goto L689;
+    if (p0.getDisplay().readAndDispatch() != 0) goto L660;
+    p0.getDisplay().sleep();
+    goto L660;
+    L689:
+    return v7.pmt;
+}
+

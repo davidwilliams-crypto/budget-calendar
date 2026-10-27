@@ -1,0 +1,3113 @@
+public void widgetSelected(SelectionEvent p0) {
+    v2 = (SimpleCalendar)p0.widget.getData();
+    if (v2.inRange(this.this$0.minDate, this.this$0.maxDate) == 0) goto L54;
+    this.this$0.curCal = new SimpleCalendar(v2);
+    this.this$0.updateCalendarView();
+    L54:
+    return;
+}
+
+// ===== Budget$33 extends SelectionAdapter 
+final synthetic Button val$img;
+
+ void <init>(Budget p0, Button p1) {
+    this.val$img = p1;
+    Objects.requireNonNull(p0);
+    super.<init>();
+    return;
+}
+
+public void widgetSelected(SelectionEvent p0) {
+    this.val$img.setImage((Button)p0.widget.getImage());
+    this.val$img.setData(p0.widget.getData());
+    return;
+}
+
+// ===== Budget$34 extends Object implements ModifyListener
+ String lastVal;
+ long lastTime;
+final synthetic Combo val$c_cat;
+final synthetic String[] val$cats;
+
+ void <init>(Budget p0, Combo p1, String[] p2) {
+    this.val$c_cat = p1;
+    this.val$cats = p2;
+    Objects.requireNonNull(p0);
+    super.<init>();
+    this.lastVal = "";
+    this.lastTime = 0L;
+    return;
+}
+
+public void modifyText(ModifyEvent p0) {
+    if (this.val$c_cat.isFocusControl() == 0) goto L197;
+    if ((long)p0.time == this.lastTime) goto L197;
+    v2 = this.val$c_cat.getText();
+    if (v2.toUpperCase().equals(this.lastVal) == 0) goto L64;
+    if (v2.length() <= 0) goto L64;
+    v2 = v2.substring(0, (v2.length() - 1));
+    L64:
+    this.lastVal = v2.toUpperCase();
+    v3 = ([Ljava.lang.String;)Arrays.stream(this.val$cats).filter(lambda[Budget$34::lambda$modifyText$0](this)).toArray(lambda[Budget$34::lambda$modifyText$1]());
+    this.val$c_cat.removeModifyListener(this);
+    if (v3.length <= 0) goto L164;
+    if (v2.length() <= 0) goto L164;
+    v4 = v3[0];
+    this.val$c_cat.setText(v4);
+    this.val$c_cat.setSelection(new Point(v2.length(), v4.length()));
+    goto L189;
+    L164:
+    if (v2.length() == this.val$c_cat.getText().length()) goto L189;
+    this.val$c_cat.setText(v2);
+    L189:
+    this.val$c_cat.addModifyListener(this);
+    L197:
+    this.lastTime = (long)p0.time;
+    return;
+}
+
+private static synthetic String[] lambda$modifyText$1(int p0) {
+    $a1 = new String[p0];
+    return $a1;
+}
+
+private synthetic boolean lambda$modifyText$0(String p0) {
+    return p0.toUpperCase().startsWith(this.lastVal);
+}
+
+// ===== Budget$35 extends FocusAdapter 
+final synthetic Text val$t_amount;
+final synthetic Button val$income_radio;
+final synthetic Button val$expense_radio;
+final synthetic Budget this$0;
+
+ void <init>(Budget p0, Text p1, Button p2, Button p3) {
+    this.val$t_amount = p1;
+    this.val$income_radio = p2;
+    this.val$expense_radio = p3;
+    Objects.requireNonNull(p0);
+    this.this$0 = p0;
+    super.<init>();
+    return;
+}
+
+public void focusLost(FocusEvent p0) {
+    v2 = this.val$t_amount.getText().trim();
+    if (43 != v2.charAt(0)) goto L43;
+    this.val$income_radio.setSelection(1);
+    this.val$expense_radio.setSelection(0);
+    v2 = v2.substring(1);
+    L43:
+    v3 = Calculator.calculate(v2, 0.0, 0.0);
+    this.val$t_amount.setText((Budget.numFormatFrac2.format(Math.abs(v3))));
+    if (v3 >= 0.0) goto L94;
+    this.val$income_radio.setSelection(0);
+    this.val$expense_radio.setSelection(1);
+    L94:
+    this.val$t_amount.setForeground(this.this$0.display.getSystemColor(2));
+    super.focusLost(p0);
+    goto L147;
+    // handler for [0,117) catch Exception
+    L120:
+    v2 = $ex;
+    this.val$t_amount.setForeground(this.this$0.display.getSystemColor(3));
+    this.val$t_amount.setFocus();
+    L147:
+    return;
+}
+
+public void focusGained(FocusEvent p0) {
+    (Text)p0.widget.setSelection(0, 1000);
+    return;
+}
+
+// ===== Budget$36 extends FocusAdapter 
+
+ void <init>(Budget p0) {
+    Objects.requireNonNull(p0);
+    super.<init>();
+    return;
+}
+
+public void focusGained(FocusEvent p0) {
+    (Text)p0.widget.setSelection(0, 1000);
+    return;
+}
+
+// ===== Budget$37 extends SelectionAdapter 
+final synthetic Shell val$editShell;
+final synthetic Text val$on_date_txt;
+final synthetic Budget this$0;
+
+ void <init>(Budget p0, Shell p1, Text p2) {
+    this.val$editShell = p1;
+    this.val$on_date_txt = p2;
+    Objects.requireNonNull(p0);
+    this.this$0 = p0;
+    super.<init>();
+    return;
+}
+
+public void widgetSelected(SelectionEvent p0) {
+    v2 = this.this$0.pickDate(this.val$editShell, new SimpleCalendar(BudgetDB.toDate(this.val$on_date_txt.getText())));
+    if (v2 == null) goto L47;
+    this.val$on_date_txt.setText(BudgetDB.sDate(v2.get()));
+    L47:
+    return;
+}
+
+// ===== Budget$38 extends Object implements ModifyListener
+final synthetic Button val$num_pays_btn;
+final synthetic Text val$num_pays_txt;
+final synthetic Button val$indefinite_btn;
+final synthetic Button val$on_date_btn;
+final synthetic Text val$on_date_txt;
+final synthetic Button val$on_date_img;
+final synthetic Button val$loan_btn;
+final synthetic Text val$loan_txt;
+final synthetic Budget this$0;
+
+ void <init>(Budget p0, Button p1, Text p2, Button p3, Button p4, Text p5, Button p6, Button p7, Text p8) {
+    this.val$num_pays_btn = p1;
+    this.val$num_pays_txt = p2;
+    this.val$indefinite_btn = p3;
+    this.val$on_date_btn = p4;
+    this.val$on_date_txt = p5;
+    this.val$on_date_img = p6;
+    this.val$loan_btn = p7;
+    this.val$loan_txt = p8;
+    Objects.requireNonNull(p0);
+    this.this$0 = p0;
+    super.<init>();
+    return;
+}
+
+public void modifyText(ModifyEvent p0) {
+    if (this.this$0.checkEndPayment(this.val$num_pays_btn, this.val$num_pays_txt) == 0) goto L59;
+    this.this$0.updateEndSelection(16, this.val$indefinite_btn, this.val$num_pays_btn, this.val$num_pays_txt, this.val$on_date_btn, this.val$on_date_txt, this.val$on_date_img, this.val$loan_btn, this.val$loan_txt);
+    L59:
+    return;
+}
+
+// ===== Budget$39 extends SelectionAdapter 
+final synthetic Button val$num_pays_btn;
+final synthetic Text val$num_pays_txt;
+final synthetic Button val$indefinite_btn;
+final synthetic Button val$on_date_btn;
+final synthetic Text val$on_date_txt;
+final synthetic Button val$on_date_img;
+final synthetic Button val$loan_btn;
+final synthetic Text val$loan_txt;
+final synthetic Text val$tf;
+final synthetic Button val$nth_weekday;
+final synthetic Budget this$0;
+
+ void <init>(Budget p0, Button p1, Text p2, Button p3, Button p4, Text p5, Button p6, Button p7, Text p8, Text p9, Button p10) {
+    this.val$num_pays_btn = p1;
+    this.val$num_pays_txt = p2;
+    this.val$indefinite_btn = p3;
+    this.val$on_date_btn = p4;
+    this.val$on_date_txt = p5;
+    this.val$on_date_img = p6;
+    this.val$loan_btn = p7;
+    this.val$loan_txt = p8;
+    this.val$tf = p9;
+    this.val$nth_weekday = p10;
+    Objects.requireNonNull(p0);
+    this.this$0 = p0;
+    super.<init>();
+    return;
+}
+
+public void widgetSelected(SelectionEvent p0) {
+    if (this.this$0.checkEndPayment(this.val$num_pays_btn, this.val$num_pays_txt) == 0) goto L59;
+    this.this$0.updateEndSelection(16, this.val$indefinite_btn, this.val$num_pays_btn, this.val$num_pays_txt, this.val$on_date_btn, this.val$on_date_txt, this.val$on_date_img, this.val$loan_btn, this.val$loan_txt);
+    L59:
+    $s0 = this.val$tf;
+    if (this.val$nth_weekday.getSelection() != 0) goto L77;
+    $s0 = this.val$tf;
+    $s1 = 1;
+    goto L78;
+    L77:
+    $s1 = 0;
+    L78:
+    $s0.setEnabled($s1);
+    super.widgetSelected(p0);
+    return;
+}
+
+// ===== Budget$4 extends ShellAdapter 
+final synthetic Budget this$0;
+
+ void <init>(Budget p0) {
+    Objects.requireNonNull(p0);
+    this.this$0 = p0;
+    super.<init>();
+    return;
+}
+
+public void shellClosed(ShellEvent p0) {
+    if (this.this$0.shellAdapterInvoked != 0) goto L34;
+    this.this$0.shellAdapterInvoked = 1;
+    if (0 != this.this$0.saveAndCleanup()) goto L34;
+    p0.doit = 0;
+    L34:
+    return;
+}
+
+// ===== Budget$40 extends SelectionAdapter 
+final synthetic Button val$business_days_early_chk;
+final synthetic Button val$business_days_only_chk;
+
+ void <init>(Budget p0, Button p1, Button p2) {
+    this.val$business_days_early_chk = p1;
+    this.val$business_days_only_chk = p2;
+    Objects.requireNonNull(p0);
+    super.<init>();
+    return;
+}
+
+public void widgetSelected(SelectionEvent p0) {
+    super.widgetSelected(p0);
+    this.val$business_days_early_chk.setEnabled(this.val$business_days_only_chk.getSelection());
+    return;
+}
+
+// ===== Budget$41 extends SelectionAdapter 
+final synthetic Button val$business_days_only_chk;
+final synthetic Button val$tentative_chk;
+final synthetic Button val$loan_btn;
+final synthetic Text val$grace_days_t;
+
+ void <init>(Budget p0, Button p1, Button p2, Button p3, Text p4) {
+    this.val$business_days_only_chk = p1;
+    this.val$tentative_chk = p2;
+    this.val$loan_btn = p3;
+    this.val$grace_days_t = p4;
+    Objects.requireNonNull(p0);
+    super.<init>();
+    return;
+}
+
+public void widgetSelected(SelectionEvent p0) {
+    $s0 = this.val$business_days_only_chk;
+    if (this.val$tentative_chk.getSelection() != 0) goto L18;
+    $s0 = this.val$business_days_only_chk;
+    $s1 = 1;
+    goto L19;
+    L18:
+    $s1 = 0;
+    L19:
+    $s0.setEnabled($s1);
+    $s0 = this.val$loan_btn;
+    if (this.val$tentative_chk.getSelection() != 0) goto L40;
+    $s0 = this.val$loan_btn;
+    $s1 = 1;
+    goto L41;
+    L40:
+    $s1 = 0;
+    L41:
+    $s0.setEnabled($s1);
+    $s0 = this.val$grace_days_t;
+    if (this.val$tentative_chk.getSelection() != 0) goto L62;
+    $s0 = this.val$grace_days_t;
+    $s1 = 1;
+    goto L63;
+    L62:
+    $s1 = 0;
+    L63:
+    $s0.setEnabled($s1);
+    return;
+}
+
+// ===== Budget$42 extends SelectionAdapter 
+final synthetic Shell val$editShell;
+final synthetic Text val$t_sd;
+final synthetic Text val$num_pays_txt;
+final synthetic Text val$on_date_txt;
+final synthetic Button val$nth_weekday;
+final synthetic Budget$Updater val$lastWeekdayUpdater;
+final synthetic Budget this$0;
+
+ void <init>(Budget p0, Shell p1, Text p2, Text p3, Text p4, Button p5, Budget$Updater p6) {
+    this.val$editShell = p1;
+    this.val$t_sd = p2;
+    this.val$num_pays_txt = p3;
+    this.val$on_date_txt = p4;
+    this.val$nth_weekday = p5;
+    this.val$lastWeekdayUpdater = p6;
+    Objects.requireNonNull(p0);
+    this.this$0 = p0;
+    super.<init>();
+    return;
+}
+
+public void widgetSelected(SelectionEvent p0) {
+    v2 = this.this$0.pickDate(this.val$editShell, new SimpleCalendar(BudgetDB.toDate(this.val$t_sd.getText())));
+    if (v2 == null) goto L126;
+    v3 = Integer.parseInt(this.val$num_pays_txt.getText());
+    if (v3 != 0) goto L82;
+    if (this.val$t_sd.getText().equals(this.val$on_date_txt.getText()) == 0) goto L82;
+    this.val$on_date_txt.setText(BudgetDB.sDate(v2.get()));
+    L82:
+    this.val$t_sd.setText(BudgetDB.sDate(v2.get()));
+    this.val$nth_weekday.setText(this.this$0.get_nth_week_msg(this.val$t_sd.getText()));
+    this.val$lastWeekdayUpdater.update();
+    L126:
+    return;
+}
+
+// ===== Budget$43 extends Object implements ModifyListener
+final synthetic Button val$nth_weekday;
+final synthetic Text val$t_sd;
+final synthetic Budget$Updater val$lastWeekdayUpdater;
+final synthetic Budget this$0;
+
+ void <init>(Budget p0, Button p1, Text p2, Budget$Updater p3) {
+    this.val$nth_weekday = p1;
+    this.val$t_sd = p2;
+    this.val$lastWeekdayUpdater = p3;
+    Objects.requireNonNull(p0);
+    this.this$0 = p0;
+    super.<init>();
+    return;
+}
+
+public void modifyText(ModifyEvent p0) {
+    this.val$nth_weekday.setText(this.this$0.get_nth_week_msg(this.val$t_sd.getText()));
+    this.val$lastWeekdayUpdater.update();
+    return;
+}
+
+// ===== Budget$44 extends SelectionAdapter 
+final synthetic Button val$indefinite_btn;
+final synthetic Button val$num_pays_btn;
+final synthetic Text val$num_pays_txt;
+final synthetic Button val$on_date_btn;
+final synthetic Text val$on_date_txt;
+final synthetic Button val$on_date_img;
+final synthetic Button val$loan_btn;
+final synthetic Text val$loan_txt;
+final synthetic Button val$tentative_chk;
+final synthetic Budget this$0;
+
+ void <init>(Budget p0, Button p1, Button p2, Text p3, Button p4, Text p5, Button p6, Button p7, Text p8, Button p9) {
+    this.val$indefinite_btn = p1;
+    this.val$num_pays_btn = p2;
+    this.val$num_pays_txt = p3;
+    this.val$on_date_btn = p4;
+    this.val$on_date_txt = p5;
+    this.val$on_date_img = p6;
+    this.val$loan_btn = p7;
+    this.val$loan_txt = p8;
+    this.val$tentative_chk = p9;
+    Objects.requireNonNull(p0);
+    this.this$0 = p0;
+    super.<init>();
+    return;
+}
+
+public void widgetSelected(SelectionEvent p0) {
+    v2 = (Integer)p0.widget.getData();
+    this.this$0.updateEndSelection(v2.intValue(), this.val$indefinite_btn, this.val$num_pays_btn, this.val$num_pays_txt, this.val$on_date_btn, this.val$on_date_txt, this.val$on_date_img, this.val$loan_btn, this.val$loan_txt);
+    $s0 = this.val$tentative_chk;
+    if (v2.intValue() == 64) goto L71;
+    $s0 = this.val$tentative_chk;
+    $s1 = 1;
+    goto L72;
+    L71:
+    $s1 = 0;
+    L72:
+    $s0.setEnabled($s1);
+    super.widgetSelected(p0);
+    return;
+}
+
+// ===== Budget$45 extends Object implements SelectionListener
+final synthetic Menu val$subm;
+
+ void <init>(Budget p0, Menu p1) {
+    this.val$subm = p1;
+    Objects.requireNonNull(p0);
+    super.<init>();
+    return;
+}
+
+public void widgetSelected(SelectionEvent p0) {
+    this.val$subm.setVisible(1);
+    return;
+}
+
+public void widgetDefaultSelected(SelectionEvent p0) {
+    this.val$subm.setVisible(1);
+    return;
+}
+
+// ===== Budget$46 extends SelectionAdapter 
+final synthetic Shell val$editShell;
+final synthetic Button val$img;
+final synthetic Budget this$0;
+
+ void <init>(Budget p0, Shell p1, Button p2) {
+    this.val$editShell = p1;
+    this.val$img = p2;
+    Objects.requireNonNull(p0);
+    this.this$0 = p0;
+    super.<init>();
+    return;
+}
+
+public void widgetSelected(SelectionEvent p0) {
+    v2 = this.this$0.selectImage(this.val$editShell);
+    if (v2 != null) goto L17;
+    return;
+    L17:
+    if (v2.length() <= 0) goto L52;
+    this.val$img.setImage(this.this$0.getImage(Budget.image(v2), this.val$img.getBackground()));
+    goto L78;
+    L52:
+    this.val$img.setImage(this.this$0.getImage(Budget.icon("no-img.bmp"), this.val$img.getBackground()));
+    L78:
+    this.val$img.setSize(this.val$img.computeSize(-1, -1));
+    this.val$img.setData(v2);
+    this.val$img.setToolTipText(v2);
+    return;
+}
+
+// ===== Budget$47 extends Object implements ModifyListener
+final synthetic Composite val$quick_pick_ctnr;
+final synthetic Text val$t_desc;
+final synthetic Combo val$c_cat;
+final synthetic Button val$img;
+final synthetic Budget this$0;
+
+ void <init>(Budget p0, Composite p1, Text p2, Combo p3, Button p4) {
+    this.val$quick_pick_ctnr = p1;
+    this.val$t_desc = p2;
+    this.val$c_cat = p3;
+    this.val$img = p4;
+    Objects.requireNonNull(p0);
+    this.this$0 = p0;
+    super.<init>();
+    return;
+}
+
+public void modifyText(ModifyEvent p0) {
+    this.this$0.updateQuickPicks(this.val$quick_pick_ctnr, (this.val$t_desc.getText() + " " + this.val$c_cat.getText()), this.val$img);
+    return;
+}
+
+// ===== Budget$48 extends Object implements ModifyListener
+final synthetic Composite val$quick_pick_ctnr;
+final synthetic Text val$t_desc;
+final synthetic Combo val$c_cat;
+final synthetic Button val$img;
+final synthetic Budget this$0;
+
+ void <init>(Budget p0, Composite p1, Text p2, Combo p3, Button p4) {
+    this.val$quick_pick_ctnr = p1;
+    this.val$t_desc = p2;
+    this.val$c_cat = p3;
+    this.val$img = p4;
+    Objects.requireNonNull(p0);
+    this.this$0 = p0;
+    super.<init>();
+    return;
+}
+
+public void modifyText(ModifyEvent p0) {
+    this.this$0.updateQuickPicks(this.val$quick_pick_ctnr, (this.val$t_desc.getText() + " " + this.val$c_cat.getText()), this.val$img);
+    return;
+}
+
+// ===== Budget$49 extends SelectionAdapter 
+final synthetic Shell val$editShell;
+final synthetic Budget this$0;
+
+ void <init>(Budget p0, Shell p1) {
+    this.val$editShell = p1;
+    Objects.requireNonNull(p0);
+    this.this$0 = p0;
+    super.<init>();
+    return;
+}
+
+public void widgetSelected(SelectionEvent p0) {
+    v2 = (Payment)p0.widget.getData();
+    if (this.this$0.confirmYesNo(this.val$editShell, ("Are you sure you want to delete the '" + v2.description + "' ?\n")) == 0) goto L53;
+    this.this$0.db.deletePayment(v2);
+    this.val$editShell.dispose();
+    L53:
+    return;
+}
+
+// ===== Budget$5 extends Object implements Listener
+final synthetic Budget this$0;
+
+ void <init>(Budget p0) {
+    Objects.requireNonNull(p0);
+    this.this$0 = p0;
+    super.<init>();
+    return;
+}
+
+public void handleEvent(Event p0) {
+    System.out.println(("display: SWT.close, shellAdapterInvoked=" + this.this$0.shellAdapterInvoked));
+    if (this.this$0.shellAdapterInvoked != 0) goto L73;
+    this.this$0.shellAdapterInvoked = 1;
+    if (0 != this.this$0.saveAndCleanup()) goto L55;
+    p0.doit = 0;
+    goto L73;
+    L55:
+    if (Budget.runningOnMac == 0) goto L73;
+    System.err.println("exiting on SWT.Close of the display");
+    System.exit(0);
+    L73:
+    return;
+}
+
+// ===== Budget$50 extends SelectionAdapter 
+final synthetic Text val$t_desc;
+final synthetic Text val$url_t;
+final synthetic Text val$t_amount;
+final synthetic Button val$expense_radio;
+final synthetic Text val$t_sd;
+final synthetic Text val$loan_txt;
+final synthetic Button val$loan_btn;
+final synthetic Text val$num_pays_txt;
+final synthetic Text val$tf;
+final synthetic Button val$weeks;
+final synthetic Button val$months;
+final synthetic Button val$years;
+final synthetic Button val$nth_weekday;
+final synthetic Button val$last_weekday;
+final synthetic Button val$mark_none;
+final synthetic Button val$mark_paid;
+final synthetic Button val$mark_important;
+final synthetic Text val$on_date_txt;
+final synthetic Combo val$c_cat;
+final synthetic Payment val$pmt;
+final synthetic boolean val$new_payment;
+final synthetic Button val$disabled_btn;
+final synthetic Button val$indefinite_btn;
+final synthetic Button val$num_pays_btn;
+final synthetic Button val$on_date_btn;
+final synthetic SimpleCalendar val$cal;
+final synthetic double val$org_amount;
+final synthetic Shell val$editShell;
+final synthetic Button val$img;
+final synthetic Button val$business_days_only_chk;
+final synthetic Button val$business_days_early_chk;
+final synthetic Button val$tentative_chk;
+final synthetic Button val$sticky_chk;
+final synthetic Budget$Info val$info;
+final synthetic Text val$grace_days_t;
+final synthetic Budget this$0;
+
+ void <init>(Budget p0, Text p1, Text p2, Text p3, Button p4, Text p5, Text p6, Button p7, Text p8, Text p9, Button p10, Button p11, Button p12, Button p13, Button p14, Button p15, Button p16, Button p17, Text p18, Combo p19, Payment p20, boolean p21, Button p22, Button p23, Button p24, Button p25, SimpleCalendar p26, double p27, Shell p28, Button p29, Button p30, Button p31, Button p32, Button p33, Budget$Info p34, Text p35) {
+    this.val$t_desc = p1;
+    this.val$url_t = p2;
+    this.val$t_amount = p3;
+    this.val$expense_radio = p4;
+    this.val$t_sd = p5;
+    this.val$loan_txt = p6;
+    this.val$loan_btn = p7;
+    this.val$num_pays_txt = p8;
+    this.val$tf = p9;
+    this.val$weeks = p10;
+    this.val$months = p11;
+    this.val$years = p12;
+    this.val$nth_weekday = p13;
+    this.val$last_weekday = p14;
+    this.val$mark_none = p15;
+    this.val$mark_paid = p16;
+    this.val$mark_important = p17;
+    this.val$on_date_txt = p18;
+    this.val$c_cat = p19;
+    this.val$pmt = p20;
+    this.val$new_payment = p21;
+    this.val$disabled_btn = p22;
+    this.val$indefinite_btn = p23;
+    this.val$num_pays_btn = p24;
+    this.val$on_date_btn = p25;
+    this.val$cal = p26;
+    this.val$org_amount = p27;
+    this.val$editShell = p28;
+    this.val$img = p29;
+    this.val$business_days_only_chk = p30;
+    this.val$business_days_early_chk = p31;
+    this.val$tentative_chk = p32;
+    this.val$sticky_chk = p33;
+    this.val$info = p34;
+    this.val$grace_days_t = p35;
+    Objects.requireNonNull(p0);
+    this.this$0 = p0;
+    super.<init>();
+    return;
+}
+
+public void widgetSelected(SelectionEvent p0) {
+    v2 = "no errors";
+    v3 = this.val$t_desc.getText().trim();
+    v2 = "Description is empty!";
+    if (v3.length() >= 1) goto L33;
+    throw new Exception();
+    L33:
+    if (this.val$url_t == null) goto L53;
+    $s0 = this.val$url_t.getText().trim();
+    goto L54;
+    L53:
+    $s0 = null;
+    L54:
+    v4 = $s0;
+    if (this.val$url_t == null) goto L108;
+    if (v4.length() != 0) goto L77;
+    v4 = null;
+    goto L108;
+    L77:
+    if (v4.startsWith("http://") != 0) goto L108;
+    if (v4.startsWith("https://") != 0) goto L108;
+    v2 = "URL string must start with 'http://' or 'https://'";
+    throw new Exception();
+    L108:
+    v5 = this.val$t_amount.getText().trim();
+    v6 = this.val$expense_radio.getSelection();
+    if (45 != v5.charAt(0)) goto L146;
+    v6 = 1;
+    goto L160;
+    L146:
+    if (43 != v5.charAt(0)) goto L160;
+    v6 = 0;
+    L160:
+    v2 = "Unable to parse the amount";
+    v7 = Math.abs(Budget.toDouble(v5));
+    if (v6 == 0) goto L186;
+    v7 = (v7 * -1.0);
+    L186:
+    v2 = "Unable to parse the start date";
+    v9 = BudgetDB.toDate(this.val$t_sd.getText());
+    v2 = "Unable to parse the loan amount";
+    v10 = Budget.toDouble(this.val$loan_txt.getText());
+    if (this.val$loan_btn.getSelection() == 0) goto L285;
+    v12 = Math.max(Math.abs(v7), 0.001);
+    if (v12 >= 0.01) goto L259;
+    v2 = "Payment amount is too small to calculate a schedule.";
+    throw new Exception();
+    L259:
+    if ((Math.abs(v10) / v12) <= 1000.0) goto L285;
+    v2 = "'Amount Paid' schedule: number of transactions exceeds 1000.";
+    throw new Exception();
+    L285:
+    v2 = "Unable to parse the # pays";
+    v12 = Integer.parseInt(this.val$num_pays_txt.getText());
+    v2 = "Unable to parse frequency";
+    v13 = Integer.parseInt(this.val$tf.getText());
+    if (v13 >= 1) goto L324;
+    v13 = 1;
+    L324:
+    v14 = 100;
+    if (this.val$weeks.getSelection() == 0) goto L345;
+    v14 = 119;
+    goto L413;
+    L345:
+    if (this.val$months.getSelection() == 0) goto L362;
+    v14 = 109;
+    goto L413;
+    L362:
+    if (this.val$years.getSelection() == 0) goto L379;
+    v14 = 121;
+    goto L413;
+    L379:
+    if (this.val$nth_weekday.getSelection() == 0) goto L399;
+    v13 = 1;
+    v14 = 87;
+    goto L413;
+    L399:
+    if (this.val$last_weekday.getSelection() == 0) goto L413;
+    v14 = 76;
+    L413:
+    v15 = 94;
+    if (this.val$mark_none.getSelection() == 0) goto L434;
+    v15 = 94;
+    goto L465;
+    L434:
+    if (this.val$mark_paid.getSelection() == 0) goto L451;
+    v15 = 59;
+    goto L465;
+    L451:
+    if (this.val$mark_important.getSelection() == 0) goto L465;
+    v15 = 35;
+    L465:
+    v2 = "Unable to parse the end date";
+    v16 = BudgetDB.toDate(this.val$on_date_txt.getText());
+    if (v16 >= v9) goto L491;
+    v16 = v9;
+    L491:
+    v17 = this.val$c_cat.getText().trim();
+    if (v17.equals(v3) == 0) goto L533;
+    v18 = "Payment's description can't be the same as category.";
+    this.this$0.showError(this.this$0.mainShell, v18);
+    return;
+    L533:
+    if (v17.length() == 0) goto L586;
+    if (this.this$0.db.isValidCategory(v17, this.val$pmt) != 0) goto L586;
+    v18 = ("You already have a payment with the same description as the entered category: '" + v17 + "'.\nPlease change the category of this payment.");
+    this.this$0.showError(this.this$0.mainShell, v18);
+    return;
+    L586:
+    if (this.this$0.db.isValidDescription(v3, this.val$pmt) != 0) goto L629;
+    v18 = ("You already have a category with the same name as the entered description: '" + v3 + "'.\nPlease change the description of this payment.");
+    this.this$0.showError(this.this$0.mainShell, v18);
+    return;
+    L629:
+    v18 = 0;
+    v19 = 0;
+    if (this.val$new_payment != 0) goto L769;
+    v20 = new Payment();
+    v20.startDate = v9;
+    v20.endDate = v16;
+    v20.n_pays = v12;
+    v20.freq_type = v14;
+    v20.frequency = v13;
+    v20.disabled = this.val$disabled_btn.getSelection();
+    $s0 = v20;
+    if (this.val$indefinite_btn.getSelection() == 0) goto L715;
+    $s0 = v20;
+    $s1 = 16;
+    goto L747;
+    L715:
+    if (this.val$num_pays_btn.getSelection() == 0) goto L730;
+    $s1 = 48;
+    goto L747;
+    L730:
+    if (this.val$on_date_btn.getSelection() == 0) goto L745;
+    $s1 = 32;
+    goto L747;
+    L745:
+    $s1 = 64;
+    L747:
+    $s0.setEndMode($s1);
+    if (this.val$pmt.isSameSchedule(v20) != 0) goto L766;
+    $s0 = 1;
+    goto L767;
+    L766:
+    $s0 = 0;
+    L767:
+    v19 = $s0;
+    L769:
+    if (this.val$cal == null) goto L911;
+    if (this.val$new_payment != 0) goto L911;
+    if (this.val$org_amount != v7) goto L798;
+    if (v19 == 0) goto L911;
+    L798:
+    if (v19 == 0) goto L829;
+    v20 = "You have changed a payment with existing transactions.\n\nALL THE PAST AND FUTURE TRANSACTIONS (except manually adjusted ones) WILL BE CHANGED TO THE NEW AMOUNT AND SCHEDULING!\n\nUse 'Alter transaction from ...' menu item if you want to alter the future transactions only.\n\nDo you want to apply the changes anyway?";
+    if (0 != this.this$0.confirmYesNo(this.val$editShell, v20)) goto L826;
+    return;
+    L826:
+    goto L911;
+    L829:
+    if (this.val$cal.get() != this.val$pmt.startDate) goto L859;
+    if (this.val$pmt.opt.size() == 0) goto L911;
+    L859:
+    v20 = this.this$0.showSplitOrChange(this.val$editShell, this.val$cal);
+    switch (v20) { 0: L904, 1: L905, 2: L911; default: L904 }
+    L904:
+    return;
+    L905:
+    v18 = 1;
+    goto L911;
+    L911:
+    this.val$pmt.description = v3.replace("&", "\uff06");
+    $s0 = this.val$pmt;
+    if (v17.length() != 0) goto L944;
+    $s0 = this.val$pmt;
+    $s1 = null;
+    goto L946;
+    L944:
+    $s1 = v17;
+    L946:
+    $s0.category = $s1;
+    if (v18 != 0) goto L963;
+    this.val$pmt.amount = v7;
+    L963:
+    this.val$pmt.disabled = this.val$disabled_btn.getSelection();
+    this.val$pmt.startDate = v9;
+    this.val$pmt.n_pays = v12;
+    this.val$pmt.frequency = v13;
+    this.val$pmt.freq_type = v14;
+    this.val$pmt.endDate = v16;
+    this.val$pmt.loan_amount = v10;
+    this.val$pmt.image_path = (String)this.val$img.getData();
+    this.val$pmt.setNoWeekends(this.val$business_days_only_chk.getSelection());
+    this.val$pmt.setEarlyPay(this.val$business_days_early_chk.getSelection());
+    this.val$pmt.setTentative(this.val$tentative_chk.getSelection());
+    this.val$pmt.setSticky(this.val$sticky_chk.getSelection());
+    this.val$pmt.setDefaultHighlighting(this.val$info.bg_color);
+    if (this.val$url_t == null) goto L1134;
+    this.val$pmt.setURL(v4);
+    L1134:
+    v2 = "Unable to parse the grace period days";
+    v20 = Integer.parseInt(this.val$grace_days_t.getText());
+    if (v20 >= 0) goto L1158;
+    v20 = 0;
+    L1158:
+    if (v20 <= 60) goto L1169;
+    v20 = 60;
+    L1169:
+    this.val$pmt.grace_period_days = v20;
+    $s0 = this.val$pmt;
+    if (this.val$indefinite_btn.getSelection() == 0) goto L1197;
+    $s0 = this.val$pmt;
+    $s1 = 16;
+    goto L1229;
+    L1197:
+    if (this.val$num_pays_btn.getSelection() == 0) goto L1212;
+    $s1 = 48;
+    goto L1229;
+    L1212:
+    if (this.val$on_date_btn.getSelection() == 0) goto L1227;
+    $s1 = 32;
+    goto L1229;
+    L1227:
+    $s1 = 64;
+    L1229:
+    $s0.setEndMode($s1);
+    this.val$pmt.flag_value = v15;
+    this.this$0.edit_ok = 1;
+    if (v18 == 0) goto L1348;
+    this.this$0.db.updateMoveUndo(this.val$pmt);
+    this.this$0.db.update(this.val$pmt);
+    Budget.edit_payments_new_pmt = null;
+    v21 = new Budget$Info(this.this$0);
+    v21.amount = v7;
+    v21.cal = this.val$cal;
+    v21.pmt = this.val$pmt;
+    v21.interactive = 0;
+    this.this$0.splitPayment(v21);
+    this.this$0.edit_ok = 0;
+    L1348:
+    this.val$editShell.dispose();
+    goto L1371;
+    // handler for [3,532) catch Exception
+    // handler for [533,585) catch Exception
+    // handler for [586,628) catch Exception
+    // handler for [629,825) catch Exception
+    // handler for [826,904) catch Exception
+    // handler for [905,1355) catch Exception
+    L1358:
+    v3 = $ex;
+    this.this$0.showError(this.val$editShell, v2);
+    L1371:
+    return;
+}
+
+// ===== Budget$51 extends SelectionAdapter 
+final synthetic Shell val$editShell;
+
+ void <init>(Budget p0, Shell p1) {
+    this.val$editShell = p1;
+    Objects.requireNonNull(p0);
+    super.<init>();
+    return;
+}
+
+public void widgetSelected(SelectionEvent p0) {
+    this.val$editShell.dispose();
+    return;
+}
+
+// ===== Budget$52 extends SelectionAdapter 
+final synthetic Budget$1SplitValue val$splitValue;
+final synthetic Button val$changeBtn;
+final synthetic Shell val$editShell;
+
+ void <init>(Budget p0, Budget$1SplitValue p1, Button p2, Shell p3) {
+    this.val$splitValue = p1;
+    this.val$changeBtn = p2;
+    this.val$editShell = p3;
+    Objects.requireNonNull(p0);
+    super.<init>();
+    return;
+}
+
+public void widgetSelected(SelectionEvent p0) {
+    $s0 = this.val$splitValue;
+    if (this.val$changeBtn.getSelection() == 0) goto L18;
+    $s0 = this.val$splitValue;
+    $s1 = 2;
+    goto L19;
+    L18:
+    $s1 = 1;
+    L19:
+    $s0.value = $s1;
+    this.val$editShell.dispose();
+    return;
+}
+
+// ===== Budget$53 extends SelectionAdapter 
+final synthetic Shell val$editShell;
+
+ void <init>(Budget p0, Shell p1) {
+    this.val$editShell = p1;
+    Objects.requireNonNull(p0);
+    super.<init>();
+    return;
+}
+
+public void widgetSelected(SelectionEvent p0) {
+    this.val$editShell.dispose();
+    return;
+}
+
+// ===== Budget$54 extends SelectionAdapter 
+final synthetic Budget$editInfo val$info;
+final synthetic Shell val$editShell;
+
+ void <init>(Budget p0, Budget$editInfo p1, Shell p2) {
+    this.val$info = p1;
+    this.val$editShell = p2;
+    Objects.requireNonNull(p0);
+    super.<init>();
+    return;
+}
+
+public void widgetSelected(SelectionEvent p0) {
+    this.val$info.update = 1;
+    this.val$editShell.dispose();
+    return;
+}
+
+// ===== Budget$55 extends SelectionAdapter 
+final synthetic Shell val$editShell;
+
+ void <init>(Budget p0, Shell p1) {
+    this.val$editShell = p1;
+    Objects.requireNonNull(p0);
+    super.<init>();
+    return;
+}
+
+public void widgetSelected(SelectionEvent p0) {
+    this.val$editShell.dispose();
+    return;
+}
+
+// ===== Budget$56 extends SelectionAdapter 
+final synthetic Shell val$editShell;
+
+ void <init>(Budget p0, Shell p1) {
+    this.val$editShell = p1;
+    Objects.requireNonNull(p0);
+    super.<init>();
+    return;
+}
+
+public void widgetSelected(SelectionEvent p0) {
+    this.val$editShell.dispose();
+    return;
+}
+
+// ===== Budget$57 extends SelectionAdapter 
+final synthetic Shell val$editShell;
+
+ void <init>(Budget p0, Shell p1) {
+    this.val$editShell = p1;
+    Objects.requireNonNull(p0);
+    super.<init>();
+    return;
+}
+
+public void widgetSelected(SelectionEvent p0) {
+    this.val$editShell.dispose();
+    return;
+}
+
+// ===== Budget$58 extends KeyAdapter 
+final synthetic Text val$text;
+final synthetic Budget$editInfo val$info;
+final synthetic Shell val$editShell;
+final synthetic Budget this$0;
+
+ void <init>(Budget p0, Text p1, Budget$editInfo p2, Shell p3) {
+    this.val$text = p1;
+    this.val$info = p2;
+    this.val$editShell = p3;
+    Objects.requireNonNull(p0);
+    this.this$0 = p0;
+    super.<init>();
+    return;
+}
+
+public void keyPressed(KeyEvent p0) {
+    if (115 == p0.keyCode) goto L18;
+    if (13 != p0.keyCode) goto L78;
+    L18:
+    if ((p0.stateMask & 262144) != 262144) goto L78;
+    this.this$0.db.notes = this.this$0.remove_slash_r(this.val$text.getText().trim());
+    this.val$info.update = 1;
+    this.val$editShell.dispose();
+    p0.doit = 0;
+    return;
+    L78:
+    super.keyPressed(p0);
+    return;
+}
+
+// ===== Budget$59 extends SelectionAdapter 
+final synthetic Text val$text;
+final synthetic Budget$editInfo val$info;
+final synthetic Shell val$editShell;
+final synthetic Budget this$0;
+
+ void <init>(Budget p0, Text p1, Budget$editInfo p2, Shell p3) {
+    this.val$text = p1;
+    this.val$info = p2;
+    this.val$editShell = p3;
+    Objects.requireNonNull(p0);
+    this.this$0 = p0;
+    super.<init>();
+    return;
+}
+
+public void widgetSelected(SelectionEvent p0) {
+    this.this$0.db.notes = this.this$0.remove_slash_r(this.val$text.getText().trim());
+    this.val$info.update = 1;
+    this.val$editShell.dispose();
+    return;
+}
+
+// ===== Budget$6 extends Object implements Listener
+final synthetic Budget this$0;
+
+ void <init>(Budget p0) {
+    Objects.requireNonNull(p0);
+    this.this$0 = p0;
+    super.<init>();
+    return;
+}
+
+public void handleEvent(Event p0) {
+    if (this.this$0.cfg.bestFit.boolValue == 0) goto L24;
+    this.this$0.do_best_fit = 1;
+    L24:
+    return;
+}
+
+// ===== Budget$60 extends SelectionAdapter 
+final synthetic Shell val$editShell;
+
+ void <init>(Budget p0, Shell p1) {
+    this.val$editShell = p1;
+    Objects.requireNonNull(p0);
+    super.<init>();
+    return;
+}
+
+public void widgetSelected(SelectionEvent p0) {
+    this.val$editShell.dispose();
+    return;
+}
+
+// ===== Budget$61 extends KeyAdapter 
+final synthetic Text val$text;
+final synthetic Payment val$pmt;
+final synthetic SimpleCalendar val$cal;
+final synthetic Budget$editInfo val$info;
+final synthetic Shell val$editShell;
+final synthetic Budget this$0;
+
+ void <init>(Budget p0, Text p1, Payment p2, SimpleCalendar p3, Budget$editInfo p4, Shell p5) {
+    this.val$text = p1;
+    this.val$pmt = p2;
+    this.val$cal = p3;
+    this.val$info = p4;
+    this.val$editShell = p5;
+    Objects.requireNonNull(p0);
+    this.this$0 = p0;
+    super.<init>();
+    return;
+}
+
+public void keyPressed(KeyEvent p0) {
+    if (115 == p0.keyCode) goto L18;
+    if (13 != p0.keyCode) goto L95;
+    L18:
+    if ((p0.stateMask & 262144) != 262144) goto L95;
+    v2 = this.this$0.remove_slash_r(this.val$text.getText().trim());
+    $s0 = this.val$pmt;
+    $s1 = this.val$cal.get();
+    if (v2.length() <= 0) goto L70;
+    $s0 = this.val$pmt;
+    $s1 = this.val$cal.get();
+    $s2 = v2;
+    goto L71;
+    L70:
+    $s2 = null;
+    L71:
+    $s0.setNote($s1, $s2);
+    this.val$info.update = 1;
+    p0.doit = 0;
+    this.val$editShell.dispose();
+    return;
+    L95:
+    super.keyPressed(p0);
+    return;
+}
+
+// ===== Budget$62 extends SelectionAdapter 
+final synthetic Text val$text;
+final synthetic Payment val$pmt;
+final synthetic SimpleCalendar val$cal;
+final synthetic Budget$editInfo val$info;
+final synthetic Shell val$editShell;
+final synthetic Budget this$0;
+
+ void <init>(Budget p0, Text p1, Payment p2, SimpleCalendar p3, Budget$editInfo p4, Shell p5) {
+    this.val$text = p1;
+    this.val$pmt = p2;
+    this.val$cal = p3;
+    this.val$info = p4;
+    this.val$editShell = p5;
+    Objects.requireNonNull(p0);
+    this.this$0 = p0;
+    super.<init>();
+    return;
+}
+
+public void widgetSelected(SelectionEvent p0) {
+    v2 = this.this$0.remove_slash_r(this.val$text.getText().trim());
+    $s0 = this.val$pmt;
+    $s1 = this.val$cal.get();
+    if (v2.length() <= 0) goto L40;
+    $s0 = this.val$pmt;
+    $s1 = this.val$cal.get();
+    $s2 = v2;
+    goto L41;
+    L40:
+    $s2 = null;
+    L41:
+    $s0.setNote($s1, $s2);
+    this.val$info.update = 1;
+    this.val$editShell.dispose();
+    return;
+}
+
+// ===== Budget$63 extends SelectionAdapter 
+final synthetic Shell val$editShell;
+
+ void <init>(Budget p0, Shell p1) {
+    this.val$editShell = p1;
+    Objects.requireNonNull(p0);
+    super.<init>();
+    return;
+}
+
+public void widgetSelected(SelectionEvent p0) {
+    this.val$editShell.dispose();
+    return;
+}
+
+// ===== Budget$64 extends MouseAdapter 
+final synthetic Shell val$ed;
+final synthetic Budget this$0;
+
+ void <init>(Budget p0, Shell p1) {
+    this.val$ed = p1;
+    Objects.requireNonNull(p0);
+    this.this$0 = p0;
+    super.<init>();
+    return;
+}
+
+public void mouseDown(MouseEvent p0) {
+    this.this$0.return_val = (String)p0.widget.getData();
+    this.val$ed.dispose();
+    return;
+}
+
+// ===== Budget$65 extends SelectionAdapter 
+final synthetic Budget this$0;
+
+ void <init>(Budget p0) {
+    Objects.requireNonNull(p0);
+    this.this$0 = p0;
+    super.<init>();
+    return;
+}
+
+public void widgetSelected(SelectionEvent p0) {
+    v2 = (Shell)(Button)p0.widget.getParent().getParent();
+    v3 = (SimpleCalendar)v2.getData();
+    v3.add(2, -12);
+    this.this$0.fillPickDate(v2, v3);
+    v2.layout();
+    v2.redraw();
+    return;
+}
+
+// ===== Budget$66 extends SelectionAdapter 
+final synthetic Budget this$0;
+
+ void <init>(Budget p0) {
+    Objects.requireNonNull(p0);
+    this.this$0 = p0;
+    super.<init>();
+    return;
+}
+
+public void widgetSelected(SelectionEvent p0) {
+    v2 = (Shell)(Button)p0.widget.getParent().getParent();
+    v3 = (SimpleCalendar)v2.getData();
+    v3.add(2, -1);
+    this.this$0.fillPickDate(v2, v3);
+    v2.layout();
+    v2.redraw();
+    return;
+}
+
+// ===== Budget$67$1 extends SelectionAdapter 
+final synthetic Budget$67 this$1;
+
+ void <init>(Budget$67 p0) {
+    Objects.requireNonNull(p0);
+    this.this$1 = p0;
+    super.<init>();
+    return;
+}
+
+public void widgetSelected(SelectionEvent p0) {
+    v2 = (Shell)(MenuItem)p0.widget.getParent().getParent();
+    v3 = (SimpleCalendar)v2.getData();
+    v3.set(1, 1);
+    v3.set(2, (Integer)(MenuItem)p0.widget.getData().intValue());
+    this.this$1.this$0.fillPickDate(v2, v3);
+    v2.layout();
+    (MenuItem)p0.widget.getParent().dispose();
+    v2.redraw();
+    return;
+}
+
+// ===== Budget$67 extends SelectionAdapter 
+final synthetic SimpleDateFormat val$df;
+final synthetic Budget this$0;
+
+ void <init>(Budget p0, SimpleDateFormat p1) {
+    this.val$df = p1;
+    Objects.requireNonNull(p0);
+    this.this$0 = p0;
+    super.<init>();
+    return;
+}
+
+public void widgetSelected(SelectionEvent p0) {
+    v2 = (Shell)(Button)p0.widget.getParent().getParent();
+    v3 = (SimpleCalendar)v2.getData();
+    v4 = new SimpleCalendar(v3);
+    v4.set(1, 1);
+    v5 = new Menu(v2);
+    v5.setData(v3);
+    v7 = 0;
+    L62:
+    if (v7 >= 12) goto L136;
+    v6 = new MenuItem(v5, 0);
+    v4.set(2, v7);
+    v6.setText(this.val$df.format(v4.getTime()));
+    v6.setData(Integer.valueOf(v7));
+    v6.addSelectionListener(new Budget$67$1(this));
+    v7 += 1;
+    goto L62;
+    L136:
+    v5.setVisible(1);
+    return;
+}
+
+// ===== Budget$68 extends SelectionAdapter 
+final synthetic Budget this$0;
+
+ void <init>(Budget p0) {
+    Objects.requireNonNull(p0);
+    this.this$0 = p0;
+    super.<init>();
+    return;
+}
+
+public void widgetSelected(SelectionEvent p0) {
+    v2 = (Shell)(Button)p0.widget.getParent().getParent();
+    v3 = (SimpleCalendar)v2.getData();
+    v3.add(2, 1);
+    this.this$0.fillPickDate(v2, v3);
+    v2.layout();
+    v2.redraw();
+    return;
+}
+
+// ===== Budget$69 extends SelectionAdapter 
+final synthetic Budget this$0;
+
+ void <init>(Budget p0) {
+    Objects.requireNonNull(p0);
+    this.this$0 = p0;
+    super.<init>();
+    return;
+}
+
+public void widgetSelected(SelectionEvent p0) {
+    v2 = (Shell)(Button)p0.widget.getParent().getParent();
+    v3 = (SimpleCalendar)v2.getData();
+    v3.add(2, 12);
+    this.this$0.fillPickDate(v2, v3);
+    v2.layout();
+    v2.redraw();
+    return;
+}
+
+// ===== Budget$7 extends Object implements Runnable
+final synthetic Display val$display;
+final synthetic Budget this$0;
+
+ void <init>(Budget p0, Display p1) {
+    this.val$display = p1;
+    Objects.requireNonNull(p0);
+    this.this$0 = p0;
+    super.<init>();
+    return;
+}
+
+public void run() {
+    v1 = 1;
+    if (this.this$0.mainShell.isDisposed() != 0) goto L96;
+    v2 = new SimpleCalendar();
+    if (v2.eq(this.this$0.initCal) != 0) goto L96;
+    if (this.this$0.cfg.autoDateSwitch.boolValue != 0) goto L72;
+    if (this.this$0.showYesNo(this.this$0.mainShell, "System date changed to a new date.\nDo you want to switch to the new day?") == 0) goto L94;
+    L72:
+    this.this$0.initCal.set(v2);
+    this.this$0.rebuildApp();
+    goto L96;
+    L94:
+    v1 = 0;
+    L96:
+    if (v1 == 0) goto L111;
+    this.val$display.timerExec(20000, this);
+    L111:
+    return;
+}
+
+// ===== Budget$70 extends SelectionAdapter 
+final synthetic Budget this$0;
+
+ void <init>(Budget p0) {
+    Objects.requireNonNull(p0);
+    this.this$0 = p0;
+    super.<init>();
+    return;
+}
+
+public void widgetSelected(SelectionEvent p0) {
+    v2 = (Shell)(Button)p0.widget.getParent().getParent();
+    v3 = new SimpleCalendar(this.this$0.initCal);
+    this.this$0.fillPickDate(v2, v3);
+    v2.layout();
+    v2.redraw();
+    return;
+}
+
+// ===== Budget$71 extends MouseAdapter 
+final synthetic Budget this$0;
+
+ void <init>(Budget p0) {
+    Objects.requireNonNull(p0);
+    this.this$0 = p0;
+    super.<init>();
+    return;
+}
+
+public void mouseDown(MouseEvent p0) {
+    v2 = (Label)p0.widget.getParent();
+    v3 = (SimpleCalendar)v2.getData();
+    this.this$0.pickDateCal = new SimpleCalendar(v3);
+    this.this$0.pickDateCal.set(1, Integer.parseInt((Label)p0.widget.getText()));
+    v2.dispose();
+    return;
+}
+
+// ===== Budget$72 extends SelectionAdapter 
+final synthetic Budget$1ExpenseFlag val$exFlag;
+final synthetic Button val$chk;
+
+ void <init>(Budget p0, Budget$1ExpenseFlag p1, Button p2) {
+    this.val$exFlag = p1;
+    this.val$chk = p2;
+    Objects.requireNonNull(p0);
+    super.<init>();
+    return;
+}
+
+public void widgetSelected(SelectionEvent p0) {
+    this.val$exFlag.expense = this.val$chk.getSelection();
+    return;
+}
+
+// ===== Budget$73 extends Object implements VerifyListener
+final synthetic int val$flags;
+
+ void <init>(Budget p0, int p1) {
+    this.val$flags = p1;
+    Objects.requireNonNull(p0);
+    super.<init>();
+    return;
+}
+
+public void verifyText(VerifyEvent p0) {
+    if (p0.text.length() <= 5) goto L70;
+    if (Budget.numPattern == null) goto L70;
+    v2 = Budget.numPattern.matcher(p0.text);
+    L28:
+    if (v2.find() == 0) goto L70;
+    v3 = v2.group(2);
+    if (v3 == null) goto L50;
+    p0.text = v3;
+    L50:
+    if (Budget.PROMPT_EXPENSE != (this.val$flags & Budget.PROMPT_EXPENSE)) goto L67;
+    goto L70;
+    L67:
+    goto L28;
+    L70:
+    return;
+}
+
+// ===== Budget$74 extends SelectionAdapter 
+final synthetic Text val$text;
+final synthetic int val$flags;
+final synthetic Budget$1ExpenseFlag val$exFlag;
+final synthetic Button val$chk;
+
+ void <init>(Budget p0, Text p1, int p2, Budget$1ExpenseFlag p3, Button p4) {
+    this.val$text = p1;
+    this.val$flags = p2;
+    this.val$exFlag = p3;
+    this.val$chk = p4;
+    Objects.requireNonNull(p0);
+    super.<init>();
+    return;
+}
+
+public void widgetSelected(SelectionEvent p0) {
+    this.val$text.setText(p0.text);
+    this.val$text.setFocus();
+    this.val$text.setSelection(0, p0.text.length());
+    if (Budget.PROMPT_EXPENSE != (this.val$flags & Budget.PROMPT_EXPENSE)) goto L78;
+    this.val$exFlag.expense = p0.text.startsWith("-");
+    this.val$chk.setSelection(this.val$exFlag.expense);
+    L78:
+    return;
+}
+
+// ===== Budget$75 extends SelectionAdapter 
+final synthetic Text val$text;
+final synthetic Shell val$ed;
+final synthetic Budget this$0;
+
+ void <init>(Budget p0, Text p1, Shell p2) {
+    this.val$text = p1;
+    this.val$ed = p2;
+    Objects.requireNonNull(p0);
+    this.this$0 = p0;
+    super.<init>();
+    return;
+}
+
+public void widgetDefaultSelected(SelectionEvent p0) {
+    $s0 = this.this$0;
+    if ((p0.stateMask & 65536) != 65536) goto L20;
+    $s0 = this.this$0;
+    $s1 = 1;
+    goto L21;
+    L20:
+    $s1 = 0;
+    L21:
+    $s0.prompt_was_alt_ok = $s1;
+    $s0 = this.this$0;
+    if ((p0.stateMask & 262144) != 262144) goto L44;
+    $s0 = this.this$0;
+    $s1 = 1;
+    goto L45;
+    L44:
+    $s1 = 0;
+    L45:
+    $s0.prompt_was_ctrl_ok = $s1;
+    this.this$0.return_val = this.val$text.getText();
+    this.val$ed.dispose();
+    return;
+}
+
+// ===== Budget$76 extends SelectionAdapter 
+final synthetic Budget$1ExpenseFlag val$exFlag;
+final synthetic Shell val$ed;
+
+ void <init>(Budget p0, Budget$1ExpenseFlag p1, Shell p2) {
+    this.val$exFlag = p1;
+    this.val$ed = p2;
+    Objects.requireNonNull(p0);
+    super.<init>();
+    return;
+}
+
+public void widgetSelected(SelectionEvent p0) {
+    this.val$exFlag.remove_adjustment = 1;
+    this.val$ed.dispose();
+    return;
+}
+
+// ===== Budget$77 extends SelectionAdapter 
+final synthetic Text val$text;
+final synthetic Shell val$ed;
+final synthetic Budget this$0;
+
+ void <init>(Budget p0, Text p1, Shell p2) {
+    this.val$text = p1;
+    this.val$ed = p2;
+    Objects.requireNonNull(p0);
+    this.this$0 = p0;
+    super.<init>();
+    return;
+}
+
+public void widgetSelected(SelectionEvent p0) {
+    $s0 = this.this$0;
+    if ((p0.stateMask & 262144) != 262144) goto L20;
+    $s0 = this.this$0;
+    $s1 = 1;
+    goto L21;
+    L20:
+    $s1 = 0;
+    L21:
+    $s0.prompt_was_ctrl_ok = $s1;
+    $s0 = this.this$0;
+    if ((p0.stateMask & 65536) != 65536) goto L44;
+    $s0 = this.this$0;
+    $s1 = 1;
+    goto L45;
+    L44:
+    $s1 = 0;
+    L45:
+    $s0.prompt_was_alt_ok = $s1;
+    this.this$0.return_val = this.val$text.getText();
+    this.val$ed.dispose();
+    return;
+}
+
+// ===== Budget$78 extends SelectionAdapter 
+final synthetic Shell val$ed;
+
+ void <init>(Budget p0, Shell p1) {
+    this.val$ed = p1;
+    Objects.requireNonNull(p0);
+    super.<init>();
+    return;
+}
+
+public void widgetSelected(SelectionEvent p0) {
+    this.val$ed.dispose();
+    return;
+}
+
+// ===== Budget$79 extends MouseAdapter 
+final synthetic Menu val$m;
+
+ void <init>(Budget p0, Menu p1) {
+    this.val$m = p1;
+    Objects.requireNonNull(p0);
+    super.<init>();
+    return;
+}
+
+public void mouseUp(MouseEvent p0) {
+    this.val$m.setVisible(1);
+    return;
+}
+
+// ===== Budget$8 extends MouseAdapter 
+final synthetic int val$g_type;
+final synthetic Budget this$0;
+
+ void <init>(Budget p0, int p1) {
+    this.val$g_type = p1;
+    Objects.requireNonNull(p0);
+    this.this$0 = p0;
+    super.<init>();
+    return;
+}
+
+public void mouseDown(MouseEvent p0) {
+    if (this.val$g_type == this.this$0.cfg.graphType) goto L74;
+    this.this$0.cfg.graphType = this.val$g_type;
+    this.this$0.graphCanvas.redraw();
+    this.this$0.forecastLbl.setText(("Forecast: " + this.this$0.forecastType[this.this$0.cfg.graphType]));
+    L74:
+    return;
+}
+
+// ===== Budget$80 extends Object implements Comparator
+
+ void <init>() {
+    super.<init>();
+    return;
+}
+
+public int compare(Payment p0, Payment p1) {
+    if (p0.category != null) goto L12;
+    $s0 = "";
+    goto L16;
+    L12:
+    $s0 = p0.category;
+    L16:
+    v3 = $s0;
+    if (p1.category != null) goto L29;
+    $s0 = "";
+    goto L33;
+    L29:
+    $s0 = p1.category;
+    L33:
+    v4 = $s0;
+    if (v3.equals(v4) == 0) goto L55;
+    return Budget.desc_comp.compare(p0, p1);
+    L55:
+    return (Budget.sort_direction * v3.compareTo(v4));
+}
+
+public volatile/bridge synthetic int compare(Object p0, Object p1) {
+    return this.compare((Payment)p0, (Payment)p1);
+}
+
+// ===== Budget$81 extends Object implements Comparator
+
+ void <init>() {
+    super.<init>();
+    return;
+}
+
+public int compare(Payment p0, Payment p1) {
+    if (p0.description.equals(p1.description) == 0) goto L25;
+    return Budget.amount_comp.compare(p0, p1);
+    L25:
+    return (Budget.sort_direction * p0.description.compareTo(p1.description));
+}
+
+public volatile/bridge synthetic int compare(Object p0, Object p1) {
+    return this.compare((Payment)p0, (Payment)p1);
+}
+
+// ===== Budget$82 extends SelectionAdapter 
+final synthetic Text val$filter_txt;
+final synthetic Table val$payment_table;
+final synthetic Budget this$0;
+
+ void <init>(Budget p0, Text p1, Table p2) {
+    this.val$filter_txt = p1;
+    this.val$payment_table = p2;
+    Objects.requireNonNull(p0);
+    this.this$0 = p0;
+    super.<init>();
+    return;
+}
+
+public void widgetSelected(SelectionEvent p0) {
+    v2 = (String)p0.widget.getData();
+    if (v2 == null) goto L58;
+    this.val$filter_txt.setText(v2);
+    this.val$payment_table.setData("filter", this.val$filter_txt.getText().replace("&", "\uff06"));
+    this.this$0.fillPaymentsTable(this.val$payment_table, null);
+    L58:
+    return;
+}
+
+// ===== Budget$83 extends SelectionAdapter 
+final synthetic Shell val$dc;
+
+ void <init>(Budget p0, Shell p1) {
+    this.val$dc = p1;
+    Objects.requireNonNull(p0);
+    super.<init>();
+    return;
+}
+
+public void widgetSelected(SelectionEvent p0) {
+    this.val$dc.dispose();
+    return;
+}
+
+// ===== Budget$84 extends SelectionAdapter 
+final synthetic Table val$payment_table;
+final synthetic Text val$filter_txt;
+final synthetic Budget this$0;
+
+ void <init>(Budget p0, Table p1, Text p2) {
+    this.val$payment_table = p1;
+    this.val$filter_txt = p2;
+    Objects.requireNonNull(p0);
+    this.this$0 = p0;
+    super.<init>();
+    return;
+}
+
+public void widgetDefaultSelected(SelectionEvent p0) {
+    this.val$payment_table.setData("filter", this.val$filter_txt.getText().replace("&", "\uff06"));
+    Budget.allPaymentsSavedFilter = this.val$filter_txt.getText().replace("&", "\uff06");
+    this.this$0.fillPaymentsTable(this.val$payment_table, null);
+    return;
+}
+
+// ===== Budget$85 extends SelectionAdapter 
+final synthetic Text val$filter_txt;
+final synthetic Table val$payment_table;
+final synthetic Budget this$0;
+
+ void <init>(Budget p0, Text p1, Table p2) {
+    this.val$filter_txt = p1;
+    this.val$payment_table = p2;
+    Objects.requireNonNull(p0);
+    this.this$0 = p0;
+    super.<init>();
+    return;
+}
+
+public void widgetSelected(SelectionEvent p0) {
+    this.val$filter_txt.setText("");
+    this.val$payment_table.setData("filter", this.val$filter_txt.getText().replace("&", "\uff06"));
+    this.this$0.fillPaymentsTable(this.val$payment_table, null);
+    return;
+}
+
+// ===== Budget$86 extends SelectionAdapter 
+final synthetic Table val$payment_table;
+final synthetic Budget this$0;
+
+ void <init>(Budget p0, Table p1) {
+    this.val$payment_table = p1;
+    Objects.requireNonNull(p0);
+    this.this$0 = p0;
+    super.<init>();
+    return;
+}
+
+public void widgetSelected(SelectionEvent p0) {
+    v2 = (TableColumn)p0.widget;
+    if (Budget.sortColumn != v2) goto L25;
+    Budget.sort_direction = (-Budget.sort_direction);
+    goto L33;
+    L25:
+    Budget.sortColumn = v2;
+    Budget.sort_direction = 1;
+    L33:
+    v3 = this.val$payment_table.getColumns();
+    v4 = 0;
+    L44:
+    if (v4 >= v3.length) goto L65;
+    v3[v4].setImage(null);
+    v4 += 1;
+    goto L44;
+    L65:
+    $s0 = Budget.sortColumn;
+    $s1 = this.this$0;
+    if (Budget.sort_direction != 1) goto L87;
+    $s0 = Budget.sortColumn;
+    $s1 = this.this$0;
+    $s2 = Budget.icon("up.gif");
+    goto L92;
+    L87:
+    $s2 = Budget.icon("down.gif");
+    L92:
+    $s0.setImage($s1.getImage($s2, this.this$0.cfg.bgColorWindow.colorValue));
+    this.this$0.fillPaymentsTable(this.val$payment_table, null);
+    return;
+}
+
+// ===== Budget$87 extends SelectionAdapter 
+final synthetic Shell val$dc;
+final synthetic Table val$payment_table;
+final synthetic Budget this$0;
+
+ void <init>(Budget p0, Shell p1, Table p2) {
+    this.val$dc = p1;
+    this.val$payment_table = p2;
+    Objects.requireNonNull(p0);
+    this.this$0 = p0;
+    super.<init>();
+    return;
+}
+
+public void widgetDefaultSelected(SelectionEvent p0) {
+    v2 = (TableItem)p0.item;
+    if (this.this$0.editPayment(this.val$dc, (Payment)v2.getData(), null) == 0) goto L42;
+    this.this$0.fillPaymentsTable(this.val$payment_table, null);
+    L42:
+    return;
+}
+
+// ===== Budget$88 extends SelectionAdapter 
+final synthetic Table val$payment_table;
+final synthetic Shell val$dc;
+final synthetic Budget this$0;
+
+ void <init>(Budget p0, Table p1, Shell p2) {
+    this.val$payment_table = p1;
+    this.val$dc = p2;
+    Objects.requireNonNull(p0);
+    this.this$0 = p0;
+    super.<init>();
+    return;
+}
+
+public void widgetSelected(SelectionEvent p0) {
+    v2 = this.val$payment_table.getSelection();
+    if (v2 == null) goto L56;
+    if (v2.length <= 0) goto L56;
+    v3 = (Payment)v2[0].getData();
+    if (this.this$0.editPayment(this.val$dc, v3, null) == 0) goto L55;
+    this.this$0.fillPaymentsTable(this.val$payment_table, v3);
+    L55:
+    return;
+    L56:
+    return;
+}
+
+// ===== Budget$89 extends SelectionAdapter 
+final synthetic Shell val$dc;
+final synthetic Table val$payment_table;
+final synthetic Budget this$0;
+
+ void <init>(Budget p0, Shell p1, Table p2) {
+    this.val$dc = p1;
+    this.val$payment_table = p2;
+    Objects.requireNonNull(p0);
+    this.this$0 = p0;
+    super.<init>();
+    return;
+}
+
+public void widgetSelected(SelectionEvent p0) {
+    if (this.this$0.editPayment(this.val$dc, null, new SimpleCalendar(this.this$0.initCal)) == 0) goto L43;
+    this.this$0.fillPaymentsTable(this.val$payment_table, Budget.edit_payments_new_pmt);
+    L43:
+    return;
+}
+
+// ===== Budget$9 extends Object implements PaintListener
+final synthetic Budget this$0;
+
+ void <init>(Budget p0) {
+    Objects.requireNonNull(p0);
+    this.this$0 = p0;
+    super.<init>();
+    return;
+}
+
+public void paintControl(PaintEvent p0) {
+    v2 = (Label)p0.widget.getSize();
+    p0.gc.setForeground(this.this$0.cfg.colorCurrentMonth.colorValue);
+    p0.gc.drawLine(0, (v2.y - 1), v2.x, (v2.y - 1));
+    return;
+}
+
+// ===== Budget$90 extends SelectionAdapter 
+final synthetic Table val$payment_table;
+final synthetic Budget this$0;
+
+ void <init>(Budget p0, Table p1) {
+    this.val$payment_table = p1;
+    Objects.requireNonNull(p0);
+    this.this$0 = p0;
+    super.<init>();
+    return;
+}
+
+public void widgetSelected(SelectionEvent p0) {
+    v2 = this.val$payment_table.getSelection();
+    if (v2 == null) goto L50;
+    if (v2.length <= 0) goto L50;
+    v3 = (Payment)v2[0].getData();
+    v4 = this.this$0.duplicatePayment(v3);
+    this.this$0.fillPaymentsTable(this.val$payment_table, v4);
+    L50:
+    return;
+}
+
+// ===== Budget$91 extends SelectionAdapter 
+final synthetic Table val$payment_table;
+final synthetic Shell val$dc;
+final synthetic Budget this$0;
+
+ void <init>(Budget p0, Table p1, Shell p2) {
+    this.val$payment_table = p1;
+    this.val$dc = p2;
+    Objects.requireNonNull(p0);
+    this.this$0 = p0;
+    super.<init>();
+    return;
+}
+
+public void widgetSelected(SelectionEvent p0) {
+    v2 = this.val$payment_table.getSelection();
+    if (v2 == null) goto L74;
+    if (v2.length <= 0) goto L74;
+    v3 = (Payment)v2[0].getData();
+    if (this.this$0.confirmYesNo(this.val$dc, ("Are you sure you want to delete the '" + v3.description + "' ?\n")) == 0) goto L74;
+    this.this$0.db.deletePayment(v3);
+    this.this$0.fillPaymentsTable(this.val$payment_table, null);
+    L74:
+    return;
+}
+
+// ===== Budget$92 extends SelectionAdapter 
+final synthetic Table val$payment_table;
+final synthetic Shell val$dc;
+final synthetic Budget this$0;
+
+ void <init>(Budget p0, Table p1, Shell p2) {
+    this.val$payment_table = p1;
+    this.val$dc = p2;
+    Objects.requireNonNull(p0);
+    this.this$0 = p0;
+    super.<init>();
+    return;
+}
+
+public void widgetSelected(SelectionEvent p0) {
+    v2 = this.val$payment_table.getSelection();
+    if (v2 == null) goto L91;
+    if (v2.length <= 0) goto L91;
+    v3 = (Payment)v2[0].getData();
+    v4 = this.this$0.pickDate(this.val$dc, this.this$0.curCal, "Pick New Transaction Date");
+    if (v4 == null) goto L91;
+    v3.setCustomAmount(v4.get(), v3.amount);
+    this.this$0.db.update(v3);
+    this.this$0.fillPaymentsTable(this.val$payment_table, v3);
+    L91:
+    return;
+}
+
+// ===== Budget$93 extends SelectionAdapter 
+final synthetic Table val$payment_table;
+final synthetic Shell val$dc;
+final synthetic Budget this$0;
+
+ void <init>(Budget p0, Table p1, Shell p2) {
+    this.val$payment_table = p1;
+    this.val$dc = p2;
+    Objects.requireNonNull(p0);
+    this.this$0 = p0;
+    super.<init>();
+    return;
+}
+
+public void widgetSelected(SelectionEvent p0) {
+    v2 = this.val$payment_table.getSelection();
+    if (v2 == null) goto L287;
+    if (v2.length <= 0) goto L287;
+    v3 = (Payment)v2[0].getData();
+    if (v3.category == null) goto L287;
+    v4 = v3.category;
+    v5 = v3.category;
+    L46:
+    v5 = this.this$0.prompt(this.val$dc, null, "Edit Category Name", "Enter a new category name:", v5, 0);
+    if (v5 == null) goto L83;
+    if (v5.trim().length() != 0) goto L84;
+    L83:
+    return;
+    L84:
+    if (this.this$0.db.isValidCategory(v5, v3) == 0) goto L103;
+    goto L119;
+    L103:
+    this.this$0.showError(this.val$dc, "The new name is not valid, please choose a different one.");
+    goto L46;
+    L119:
+    v6 = 0;
+    v7 = 0;
+    L125:
+    if (v7 >= this.this$0.db.size()) goto L187;
+    v8 = this.this$0.db.get(v7);
+    if (v8.category == null) goto L181;
+    if (v8.category.equals(v5) == 0) goto L181;
+    v6 = 1;
+    goto L187;
+    L181:
+    v7 += 1;
+    goto L125;
+    L187:
+    if (v6 == 0) goto L209;
+    if (this.this$0.confirmYesNo(this.val$dc, "Edited category name matches an existing category name.\nDo you want to merge all payments of this category with the matched one?") != 0) goto L209;
+    return;
+    L209:
+    v7 = 0;
+    L212:
+    if (v7 >= this.this$0.db.size()) goto L275;
+    v8 = this.this$0.db.get(v7);
+    if (v8.category == null) goto L269;
+    if (v8.category.equals(v4) == 0) goto L269;
+    v8.category = v5;
+    L269:
+    v7 += 1;
+    goto L212;
+    L275:
+    this.this$0.fillPaymentsTable(this.val$payment_table, v3);
+    L287:
+    return;
+}
+
+// ===== Budget$94 extends SelectionAdapter 
+final synthetic Table val$payment_table;
+final synthetic Shell val$dc;
+final synthetic Budget this$0;
+
+ void <init>(Budget p0, Table p1, Shell p2) {
+    this.val$payment_table = p1;
+    this.val$dc = p2;
+    Objects.requireNonNull(p0);
+    this.this$0 = p0;
+    super.<init>();
+    return;
+}
+
+public void widgetSelected(SelectionEvent p0) {
+    v2 = this.val$payment_table.getSelection();
+    if (v2 == null) goto L133;
+    if (v2.length <= 0) goto L133;
+    v3 = (Payment)v2[0].getData();
+    if (v3.category == null) goto L133;
+    v4 = v3.category;
+    if (this.this$0.confirmYesNo(this.val$dc, "All payments that belong to this category will be set to an empty category name.\n\nDo you want to continue?") == 0) goto L133;
+    v5 = 0;
+    L59:
+    if (v5 >= this.this$0.db.size()) goto L121;
+    v6 = this.this$0.db.get(v5);
+    if (v6.category == null) goto L115;
+    if (v6.category.equals(v4) == 0) goto L115;
+    v6.category = null;
+    L115:
+    v5 += 1;
+    goto L59;
+    L121:
+    this.this$0.fillPaymentsTable(this.val$payment_table, v3);
+    L133:
+    return;
+}
+
+// ===== Budget$95 extends SelectionAdapter 
+final synthetic Table val$payment_table;
+final synthetic Text val$filter_txt;
+final synthetic Budget this$0;
+
+ void <init>(Budget p0, Table p1, Text p2) {
+    this.val$payment_table = p1;
+    this.val$filter_txt = p2;
+    Objects.requireNonNull(p0);
+    this.this$0 = p0;
+    super.<init>();
+    return;
+}
+
+public void widgetSelected(SelectionEvent p0) {
+    v2 = this.val$payment_table.getSelection();
+    if (v2 == null) goto L73;
+    if (v2.length <= 0) goto L73;
+    v3 = (Payment)v2[0].getData();
+    this.val$payment_table.setData("filter", ("desc:" + v3.description));
+    this.val$filter_txt.setText(("desc:" + v3.description));
+    this.this$0.fillPaymentsTable(this.val$payment_table, v3);
+    L73:
+    return;
+}
+
+// ===== Budget$96 extends SelectionAdapter 
+final synthetic Table val$payment_table;
+final synthetic Text val$filter_txt;
+final synthetic Budget this$0;
+
+ void <init>(Budget p0, Table p1, Text p2) {
+    this.val$payment_table = p1;
+    this.val$filter_txt = p2;
+    Objects.requireNonNull(p0);
+    this.this$0 = p0;
+    super.<init>();
+    return;
+}
+
+public void widgetSelected(SelectionEvent p0) {
+    v2 = this.val$payment_table.getSelection();
+    if (v2 == null) goto L80;
+    if (v2.length <= 0) goto L80;
+    v3 = (Payment)v2[0].getData();
+    if (v3.category == null) goto L80;
+    this.val$payment_table.setData("filter", ("cat:" + v3.category));
+    this.val$filter_txt.setText(("cat:" + v3.category));
+    this.this$0.fillPaymentsTable(this.val$payment_table, v3);
+    L80:
+    return;
+}
+
+// ===== Budget$97 extends SelectionAdapter 
+
+ void <init>(Budget p0) {
+    Objects.requireNonNull(p0);
+    super.<init>();
+    return;
+}
+
+public void widgetSelected(SelectionEvent p0) {
+    if (p0.text.equals("docs") == 0) goto L30;
+    program.Program.launch(Budget.html_name((Budget.jar_loc + "\\doc\\budget.html")));
+    goto L48;
+    L30:
+    if (p0.text.equals("tutorial") == 0) goto L48;
+    program.Program.launch("http://www.mishell.ca/online/tutorial.html");
+    L48:
+    return;
+}
+
+// ===== Budget$98 extends SelectionAdapter 
+final synthetic Text val$balanceText;
+final synthetic Shell val$ed;
+final synthetic Button val$oneButtonMouseChk;
+final synthetic SimpleCalendar val$cal;
+final synthetic Budget this$0;
+
+ void <init>(Budget p0, Text p1, Shell p2, Button p3, SimpleCalendar p4) {
+    this.val$balanceText = p1;
+    this.val$ed = p2;
+    this.val$oneButtonMouseChk = p3;
+    this.val$cal = p4;
+    Objects.requireNonNull(p0);
+    this.this$0 = p0;
+    super.<init>();
+    return;
+}
+
+public void widgetSelected(SelectionEvent p0) {
+    v2 = Calculator.calculate(this.val$balanceText.getText(), 0.0, 0.0);
+    goto L66;
+    // handler for [0,13) catch Exception
+    L16:
+    v4 = $ex;
+    this.this$0.showError(this.val$ed, ("Invalid amount!\n" + v4.getMessage()));
+    this.val$balanceText.setFocus();
+    this.val$balanceText.setSelection(0, this.val$balanceText.getText().length());
+    return;
+    L66:
+    if (v2 != 0.0) goto L95;
+    if (this.this$0.cfg.oneButtonMouse.boolValue == this.val$oneButtonMouseChk.getSelection()) goto L153;
+    L95:
+    this.this$0.cfg.oneButtonMouse.boolValue = this.val$oneButtonMouseChk.getSelection();
+    if (v2 == 0.0) goto L146;
+    this.val$cal.add(1, -1);
+    this.this$0.db.updateAdjustment(this.val$cal, v2);
+    L146:
+    this.this$0.updateCalendarView();
+    L153:
+    this.val$ed.dispose();
+    return;
+}
+
+// ===== Budget$99 extends MenuAdapter 
+final synthetic Budget this$0;
+
+ void <init>(Budget p0) {
+    Objects.requireNonNull(p0);
+    this.this$0 = p0;
+    super.<init>();
+    return;
+}
+
+public void menuShown(MenuEvent p0) {
+    $s0 = this.this$0.undoMoveMenuItem;
+    if (this.this$0.db == null) goto L34;
+    $s0 = this.this$0.undoMoveMenuItem;
+    if (this.this$0.db.hasMoveUndo() == 0) goto L34;
+    $s0 = this.this$0.undoMoveMenuItem;
+    $s1 = 1;
+    goto L35;
+    L34:
+    $s1 = 0;
+    L35:
+    $s0.setEnabled($s1);
+    return;
+}
+
+// ===== Budget$Amount extends Object 
+ double amount;
+ double planned_amount;
+ String key;
+ HashMap sub_amounts;
+ Payment pmt;
+ Budget$Amount agg_parent;
+
+private void <init>(Budget p0) {
+    Objects.requireNonNull(p0);
+    super.<init>();
+    this.sub_amounts = new HashMap();
+    return;
+}
+
+public String toString() {
+    return ("Amount{'" + this.key + "', amounts=" + this.amount + "/" + this.planned_amount + "}");
+}
+
+ boolean is_aggregate() {
+    if (this.sub_amounts == null) goto L21;
+    if (this.sub_amounts.size() == 0) goto L21;
+    $s0 = 1;
+    goto L22;
+    L21:
+    $s0 = 0;
+    L22:
+    return $s0;
+}
+
+// ===== Budget$AmountKey extends Object 
+final String category;
+final String description;
+
+ void <init>(Budget$Amount p0) {
+    super.<init>();
+    $s0 = this;
+    if (p0.agg_parent == null) goto L22;
+    $s0 = this;
+    $s1 = p0.agg_parent.key;
+    goto L23;
+    L22:
+    $s1 = null;
+    L23:
+    $s0.category = $s1;
+    this.description = p0.key;
+    return;
+}
+
+ void <init>(String p0) {
+    super.<init>();
+    this.category = null;
+    this.description = p0;
+    return;
+}
+
+ void <init>(String p0, String p1) {
+    super.<init>();
+    this.category = p0;
+    this.description = p1;
+    return;
+}
+
+public boolean equals(Object p0) {
+    if (this != p0) goto L7;
+    return 1;
+    L7:
+    if ((p0 instanceof Budget$AmountKey) == 0) goto L22;
+    v2 = (Budget$AmountKey)p0;
+    goto L24;
+    L22:
+    return 0;
+    L24:
+    if (Objects.equals(this.category, v2.category) == 0) goto L56;
+    if (Objects.equals(this.description, v2.description) == 0) goto L56;
+    $s0 = 1;
+    goto L57;
+    L56:
+    $s0 = 0;
+    L57:
+    return $s0;
+}
+
+public int hashCode() {
+    $a1 = new Object[2];
+    $a1[0] = this.category;
+    $a1[1] = this.description;
+    return Objects.hash($a1);
+}
+
+public String toString() {
+    return ("AmountKey{category='" + this.category + "', description='" + this.description + "'}");
+}
+
+// ===== Budget$AvgStats extends Object 
+ int n;
+ int nm;
+ int np;
+ double pt;
+ double pm;
+ double pd;
+ double pp;
+public int first;
+public int last;
+ double total;
+ ArrayList lastTransactions;
+public int first_last_days_diff;
+
+ void <init>(Budget p0) {
+    Objects.requireNonNull(p0);
+    super.<init>();
+    this.n = 0;
+    this.nm = 0;
+    this.np = 0;
+    this.pt = nan;
+    this.pm = nan;
+    this.pd = nan;
+    this.pp = nan;
+    this.first = 0;
+    this.last = 0;
+    this.total = 0.0;
+    this.lastTransactions = new ArrayList();
+    this.first_last_days_diff = 0;
+    return;
+}
+
+// ===== Budget$BarInfo extends Object 
+ int y;
+ int h;
+ boolean clipped_top;
+ boolean clipped_bottom;
+
+ void <init>() {
+    super.<init>();
+    this.y = 0;
+    this.h = 0;
+    this.clipped_top = 0;
+    this.clipped_bottom = 0;
+    return;
+}
+
+// ===== Budget$BestFit extends Object 
+ GC s_gc;
+private int target_width;
+ int cell_width;
+final int cell_margin;
+private double labelCompensation;
+private Font numFont;
+final synthetic Budget this$0;
+
+ void <init>(Budget p0, Display p1) {
+    Objects.requireNonNull(p0);
+    this.this$0 = p0;
+    super.<init>();
+    this.s_gc = null;
+    this.target_width = 0;
+    this.cell_width = 10;
+    this.labelCompensation = 1.0;
+    this.numFont = null;
+    v3 = new layout.GridLayout();
+    this.cell_margin = v3.marginWidth;
+    this.s_gc = new GC(p1);
+    v4 = new Label(p0.mainShell, 0);
+    this.s_gc.setFont(v4.getFont());
+    v5 = this.s_gc.stringExtent("This a text to Extent");
+    v4.setText("This a text to Extent");
+    v6 = v4.computeSize(-1, -1, 1);
+    v4.dispose();
+    this.labelCompensation = ((double)v6.x / (double)v5.x);
+    goto L149;
+    // handler for [127,144) catch Exception
+    L147:
+    v7 = $ex;
+    L149:
+    return;
+}
+
+public void setSize() {
+    if (this.s_gc != null) goto L8;
+    return;
+    L8:
+    v1 = this.this$0.mainShell.getClientArea().width;
+    if (this.this$0.mainShell.isVisible() != 0) goto L62;
+    if (this.this$0.mainShell.getMaximized() == 0) goto L62;
+    v1 = this.this$0.display.getBounds().width;
+    L62:
+    if (Budget.runningOnMac == 0) goto L74;
+    $s0 = 2.0;
+    goto L77;
+    L74:
+    $s0 = 1.5;
+    L77:
+    v2 = $s0;
+    this.cell_width = (((((((int)(((double)v1 - ((double)this.this$0.calendarScroll.getVerticalBar().getSize().x * v2)) - 16.0) / 7) - -2) - 2) - (2 * this.cell_margin)) - 2) - 2);
+    v4 = "1,000.00";
+    this.s_gc.setFont(this.this$0.cfg.fontPosTranAmount.fontValue);
+    v5 = this.s_gc.stringExtent(v4);
+    this.s_gc.setFont(this.this$0.cfg.fontNegTranAmount.fontValue);
+    v6 = this.s_gc.stringExtent(v4);
+    $s0 = this;
+    if (v5.x <= v6.x) goto L224;
+    $s0 = this;
+    $s1 = this.this$0.cfg.fontPosTranAmount.fontValue;
+    goto L237;
+    L224:
+    $s1 = this.this$0.cfg.fontNegTranAmount.fontValue;
+    L237:
+    $s0.numFont = $s1;
+    return;
+}
+
+public void setNumLength(String p0) {
+    if (this.s_gc == null) goto L14;
+    if (this.numFont != null) goto L15;
+    L14:
+    return;
+    L15:
+    this.s_gc.setFont(this.numFont);
+    this.target_width = ((this.cell_width - (int)((double)this.s_gc.stringExtent(p0).x * this.labelCompensation)) - 1);
+    this.target_width = (int)((double)this.target_width / this.labelCompensation);
+    return;
+}
+
+public String getString(Font p0, String p1, int p2) {
+    if (this.s_gc != null) goto L9;
+    return p1;
+    L9:
+    v4 = "";
+    v5 = 3;
+    this.s_gc.setFont(p0);
+    L24:
+    v6 = this.s_gc.stringExtent((p1 + v4));
+    if (v6.x >= (this.target_width - p2)) goto L64;
+    return (p1 + v4);
+    L64:
+    if (p1.length() >= v5) goto L76;
+    return "...";
+    L76:
+    p1 = p1.substring(0, (p1.length() - v5));
+    v4 = "...";
+    goto L24;
+}
+
+// ===== Budget$BestScale extends Object 
+ double min;
+ double max;
+ int nLines;
+
+ void <init>() {
+    super.<init>();
+    this.min = 0.0;
+    this.max = 0.0;
+    this.nLines = 9;
+    return;
+}
+
+// ===== Budget$Border extends Object 
+ int top;
+ int left;
+ int bottom;
+ int right;
+
+ void <init>() {
+    super.<init>();
+    return;
+}
+
+// ===== Budget$Bump extends Object 
+static final int ACT_UP = 1;
+static final int ACT_DOWN = 2;
+static final int BUMP_DELAY = 1000;
+private boolean bumped;
+private long ignoreUntilTime;
+private long lastTime;
+
+private void <init>(Budget p0) {
+    Objects.requireNonNull(p0);
+    super.<init>();
+    this.bumped = 0;
+    this.ignoreUntilTime = -1L;
+    this.lastTime = -1L;
+    return;
+}
+
+ boolean isIgnoring(Event p0) {
+    v2 = ((long)p0.time & 4294967295L);
+    this.lastTime = v2;
+    if (v2 >= this.ignoreUntilTime) goto L28;
+    $s0 = 1;
+    goto L29;
+    L28:
+    $s0 = 0;
+    L29:
+    return $s0;
+}
+
+ int getAction(Event p0) {
+    v2 = ((long)p0.time & 4294967295L);
+    this.ignoreUntilTime = (v2 + 1000L);
+    if (p0.count <= 0) goto L30;
+    $s0 = 1;
+    goto L31;
+    L30:
+    $s0 = 2;
+    L31:
+    return $s0;
+}
+
+public boolean bumped(Event p0) {
+    if (this.bumped == 0) goto L14;
+    this.bumped = 0;
+    return 0;
+    L14:
+    this.bumped = 1;
+    this.ignoreUntilTime = (((long)p0.time & 4294967295L) + 1000L);
+    return 1;
+}
+
+public void reset() {
+    this.bumped = 0;
+    this.ignoreUntilTime = -1L;
+    return;
+}
+
+public void setDelay(Event p0) {
+    this.ignoreUntilTime = (((long)p0.time & 4294967295L) + 1000L);
+    return;
+}
+
+// ===== Budget$ImgTag extends Object 
+ String substring;
+ String[] images;
+
+ void <init>() {
+    super.<init>();
+    return;
+}
+
+// ===== Budget$Info extends Object 
+ SimpleCalendar cal;
+ Payment pmt;
+ double amount;
+ boolean interactive;
+ int bg_color;
+ Label bg_label;
+ Menu menu;
+
+ void <init>(Budget p0) {
+    Objects.requireNonNull(p0);
+    super.<init>();
+    this.interactive = 1;
+    this.menu = null;
+    return;
+}
+
+// ===== Budget$Stats extends Object 
+final boolean fullStats;
+ SimpleCalendar startCal;
+ SimpleCalendar endCal;
+ Vector incomeVec;
+ Vector expenseVec;
+final HashMap statsMap;
+ double total_income;
+ double total_expense;
+ double total_planned_income;
+ double total_planned_expense;
+public int firstColWidth;
+
+ void <init>(Budget p0, SimpleCalendar p1, SimpleCalendar p2, boolean p3) {
+    Objects.requireNonNull(p0);
+    super.<init>();
+    this.statsMap = new HashMap();
+    this.total_income = 0.0;
+    this.total_expense = 0.0;
+    this.total_planned_income = 0.0;
+    this.total_planned_expense = 0.0;
+    this.firstColWidth = -1;
+    this.startCal = SimpleCalendar.getImmutable(p1);
+    this.endCal = SimpleCalendar.getImmutable(p2);
+    this.fullStats = p3;
+    return;
+}
+
+ int get_duration() {
+    return SimpleCalendar.getMonthsDiff(this.startCal, this.endCal);
+}
+
+ String get_range_string() {
+    if (this.get_duration() != 0) goto L17;
+    return this.startCal.toString("MMM, yyyy");
+    L17:
+    return (this.startCal.toString("MMM, yyyy") + " - " + this.endCal.toString("MMM, yyyy") + " (" + (this.get_duration() + 1) + "m)");
+}
+
+ Map get_flat_map() {
+    v1 = new HashMap();
+    v2 = this.statsMap.values().iterator();
+    L21:
+    if (v2.hasNext() == 0) goto L75;
+    v3 = (Budget$Amount)v2.next();
+    v1.put(new Budget$AmountKey(v3), v3);
+    v3.sub_amounts.values().forEach(lambda[Budget$Stats::lambda$get_flat_map$0](v1));
+    goto L21;
+    L75:
+    return v1;
+}
+
+private static synthetic void lambda$get_flat_map$0(HashMap p0, Budget$Amount p1) {
+    p0.put(new Budget$AmountKey(p1), p1);
+    return;
+}
+
+// ===== Budget$TranInfo extends Object 
+ int date;
+ double amount;
+ Payment pmt;
+ Vector subinfo;
+
+ void <init>(Budget p0, int p1, double p2, Payment p3) {
+    Objects.requireNonNull(p0);
+    super.<init>();
+    this.date = p1;
+    this.amount = p2;
+    this.pmt = p3;
+    return;
+}
+
+ void <init>(Budget p0, int p1, double p2, Vector p3) {
+    Objects.requireNonNull(p0);
+    super.<init>();
+    this.date = p1;
+    this.amount = p2;
+    this.subinfo = p3;
+    return;
+}
+
+// ===== Budget$TransactionDND extends Enum 
+public static final enum Budget$TransactionDND REPLACE;
+public static final enum Budget$TransactionDND ADD_ANOTHER;
+public static final enum Budget$TransactionDND ADD_SUM;
+private static final synthetic Budget$TransactionDND[] $VALUES;
+
+public static Budget$TransactionDND[] values() {
+    return ([Lca.mishell.app.budget.Budget$TransactionDND;)Budget$TransactionDND.$VALUES.clone();
+}
+
+public static Budget$TransactionDND valueOf(String p0) {
+    return (Budget$TransactionDND)Enum.valueOf(Budget$TransactionDND, p0);
+}
+
+private void <init>(String p0, int p1) {
+    super.<init>(p0, p1);
+    return;
+}
+
+private static synthetic Budget$TransactionDND[] $values() {
+    $a1 = new Budget$TransactionDND[3];
+    $a1[0] = Budget$TransactionDND.REPLACE;
+    $a1[1] = Budget$TransactionDND.ADD_ANOTHER;
+    $a1[2] = Budget$TransactionDND.ADD_SUM;
+    return $a1;
+}
+
+static void <clinit>() {
+    Budget$TransactionDND.REPLACE = new Budget$TransactionDND("REPLACE", 0);
+    Budget$TransactionDND.ADD_ANOTHER = new Budget$TransactionDND("ADD_ANOTHER", 1);
+    Budget$TransactionDND.ADD_SUM = new Budget$TransactionDND("ADD_SUM", 2);
+    Budget$TransactionDND.$VALUES = Budget$TransactionDND.$values();
+    return;
+}
+
+// ===== Budget$UpdateCallback extends Object 
+
+ void <init>() {
+    super.<init>();
+    return;
+}
+
+abstract void update();
+
+// ===== Budget$Updater extends Object 
+
+public abstract void update();
+
+// ===== Budget$comp_entry extends Object 
+final String key;
+ double v1;
+ double v2;
+
+ void <init>(String p0) {
+    super.<init>();
+    this.key = p0;
+    return;
+}
+
+ Budget$comp_entry set_v1(double p0) {
+    this.v1 = p0;
+    return this;
+}
+
+static List comp_entry_from(Vector p0, Vector p1) {
+    v2 = new ArrayList();
+    p0.stream().forEach(lambda[Budget$comp_entry::lambda$comp_entry_from$0](v2));
+    p1.stream().forEach(lambda[Budget$comp_entry::lambda$comp_entry_from$1](v2));
+    return v2.stream().filter(lambda[Budget$comp_entry::lambda$comp_entry_from$3]()).toList();
+}
+
+private static synthetic boolean lambda$comp_entry_from$3(Budget$comp_entry p0) {
+    if (p0.v1 != 0.0) goto L18;
+    if (p0.v2 == 0.0) goto L22;
+    L18:
+    $s0 = 1;
+    goto L23;
+    L22:
+    $s0 = 0;
+    L23:
+    return $s0;
+}
+
+private static synthetic void lambda$comp_entry_from$1(ArrayList p0, Budget$Amount p1) {
+    v2 = p0.stream().filter(lambda[Budget$comp_entry::lambda$comp_entry_from$2](p1)).findFirst();
+    if (v2.isPresent() == 0) goto L45;
+    (Budget$comp_entry)v2.get().v2 = p1.amount;
+    goto L71;
+    L45:
+    v3 = new Budget$comp_entry(p1.key);
+    v3.v2 = p1.amount;
+    p0.add(v3);
+    L71:
+    return;
+}
+
+private static synthetic boolean lambda$comp_entry_from$2(Budget$Amount p0, Budget$comp_entry p1) {
+    return p1.key.equals(p0.key);
+}
+
+private static synthetic void lambda$comp_entry_from$0(ArrayList p0, Budget$Amount p1) {
+    p0.add(new Budget$comp_entry(p1.key).set_v1(p1.amount));
+    return;
+}
+
+// ===== Budget$editInfo extends Object 
+ boolean update;
+
+ void <init>(Budget p0) {
+    Objects.requireNonNull(p0);
+    super.<init>();
+    this.update = 0;
+    return;
+}
+
+// ===== Budget$graphData extends Object 
+ SimpleCalendar cal;
+ double val;
+ double sum;
+ int x_max;
+
+ void <init>(Budget p0) {
+    Objects.requireNonNull(p0);
+    super.<init>();
+    return;
+}
+
+// ===== Budget$month_by_month_entry extends Object 
+final Budget$AmountKey key;
+ double total;
+ List amounts;
+ String style;
+
+ void <init>(String p0) {
+    super.<init>();
+    this.total = 0.0;
+    this.amounts = new ArrayList();
+    this.style = "";
+    this.key = new Budget$AmountKey(p0);
+    return;
+}
+
+ void <init>(Budget$Amount p0) {
+    super.<init>();
+    this.total = 0.0;
+    this.amounts = new ArrayList();
+    this.style = "";
+    this.key = new Budget$AmountKey(p0);
+    return;
+}
+
+ boolean is_aggregate() {
+    if (this.key.category != null) goto L14;
+    $s0 = 1;
+    goto L15;
+    L14:
+    $s0 = 0;
+    L15:
+    return $s0;
+}
+
+// ===== Budget$span_color extends Record 
+private final String background;
+private final String foreground;
+
+private void <init>(String p0, String p1) {
+    super.<init>();
+    this.background = p0;
+    this.foreground = p1;
+    return;
+}
+
+public final String toString() {
+    return indy toString(this);
+}
+
+public final int hashCode() {
+    return indy hashCode(this);
+}
+
+public final boolean equals(Object p0) {
+    return indy equals(this, p0);
+}
+
+public String background() {
+    return this.background;
+}
+
+public String foreground() {
+    return this.foreground;
+}
+
+// ===== Budget extends Object 
+private static final String $TAG_CLOSE_THIS_SHELL = "closeThisShell";
+private static final String $ELLIPSIS = "\u2026";
+private static final String $BLANK_CHAR = "\u2800";
+private static final String PROMPT_RET_REMOVE_ADJUSTMENT = "2:";
+private static final String PROMPT_RET_EXPENSE_CHECK_IS_FALSE = "0:";
+private static final String PROMPT_RET_EXPENSE_CHECK_IS_TRUE = "1:";
+private static final String DATA_TAG_BGCOLOR = "bgcolor";
+private static final String DATA_TAG_FGCOLOR = "fgcolor";
+private static final int MAX_N_MONTHS = 180;
+public static final String SPACE = " ";
+public static final String ESCAPED_SPACE = "\\\\ ";
+private static final String DISPOSABLE_INCOME = "Disposable Income";
+private static final String SOURCE_LABEL = "sourceLabel";
+private static final String SOURCE_LABEL2 = "sourceLabel2";
+private static final String SOURCE_CAL2 = "sourceCal2";
+private static final String FAKE_AMPERSAND = "\uff06";
+private static final String BUDGETRC = ".budgetrc";
+private static final int MARGIN_WIDTH = 8;
+private static final String BGT_FILE_EXTENSION = "*.bgt";
+public static final String revision;
+public static final String budgetVersion;
+private static final String REGEX = "(\\D*)([\\d,]+\\.\\d+)(\\D*)";
+public static final String $UPDATE_CALLBACK_DATA_TAG = "updateCallback";
+public static final String $MENU_INITIALIZED$ = "$menu$initialized$";
+private static String jar_loc;
+private static String LICENSE_TXT;
+private static final boolean is_app_store_version = 0;
+private static String icons_loc;
+private static String images_loc;
+private static regex.Pattern numPattern;
+private String rcFileName;
+private boolean use_dnd;
+private boolean do_calendar_update;
+private boolean do_rebuild;
+private String fileName;
+private String dbKey;
+private Display display;
+private Shell mainShell;
+private Composite calendarView;
+private Composite stats_view;
+private ScrolledComposite calendarScroll;
+private ScrolledComposite stats_scroll;
+private Text tranFilterTxt;
+private Text notesText;
+private Filter calViewFilter;
+private BudgetDB db;
+private SimpleCalendar curCal;
+private SimpleCalendar minDate;
+private SimpleCalendar maxDate;
+private final SimpleCalendar initCal;
+private Canvas graphCanvas;
+private String return_val;
+private Rectangle initialRect;
+private boolean initialMaximized;
+private boolean trial_version;
+private boolean opt_debug;
+private boolean do_best_fit;
+private boolean dont_show_zero_amount;
+private boolean do_bill_reminder_check;
+public static String dirHome;
+private static String dirCurrent;
+private static String dirData;
+public static boolean runningOnMac;
+public static boolean runningOnLinux;
+public static boolean runningOnWindows;
+private boolean budgetStickMode;
+private int calendarDescriptionMaxLen;
+private MenuItem passwordMenuItem;
+private MenuItem undoMoveMenuItem;
+private String[] monthName;
+private Label monthLabel;
+private Label left_lbl;
+private Label right_lbl;
+private Label forecastLbl;
+private Image left_arrow_img;
+private Image left_arrow_gray_img;
+private Image right_arrow_img;
+private Image right_arrow_gray_img;
+private Color white_color;
+private Color bg_darker_color;
+private Color black_color;
+private boolean edit_ok;
+private boolean registration_already_started;
+private SimpleCalendar pickDateCal;
+private Vector dropTargets;
+private Vector dragSources;
+private Vector tempWidgets;
+private static String mb_dnd_prefix;
+private SimpleCalendar lastCreateViewCal;
+private Composite todayCell;
+private Composite quickStatsCtnr;
+private Budget$BestFit bestFit;
+private final String[] wDayName;
+final HashMap images;
+private Image noImage;
+private Label openingBalance;
+private Label closingBalance;
+private Label totalAvgBal;
+private Label totalIncome;
+private Label totalExpenses;
+private Label totalsDiff;
+private Label minBalance;
+private Label maxBalance;
+private boolean opt_print_current_month;
+private program.Program excel_prg;
+private static java.net.ServerSocket serverSocket;
+private static boolean is_jpackage;
+private int graph_bar_width;
+private int graph_bar_height;
+private static final int GRAPH_OPEN_BAL = 0;
+private static final int GRAPH_CLOSE_BAL = 1;
+static final int GRAPH_AVG_BAL = 2;
+private static final int GRAPH_INCOME = 3;
+private static final int GRAPH_EXPENSES = 4;
+private static final int GRAPH_DIFF = 5;
+private static final int GRAPH_MIN_BAL = 6;
+private static final int GRAPH_MAX_BAL = 7;
+private static final String BUDGET_FILES_DIR = "BudgetFiles";
+private static final String BUDGET_DATA_SUBDIR = "data";
+private static final int MAX_RECENT_FILES = 5;
+static final int GRAPH_PRESET_UNSET = 0;
+private final String[] forecastType;
+ Budget$graphData[] graph_data;
+private static final int[] stepList;
+private int graph_last_min;
+private int graph_last_max;
+private Rectangle[] graphHotSpots;
+private boolean shellAdapterInvoked;
+private ShellAdapter shellAdapter;
+public static int BALANCE_NONE;
+public static int BALANCE_ALL;
+public static int BALANCE_FIRST_AND_LAST;
+private int opt_show_balance;
+private boolean opt_show_balance_supplied;
+private boolean opt_show_url;
+private static Vector imgTags;
+private BudgetConfig cfg;
+private boolean stat_line_color;
+ PaintListener lbl_underline;
+ PaintListener lbl_underline_textOnly;
+private Budget$Bump bump;
+private Composite unfoldComp;
+private Link unfoldMonthSelector;
+private Text unfoldFilterText;
+static int sort_direction;
+private String[] arr;
+private int recentFilesMenuIndex;
+static HashSet lastQuickPicks;
+static final int SPLIT_CANCEL = 0;
+static final int SPLIT_CONFIRM = 1;
+static final int SPLIT_CHANGE = 2;
+static Payment edit_payments_new_pmt;
+public static int PROMPT_PASSWORD;
+public static int PROMPT_EXPENSE;
+public static int PROMPT_REMOVE_ADJUSTMENT;
+private boolean prompt_was_ctrl_ok;
+private boolean prompt_was_alt_ok;
+static Comparator n_pays_comp;
+static Comparator start_date_comp;
+static Comparator end_date_comp;
+static Comparator cat_comp;
+static Comparator desc_comp;
+static Comparator amount_comp;
+static Comparator freq_comp;
+static TableColumn sortColumn;
+static String filterToolTipText;
+static String allPaymentsSavedFilter;
+private static final int HINT_TEXT_WIDTH = 450;
+static NumberFormat numFormatFrac2;
+private static NumberFormat numFormatFrac1;
+private static NumberFormat numFormatFrac0;
+ SelectionAdapter m_edit_ad;
+ SelectionAdapter m_duplicate_ad;
+ SelectionAdapter m_split_ad;
+ SelectionAdapter m_duplicate_transaction;
+private SelectionAdapter deletedOptSelected;
+ MenuListener all_transactions_menu_listener;
+private SelectionAdapter six_months_avg_sa;
+ MenuListener six_month_avg_menu_listener;
+ MenuListener payments_remaining_menu_listener;
+ SelectionListener hilight_menu_color_listener;
+ SelectionListener hilight_menu_custom_color_listener;
+static int[] hilight_color;
+static String[] hilight_color_name;
+ MenuListener hilighting_menu_listener;
+static String SUM_QUESTION;
+ SelectionAdapter m_move_ad;
+ SelectionAdapter m_adjust_ad;
+ SelectionAdapter m_remove_note_ad;
+ SelectionAdapter m_edit_note_ad;
+ SelectionAdapter m_remove_day_note_ad;
+ SelectionAdapter m_edit_day_note_ad;
+ SelectionAdapter m_flags_ad;
+ SelectionAdapter m_remove_adjustment;
+ SelectionAdapter m_open_url;
+ SelectionAdapter m_delete_transaction;
+ SelectionAdapter m_filter_transactions;
+ MouseAdapter mouse_ad;
+ MouseAdapter restore_ad;
+ MouseAdapter mouse_edit;
+ SelectionAdapter m_remove_balance_adjustment;
+ SelectionAdapter add_new;
+private Payment pickPaymentPmt;
+ SelectionAdapter add_wild_ad;
+ SelectionAdapter restore_transaction;
+ dnd.DropTargetAdapter dropTargetAdapter;
+private Shell dropShellTargetPrev;
+private Shell dropShellTargetNext;
+ dnd.DragSourceAdapter dragSourceAdapter;
+private Shell nextMonthGraceDays;
+private static String AMOUNT_SEP;
+private Composite[] cells;
+private Composite flash_cell;
+private Label labelInFocus;
+ Font decimalsFont;
+private MouseListener dayNumberMouseListener;
+private double minusZeroDotZero;
+static char decimalSeparator;
+static final String[] normalColors;
+private static final String $HTML_STYLE = "<style type='text/css'>\ntable { font-size:12px; border-width:0px; border-collapse: collapse; }\nth { white-space: nowrap; font-size:13px; font-family: Helvetica; background-color:#f0f0f3; border-width: 1px;padding: 8px; border-style: solid; border-color: #729ea5; text-align:center; }\ntd.day { white-space: nowrap; text-align: left; font-size: 17px; font-family: Terminus,Consolas,Profont,'Andale Mono'; font-weight: bold; border-width: 1px; border-bottom: 0px; padding: 8px; border-style: solid; border-color: #729ea5; }\ntd.bal { white-space: nowrap; text-align: right; font-size: 13px; font-family: Terminus,Consolas,Profont,'Andale Mono'; font-weight: bold; font-style:oblique; border-width: 1px; border-top: 0px; padding: 8px;border-style: solid; border-color: #729ea5;}\ntd.dsc { white-space: nowrap; font-size:12px; font-family: Helvetica; border-width: 0px; text-align: left; padding-top: 5px; }\ntd.amt { white-space: nowrap; font-size:12px; font-family: Terminus,Consolas,Profont,'Andale Mono'; border-width: 0px; text-align: right; padding-top: 5px; }\n@media print{ .noprint{  display:none; }</style>\n";
+private static String indent_string;
+public static final String unaccountedString = "(Unaccounted)";
+public static final String uncategorizedExpensesString = "(Uncategorized-Expenses)";
+public static final String uncategorizedIncomeString = "(Uncategorized-Income)";
+private Comparator stat_comparator;
+private MouseAdapter stat_ma;
+private MouseAdapter stat_transactions_ma;
+private MouseTrackAdapter stat_mta;
+private GC gc;
+public static final int MODE_TOTAL_INCOME = 1;
+public static final int MODE_INCOME = 2;
+public static final int MODE_TOTAL_EXPENSES = 4;
+public static final int MODE_EXPENSES = 8;
+public static final int MODE_TOP_EXPENSES = 16;
+public static final int MODE_DISPOSABLE = 32;
+public static final int MODE_ALL = 4079;
+private Composite stat_sv;
+private Budget$Stats showStatsStats;
+private static int GEN_HTML;
+private static int GEN_EXCEL;
+static final String $HTML_CHECK = "<font color=green>&#x2714</font> ";
+static final String $HTML_IMPORTANT = "<font color=red>&#x26A0</font> ";
+static final String $HTML_NBSP = "&nbsp;";
+private boolean stat_rep_row_color;
+private Composite filterInfoComposite;
+private Menu filterAllTransactionsMenu;
+private MouseAdapter foldLabelListener;
+

@@ -1,0 +1,407 @@
+// ===== BudgetConfig extends Config 
+public static final String RCFILE_NAME;
+public String regkey;
+public String lastFileName;
+public boolean licAgree;
+public boolean firstRun;
+public boolean firstRunJPACKAGE;
+public boolean startFolded;
+public boolean windowMaximized;
+public int statHeight;
+public int statWidth;
+public int statX;
+public int statY;
+public int windowHeight;
+public int windowPosX;
+public int windowPosY;
+public int windowWidth;
+public double graphPresetMax;
+public double graphPresetMin;
+public int graphType;
+public int image_selection_zoom;
+public Vector recentFile;
+public Config$ConfGroup ui;
+public Config$ConfBool firstDayOfWeekIsSunday;
+public Config$ConfBool autosave;
+public Config$ConfBool oneButtonMouse;
+public Config$ConfBool wheelSupport;
+public Config$ConfBool showDecimalsInCV;
+public Config$ConfBool preserveColorOnPrint;
+public Config$ConfBool bestFit;
+public Config$ConfBool alwaysShowBalance;
+public Config$ConfBool useIndefiniteEndMode;
+public Config$ConfBool encryption;
+public Config$ConfBool autoDateSwitch;
+public Config$ConfBool unlimitedHistory;
+public Config$ConfInteger futureNMonths;
+private static final String maxSavingsHint = "'Max Savings' value is calculated based on the minimum balance and the number of months to consider.\nYou can also think of this as 'Disposable Income' based on the look ahead months.\nThis number will be shown when you adjust a transaction's amount, or when you\nhover over 'Disposable Income' in the 'Brief Statistics' table. ";
+public Config$ConfInteger maxSavingNMonths;
+public Config$ConfDouble minBalance4MaxSaving;
+public Config$ConfInteger graphNMonths;
+public Config$ConfString currencyPrefix;
+public Config$ConfString currencySuffix;
+public Config$ConfGroup fnt;
+public Config$ConfFont fontAmount;
+public Config$ConfFont fontCurMonthLink;
+public Config$ConfFont fontTran;
+public Config$ConfFont fontDate;
+public Config$ConfFont fontGraphDayLabel;
+public Config$ConfFont fontImportantTran;
+public Config$ConfFont fontLabel;
+public Config$ConfFont fontMonth;
+public Config$ConfFont fontNegTranAmount;
+public Config$ConfFont fontPosTranAmount;
+public Config$ConfFont fontPaidTran;
+public Config$ConfGroup clr;
+private static final String LIGHT = "LIGHT(default)";
+private static final String DARK = "DARK";
+public Config$ConfAction apply_theme;
+public Config$ConfColor bgColorBalance;
+public Config$ConfColor bgColorMinBalance;
+public Config$ConfColor bgColorBelowMinBalance;
+public Config$ConfColor bgColorMaxBalance;
+public Config$ConfColor bgColorCellOtherMonths;
+public Config$ConfColor bgColorCell;
+public Config$ConfColor bgColorCellToday;
+public Config$ConfColor bgColorCellPast;
+public Config$ConfColor colorPositiveAmount;
+public Config$ConfColor colorNegativeAmount;
+public Config$ConfColor colorPosTranAmount;
+public Config$ConfColor colorNegTranAmount;
+public Config$ConfColor colorNotes;
+public Config$ConfColor bgColorNotes;
+public Config$ConfColor bgColorHighlight;
+public Config$ConfColor bgColorImportant;
+public Config$ConfColor bgColorCellHighlight;
+public Config$ConfColor bgColorPaid;
+public Config$ConfColor bgColorWindow;
+public Config$ConfColor bgColorDetails;
+public Config$ConfColor colorPastPayment;
+public Config$ConfColor colorCalendarToday;
+public Config$ConfColor colorFuturePayment;
+public Config$ConfColor colorCalendarDay;
+public Config$ConfColor colorCurrentMonth;
+public Config$ConfColor colorDescText;
+public Config$ConfColor bgColorCalendarHeader;
+public Config$ConfColor colorCalendarHeader;
+public Config$ConfColor bgColorDatePickerHeader;
+public Config$ConfColor colorDatePickerHeader;
+public Config$ConfColor colorDisabledPayment;
+public Config$ConfGroup grc;
+public Config$ConfColor graphTextColor;
+public Config$ConfColor graphGridColor;
+public Config$ConfColor graphBarColor;
+public Config$ConfColor graphNegativeBarColor;
+public Config$ConfGroup adv;
+public Config$ConfBool singleInstance;
+public Config$ConfInteger port;
+
+public Map apply(Map p0) {
+    v2 = new HashMap();
+    if (this.futureNMonths.intValue < 12) goto L32;
+    if (this.futureNMonths.intValue <= 120) goto L45;
+    L32:
+    v2.put(this.futureNMonths, "Invalid number of future months. Valid number is [12..120].");
+    L45:
+    if (Budget.valid_month_n(this.graphNMonths.intValue) == this.graphNMonths.intValue) goto L78;
+    v2.put(this.graphNMonths, "Invalid number of forecast months. Valid numbers are: -1, or [1..12].");
+    L78:
+    if (v2.isEmpty() == 0) goto L91;
+    $s0 = null;
+    goto L92;
+    L91:
+    $s0 = v2;
+    L92:
+    return $s0;
+}
+
+public void <init>(String p0) {
+    super.<init>();
+    this.regkey = null;
+    this.lastFileName = null;
+    this.licAgree = 0;
+    this.firstRun = 0;
+    this.firstRunJPACKAGE = 1;
+    this.startFolded = 0;
+    this.windowMaximized = 0;
+    this.statHeight = -1;
+    this.statWidth = -1;
+    this.statX = -1;
+    this.statY = -1;
+    this.windowHeight = -1;
+    this.windowPosX = -1;
+    this.windowPosY = -1;
+    this.windowWidth = -1;
+    this.graphPresetMax = 0.0;
+    this.graphPresetMin = 0.0;
+    this.graphType = 2;
+    this.image_selection_zoom = 175;
+    this.recentFile = new Vector();
+    this.ui = new Config$ConfGroup(this, "Controls");
+    this.firstDayOfWeekIsSunday = new Config$ConfBool(this, this.ui, "First day of Week is SUNDAY, or MONDAY when unchecked.", 1);
+    this.autosave = new Config$ConfBool(this, this.ui, "Auto Save, uncheck if you don't want to save the data file automatically.", 1);
+    this.oneButtonMouse = new Config$ConfBool(this, this.ui, "One Button Mouse or a Touch Screen", 0);
+    this.wheelSupport = new Config$ConfBool(this, this.ui, "Wheel Support -- allows scrolling the months with the mouse wheel, just like <B>PgUp/PgDn</B>", 1);
+    this.showDecimalsInCV = new Config$ConfBool(this, this.ui, "Show Decimals in the Calendar View", 0);
+    this.preserveColorOnPrint = new Config$ConfBool(this, this.ui, "Preserve transactions' colors when printing monthly calendar", 0);
+    this.bestFit = new Config$ConfBool(this, this.ui, "Try to <B>FIT</B> payment description into the window to avoid scrollbars", 1);
+    this.alwaysShowBalance = new Config$ConfBool(this, this.ui, "Always Show Balance, or on ONLY the 1st/last day of a month; days with transactions; days with adjusted balance.", 1);
+    this.useIndefiniteEndMode = new Config$ConfBool(this, this.ui, "Use <b>INDEFINITE</b> End Mode by default when creating a new payment", 1);
+    this.encryption = new Config$ConfBool(this, this.ui, "Password support, <B>NOTE: Weak Encryption!</B>", 0);
+    this.autoDateSwitch = new Config$ConfBool(this, this.ui, "Automatically switch to the new day at midnight", 0);
+    this.unlimitedHistory = new Config$ConfBool(this, this.ui, "Unlimited history, show all the available months prior the current one (if any)", 0);
+    this.futureNMonths = new Config$ConfInteger(this, this.ui, "Number of the future months. This is a rolling limit*", "this numbers starts on the current month and is a rolling window of months", 24);
+    this.maxSavingNMonths = new Config$ConfInteger(this, this.ui, "Number of months to consider when calculating <b>maximum savings</b>", "'Max Savings' value is calculated based on the minimum balance and the number of months to consider.\nYou can also think of this as 'Disposable Income' based on the look ahead months.\nThis number will be shown when you adjust a transaction's amount, or when you\nhover over 'Disposable Income' in the 'Brief Statistics' table. ", 2);
+    this.minBalance4MaxSaving = new Config$ConfDouble(this, this.ui, "Minimum balance for <b>maximum savings</b> calculations", "'Max Savings' value is calculated based on the minimum balance and the number of months to consider.\nYou can also think of this as 'Disposable Income' based on the look ahead months.\nThis number will be shown when you adjust a transaction's amount, or when you\nhover over 'Disposable Income' in the 'Brief Statistics' table. ", 100.0).setDecimalPlaces(2);
+    this.graphNMonths = new Config$ConfInteger(this, this.ui, "Number of months in the bar graph*", "Special case: -1 -- to display up to 6 months but not 'spill-over' to the next year", 6);
+    this.currencyPrefix = new Config$ConfString(this, this.ui, "Currency Prefix", null, "$").setWHint(MiSWT.calcWidth(this.display.getSystemFont(), "sample"));
+    this.currencySuffix = new Config$ConfString(this, this.ui, "Currency Suffix", null, "").setWHint(this.currencyPrefix.wHint);
+    this.fnt = new Config$ConfGroup(this, "Fonts");
+    this.fontAmount = new Config$ConfFont(this, this.fnt, "Balance Amounts", "1,000.00");
+    this.fontCurMonthLink = new Config$ConfFont(this, this.fnt, "Current Month Link", "Jan...");
+    this.fontTran = new Config$ConfFont(this, this.fnt, "Transaction", "Groceries...");
+    this.fontDate = new Config$ConfFont(this, this.fnt, "Date", "12");
+    this.fontGraphDayLabel = new Config$ConfFont(this, this.fnt, "Graph labels", "Jan");
+    this.fontImportantTran = new Config$ConfFont(this, this.fnt, "Important Transactions", "Salary...");
+    this.fontLabel = new Config$ConfFont(this, this.fnt, "Labels", "Income...");
+    this.fontMonth = new Config$ConfFont(this, this.fnt, "Month", "Feb...");
+    this.fontNegTranAmount = new Config$ConfFont(this, this.fnt, "Negative amount", "-100.00");
+    this.fontPosTranAmount = new Config$ConfFont(this, this.fnt, "Positive amount", "+100.00");
+    this.fontPaidTran = new Config$ConfFont(this, this.fnt, "Paid transaction", "Car loan...");
+    this.clr = new Config$ConfGroup(this, "Colors");
+    $a35 = new String[2];
+    $a35[0] = "LIGHT(default)";
+    $a35[1] = "DARK";
+    this.apply_theme = new Config$ConfAction(this, this.clr, "Apply theme *", "Click a link to apply the named color theme", $a35);
+    this.bgColorBalance = new Config$ConfColor(this, this.clr, "BKG balance");
+    this.bgColorMinBalance = new Config$ConfColor(this, this.clr, "BKG MIN balance");
+    this.bgColorBelowMinBalance = new Config$ConfColor(this, this.clr, "BKG below MIN balance");
+    this.bgColorMaxBalance = new Config$ConfColor(this, this.clr, "BKG MAX balance");
+    this.bgColorCellOtherMonths = new Config$ConfColor(this, this.clr, "BKG cell other months");
+    this.bgColorCell = new Config$ConfColor(this, this.clr, "BKG cell past");
+    this.bgColorCellToday = new Config$ConfColor(this, this.clr, "BKG cell today");
+    this.bgColorCellPast = new Config$ConfColor(this, this.clr, "BKG cell future");
+    this.colorPositiveAmount = new Config$ConfColor(this, this.clr, "Positive amount");
+    this.colorNegativeAmount = new Config$ConfColor(this, this.clr, "Negative amount");
+    this.colorPosTranAmount = new Config$ConfColor(this, this.clr, "Positive tran. amount");
+    this.colorNegTranAmount = new Config$ConfColor(this, this.clr, "Negative tran. amount");
+    this.colorNotes = new Config$ConfColor(this, this.clr, "Notes");
+    this.bgColorNotes = new Config$ConfColor(this, this.clr, "BKG Notes");
+    this.bgColorHighlight = new Config$ConfColor(this, this.clr, "BKG highlight");
+    this.bgColorImportant = new Config$ConfColor(this, this.clr, "BKG important");
+    this.bgColorCellHighlight = new Config$ConfColor(this, this.clr, "BKG cell highlight");
+    this.bgColorPaid = new Config$ConfColor(this, this.clr, "BKG paid");
+    this.bgColorWindow = new Config$ConfColor(this, this.clr, "BKG window");
+    this.bgColorDetails = new Config$ConfColor(this, this.clr, "BKG details");
+    this.colorPastPayment = new Config$ConfColor(this, this.clr, "past payment");
+    this.colorCalendarToday = new Config$ConfColor(this, this.clr, "calendar today");
+    this.colorFuturePayment = new Config$ConfColor(this, this.clr, "future payment");
+    this.colorCalendarDay = new Config$ConfColor(this, this.clr, "cal day");
+    this.colorCurrentMonth = new Config$ConfColor(this, this.clr, "months and links");
+    this.colorDescText = new Config$ConfColor(this, this.clr, "payment description");
+    this.bgColorCalendarHeader = new Config$ConfColor(this, this.clr, "BKG headers");
+    this.colorCalendarHeader = new Config$ConfColor(this, this.clr, "header");
+    this.bgColorDatePickerHeader = new Config$ConfColor(this, this.clr, "BKG date picker header");
+    this.colorDatePickerHeader = new Config$ConfColor(this, this.clr, "date picker header");
+    this.colorDisabledPayment = new Config$ConfColor(this, this.clr, "disabled payment");
+    this.grc = new Config$ConfGroup(this, "Forecast Graphics Colors");
+    this.graphTextColor = new Config$ConfColor(this, this.grc, "text color");
+    this.graphGridColor = new Config$ConfColor(this, this.grc, "Grid lines");
+    this.graphBarColor = new Config$ConfColor(this, this.grc, "Positive Bars");
+    this.graphNegativeBarColor = new Config$ConfColor(this, this.grc, "Negative bars");
+    this.adv = new Config$ConfGroup(this, "Advanced", 1);
+    this.singleInstance = new Config$ConfBool(this, this.adv, "Single Instance mode which disallows multiple instances of Budget Calendar, see <B>port#</B> below", 0);
+    this.port = new Config$ConfInteger(this, this.adv, "Local Server TCP/IP <b>port</b> to be used to prevent multiple instances of this application.\n<B>IMPORTANT</B>: Some Anti-Virus software may complain -- this one is legitimate*", "A TCP/IP listener is installed on the port for the sole purpose of preventing\nmultiple instances of this application running at the same time.\nNo data exchange/processing of any sort is done!\n", 57778);
+    v2 = this.display;
+    $s0 = this;
+    if (p0 == null) goto L1580;
+    $s0 = this;
+    $s1 = p0;
+    goto L1583;
+    L1580:
+    $s1 = BudgetConfig.RCFILE_NAME;
+    L1583:
+    $s0.setConfigFileName($s1);
+    this.setDefaultValues(v2);
+    this.storeDefaultConfVals();
+    $a75 = new String[5];
+    $a75[0] = "graphPastBarColor";
+    $a75[1] = "graphExtraMonthBarColor";
+    $a75[2] = "graphMinBarColor";
+    $a75[3] = "graphAvgLineColor";
+    $a75[4] = "detailsStatsOnDesc";
+    v3 = $a75;
+    this.setIgnores(new HashSet(Arrays.asList(v3)));
+    this.currencyPrefix.rowable = 1;
+    this.currencySuffix.rowable = 1;
+    this.apply_theme.setConsumer(lambda[BudgetConfig::lambda$new$0](this, v2));
+    this.load(lambda[BudgetConfig::lambda$new$1](this));
+    return;
+}
+
+private void setDefaultValues(Display p0) {
+    v2 = this.display.getSystemFont();
+    v3 = v2.getFontData();
+    v4 = v3[0].getHeight();
+    v5 = (int)((float)v4 * 0.8999999761581421f);
+    v6 = (int)((float)v4 * 1.2000000476837158f);
+    v7 = (int)((float)v4 * 1.5f);
+    this.fontTran.fontValue = new Font(this.display, "Verdana", v4, 0);
+    this.fontCurMonthLink.fontValue = new Font(this.display, "Verdana", v4, 1);
+    this.fontDate.fontValue = new Font(this.display, "Verdana", v6, 1);
+    v8 = "Andale Mono";
+    if (Budget.runningOnMac == 0) goto L142;
+    v8 = "Monaco";
+    goto L167;
+    L142:
+    if (Budget.runningOnLinux == 0) goto L156;
+    v8 = "Monospace";
+    goto L167;
+    L156:
+    if (Budget.runningOnWindows == 0) goto L167;
+    v8 = "Consolas";
+    L167:
+    this.fontAmount.fontValue = new Font(this.display, v8, v4, 2);
+    this.fontPosTranAmount.fontValue = new Font(this.display, v8, v4, 0);
+    this.fontNegTranAmount.fontValue = new Font(this.display, v8, v4, 0);
+    this.fontImportantTran.fontValue = new Font(this.display, "Verdana", v4, 0);
+    this.fontPaidTran.fontValue = new Font(this.display, "Verdana", v4, 0);
+    this.fontGraphDayLabel.fontValue = new Font(this.display, "Verdana", v5, 0);
+    this.fontLabel.fontValue = new Font(this.display, v3[0].getName(), v5, 1);
+    this.fontMonth.fontValue = new Font(this.display, "Verdana", v7, 0);
+    this.setLightThemeColor(this.display);
+    return;
+}
+
+private void setLightThemeColor(Display p0) {
+    this.bgColorBalance.colorValue = new Color(p0, 229, 240, 255);
+    this.bgColorMinBalance.colorValue = new Color(p0, 174, 208, 255);
+    this.bgColorBelowMinBalance.colorValue = new Color(p0, 255, 255, 0);
+    this.bgColorMaxBalance.colorValue = new Color(p0, 220, 204, 226);
+    this.bgColorCellToday.colorValue = new Color(p0, 253, 253, 244);
+    this.bgColorCellPast.colorValue = new Color(p0, 244, 244, 235);
+    this.bgColorCell.colorValue = new Color(p0, 204, 228, 234);
+    this.bgColorCellOtherMonths.colorValue = new Color(p0, 204, 204, 204);
+    this.bgColorDatePickerHeader.colorValue = new Color(p0, 0, 0, 0);
+    this.bgColorHighlight.colorValue = new Color(p0, 217, 217, 217);
+    this.bgColorImportant.colorValue = new Color(p0, 255, 255, 0);
+    this.bgColorCellHighlight.colorValue = new Color(p0, 217, 179, 255);
+    this.bgColorPaid.colorValue = new Color(p0, 202, 222, 184);
+    this.bgColorCalendarHeader.colorValue = new Color(p0, 0, 0, 0);
+    this.bgColorWindow.colorValue = new Color(p0, 255, 255, 255);
+    this.bgColorDetails.colorValue = new Color(p0, 255, 255, 255);
+    this.bgColorNotes.colorValue = new Color(p0, 255, 255, 224);
+    this.colorNotes.colorValue = new Color(p0, 188, 143, 143);
+    this.colorNegativeAmount.colorValue = new Color(p0, 255, 76, 94);
+    this.colorPositiveAmount.colorValue = new Color(p0, 11, 7, 127);
+    this.colorPosTranAmount.colorValue = new Color(p0, 0, 0, 0);
+    this.colorNegTranAmount.colorValue = new Color(p0, 138, 0, 0);
+    this.colorPastPayment.colorValue = new Color(p0, 255, 76, 94);
+    this.colorCalendarToday.colorValue = new Color(p0, 255, 76, 94);
+    this.colorFuturePayment.colorValue = new Color(p0, 76, 178, 36);
+    this.colorCalendarDay.colorValue = new Color(p0, 11, 7, 127);
+    this.colorCurrentMonth.colorValue = new Color(p0, 0, 24, 244);
+    this.colorDescText.colorValue = new Color(p0, 0, 0, 0);
+    this.colorCalendarHeader.colorValue = new Color(p0, 255, 255, 255);
+    this.colorDatePickerHeader.colorValue = new Color(p0, 255, 255, 255);
+    this.colorDisabledPayment.colorValue = new Color(p0, 124, 124, 124);
+    this.graphGridColor.colorValue = new Color(p0, 204, 204, 204);
+    this.graphBarColor.colorValue = new Color(p0, 54, 132, 201);
+    this.graphNegativeBarColor.colorValue = new Color(p0, 255, 76, 94);
+    this.graphTextColor.colorValue = new Color(p0, 0, 0, 0);
+    return;
+}
+
+private void setDarkThemeColor(Display p0) {
+    this.bgColorBalance.colorValue = new Color(p0, 237, 166, 166);
+    this.bgColorBelowMinBalance.colorValue = new Color(p0, 255, 255, 0);
+    this.bgColorCalendarHeader.colorValue = new Color(p0, 83, 83, 83);
+    this.bgColorCell.colorValue = new Color(p0, 124, 167, 206);
+    this.bgColorCellHighlight.colorValue = new Color(p0, 250, 253, 202);
+    this.bgColorCellOtherMonths.colorValue = new Color(p0, 165, 165, 165);
+    this.bgColorCellPast.colorValue = new Color(p0, 166, 204, 235);
+    this.bgColorCellToday.colorValue = new Color(p0, 255, 246, 147);
+    this.bgColorDatePickerHeader.colorValue = new Color(p0, 0, 0, 0);
+    this.bgColorDetails.colorValue = new Color(p0, 0, 0, 0);
+    this.bgColorHighlight.colorValue = new Color(p0, 255, 254, 121);
+    this.bgColorImportant.colorValue = new Color(p0, 255, 255, 0);
+    this.bgColorMaxBalance.colorValue = new Color(p0, 132, 168, 226);
+    this.bgColorMinBalance.colorValue = new Color(p0, 249, 197, 186);
+    this.bgColorNotes.colorValue = new Color(p0, 32, 32, 32);
+    this.bgColorPaid.colorValue = new Color(p0, 255, 127, 130);
+    this.bgColorWindow.colorValue = new Color(p0, 83, 82, 83);
+    this.colorCalendarDay.colorValue = new Color(p0, 11, 7, 127);
+    this.colorCalendarHeader.colorValue = new Color(p0, 255, 250, 242);
+    this.colorCalendarToday.colorValue = new Color(p0, 255, 76, 94);
+    this.colorCurrentMonth.colorValue = new Color(p0, 128, 128, 255);
+    this.colorDatePickerHeader.colorValue = new Color(p0, 255, 255, 255);
+    this.colorDisabledPayment.colorValue = new Color(p0, 124, 124, 124);
+    this.colorFuturePayment.colorValue = new Color(p0, 76, 178, 36);
+    this.colorNegTranAmount.colorValue = new Color(p0, 255, 5, 13);
+    this.colorNegativeAmount.colorValue = new Color(p0, 255, 72, 68);
+    this.colorNotes.colorValue = new Color(p0, 223, 223, 223);
+    this.colorPastPayment.colorValue = new Color(p0, 255, 76, 94);
+    this.colorPosTranAmount.colorValue = new Color(p0, 0, 0, 0);
+    this.colorPositiveAmount.colorValue = new Color(p0, 0, 51, 101);
+    this.colorDescText.colorValue = new Color(p0, 0, 0, 0);
+    this.graphBarColor.colorValue = new Color(p0, 54, 98, 161);
+    this.graphGridColor.colorValue = new Color(p0, 204, 204, 204);
+    this.graphNegativeBarColor.colorValue = new Color(p0, 251, 0, 26);
+    this.graphTextColor.colorValue = new Color(p0, 255, 255, 255);
+    return;
+}
+
+private synthetic void lambda$new$1(String p0, String p1) {
+    $a1 = new String[5];
+    $a1[0] = "recentFile0";
+    $a1[1] = "recentFile1";
+    $a1[2] = "recentFile2";
+    $a1[3] = "recentFile3";
+    $a1[4] = "recentFile4";
+    v3 = $a1;
+    v4 = 0;
+    L38:
+    if (v4 >= v3.length) goto L95;
+    if (p0.equals(v3[v4]) == 0) goto L89;
+    this.recentFile.setSize(Math.max((v4 + 1), this.recentFile.size()));
+    this.recentFile.set(v4, p1);
+    return;
+    L89:
+    v4 += 1;
+    goto L38;
+    L95:
+    if (p0.equals("firstDayOfWeek") == 0) goto L130;
+    $s0 = this.firstDayOfWeekIsSunday;
+    if (p1.equals("1") != 0) goto L123;
+    $s0 = this.firstDayOfWeekIsSunday;
+    $s1 = 1;
+    goto L124;
+    L123:
+    $s1 = 0;
+    L124:
+    $s0.boolValue = $s1;
+    goto L143;
+    L130:
+    System.err.println(("skipped: " + p0 + "=" + p1));
+    L143:
+    return;
+}
+
+private synthetic void lambda$new$0(Display p0, String p1) {
+    if (p1.equals("LIGHT(default)") == 0) goto L18;
+    this.setLightThemeColor(p0);
+    goto L50;
+    L18:
+    if (p1.equals("DARK") == 0) goto L36;
+    this.setDarkThemeColor(p0);
+    goto L50;
+    L36:
+    throw new UnsupportedOperationException(("Unsupported theme " + p1));
+    L50:
+    return;
+}
+
+static void <clinit>() {
+    BudgetConfig.RCFILE_NAME = (System.getProperty("user.home", ".") + File.separator + ".budgetrc");
+    return;
+}

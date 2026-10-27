@@ -1,0 +1,1154 @@
+// ===== ConfigEditor$1 extends SelectionAdapter 
+final synthetic ConfigEditor this$0;
+
+ void <init>(ConfigEditor p0) {
+    Objects.requireNonNull(p0);
+    this.this$0 = p0;
+    super.<init>();
+    return;
+}
+
+public void widgetSelected(SelectionEvent p0) {
+    v2 = (Boolean)p0.widget.getData();
+    if (v2 == null) goto L74;
+    v3 = this.this$0.config.groups.iterator();
+    L31:
+    if (v3.hasNext() == 0) goto L71;
+    v4 = (Config$ConfGroup)v3.next();
+    $s0 = v4;
+    if (v2.booleanValue() != 0) goto L64;
+    $s0 = v4;
+    $s1 = 1;
+    goto L65;
+    L64:
+    $s1 = 0;
+    L65:
+    $s0.collapsed = $s1;
+    goto L31;
+    L71:
+    goto L401;
+    L74:
+    if (p0.widget != this.this$0.restoreDefaults) goto L125;
+    v3 = (Config$ConfGroup)this.this$0.groupMenu.getData("grp");
+    this.this$0.config.restoreDefaultConfVals(v3);
+    this.this$0.modified();
+    goto L401;
+    L125:
+    if (p0.widget != this.this$0.restoreOriginals) goto L240;
+    v3 = (Config$ConfGroup)this.this$0.groupMenu.getData("grp");
+    v4 = this.this$0.originals.keySet().iterator();
+    L174:
+    if (v4.hasNext() == 0) goto L230;
+    v5 = (Config$ConfVal)v4.next();
+    if (v3 != v5.confGroup) goto L227;
+    v5.setValue((String)this.this$0.originals.get(v5));
+    L227:
+    goto L174;
+    L230:
+    this.this$0.modified();
+    goto L401;
+    L240:
+    if (p0.widget == this.this$0.increaseFonts) goto L268;
+    if (p0.widget != this.this$0.decreaseFonts) goto L393;
+    L268:
+    v3 = this.this$0.config.getGroupConfVals((Config$ConfGroup)this.this$0.groupMenu.getData("grp"));
+    if (p0.widget != this.this$0.increaseFonts) goto L312;
+    $s0 = 1;
+    goto L313;
+    L312:
+    $s0 = -1;
+    L313:
+    v4 = $s0;
+    v5 = v3.keySet().iterator();
+    L328:
+    if (v5.hasNext() == 0) goto L383;
+    v6 = (Config$ConfVal)v5.next();
+    if ((v6 instanceof Config$ConfFont) == 0) goto L380;
+    v7 = (Config$ConfFont)v6;
+    v7.fontValue = MiSWT.changeFontSize(v7.fontValue, v4);
+    L380:
+    goto L328;
+    L383:
+    this.this$0.modified();
+    goto L401;
+    L393:
+    System.err.println("Unknown widget!");
+    L401:
+    this.this$0.rebuildOpts(0);
+    return;
+}
+
+// ===== ConfigEditor$10 extends MouseAdapter 
+final synthetic Config$ConfColor val$cv;
+final synthetic CLabel val$cl;
+final synthetic ConfigEditor this$0;
+
+ void <init>(ConfigEditor p0, Config$ConfColor p1, CLabel p2) {
+    this.val$cv = p1;
+    this.val$cl = p2;
+    Objects.requireNonNull(p0);
+    this.this$0 = p0;
+    super.<init>();
+    return;
+}
+
+public void mouseDown(MouseEvent p0) {
+    v2 = new ColorDialog(this.this$0.shell);
+    v2.setRGB(this.val$cv.colorValue.getRGB());
+    v3 = v2.open();
+    if (v3 == null) goto L84;
+    this.val$cv.colorValue = new Color(this.this$0.shell.getDisplay(), v3);
+    this.val$cl.setBackground(this.val$cv.colorValue);
+    this.this$0.modified();
+    L84:
+    return;
+}
+
+// ===== ConfigEditor$11 extends MouseAdapter 
+final synthetic Config$ConfFont val$fv;
+final synthetic CLabel val$fl;
+final synthetic ConfigEditor this$0;
+
+ void <init>(ConfigEditor p0, Config$ConfFont p1, CLabel p2) {
+    this.val$fv = p1;
+    this.val$fl = p2;
+    Objects.requireNonNull(p0);
+    this.this$0 = p0;
+    super.<init>();
+    return;
+}
+
+public void mouseDown(MouseEvent p0) {
+    v2 = this.val$fv.fontValue.getFontData();
+    v3 = new FontDialog(this.this$0.shell);
+    v3.setFontList(v2);
+    v4 = v3.open();
+    if (v4 == null) goto L97;
+    this.val$fv.fontValue = new Font(this.this$0.shell.getDisplay(), v4);
+    this.val$fl.setFont(this.val$fv.fontValue);
+    this.this$0.modified();
+    this.this$0.rebuildOpts(0);
+    L97:
+    return;
+}
+
+// ===== ConfigEditor$12 extends Object implements ModifyListener
+final synthetic Config$ConfString val$pv;
+final synthetic Text val$t;
+final synthetic ConfigEditor this$0;
+
+ void <init>(ConfigEditor p0, Config$ConfString p1, Text p2) {
+    this.val$pv = p1;
+    this.val$t = p2;
+    Objects.requireNonNull(p0);
+    this.this$0 = p0;
+    super.<init>();
+    return;
+}
+
+public void modifyText(ModifyEvent p0) {
+    this.val$pv.stringValue = this.val$t.getText();
+    this.this$0.modified();
+    return;
+}
+
+// ===== ConfigEditor$13 extends SelectionAdapter 
+final synthetic Config$ConfString val$pv;
+final synthetic Text val$t;
+final synthetic ConfigEditor this$0;
+
+ void <init>(ConfigEditor p0, Config$ConfString p1, Text p2) {
+    this.val$pv = p1;
+    this.val$t = p2;
+    Objects.requireNonNull(p0);
+    this.this$0 = p0;
+    super.<init>();
+    return;
+}
+
+public void widgetSelected(SelectionEvent p0) {
+    v2 = null;
+    if (this.val$pv.stringType != Config$StringType.DIR) goto L49;
+    v3 = new DirectoryDialog(this.this$0.shell);
+    v3.setFilterPath(this.val$pv.stringValue);
+    v2 = v3.open();
+    goto L80;
+    L49:
+    v3 = new FileDialog(this.this$0.shell);
+    v3.setFilterPath(this.val$pv.stringValue);
+    v2 = v3.open();
+    L80:
+    if (v2 == null) goto L114;
+    if (v2.length() <= 0) goto L114;
+    this.val$t.setText(v2);
+    this.val$pv.stringValue = v2;
+    this.this$0.modified();
+    L114:
+    return;
+}
+
+// ===== ConfigEditor$2 extends Object implements Runnable
+final synthetic ConfigEditor this$0;
+
+ void <init>(ConfigEditor p0) {
+    Objects.requireNonNull(p0);
+    this.this$0 = p0;
+    super.<init>();
+    return;
+}
+
+public void run() {
+    if (this.this$0.shell.isDisposed() != 0) goto L21;
+    this.this$0.rebuildOpts(0);
+    L21:
+    return;
+}
+
+// ===== ConfigEditor$3 extends Object implements Listener
+
+ void <init>(ConfigEditor p0) {
+    Objects.requireNonNull(p0);
+    super.<init>();
+    return;
+}
+
+public void handleEvent(Event p0) {
+    if (p0.detail != 2) goto L13;
+    p0.doit = 0;
+    L13:
+    return;
+}
+
+// ===== ConfigEditor$4 extends Object implements ModifyListener
+final synthetic Text val$filterTxt;
+final synthetic ConfigEditor this$0;
+
+ void <init>(ConfigEditor p0, Text p1) {
+    this.val$filterTxt = p1;
+    Objects.requireNonNull(p0);
+    this.this$0 = p0;
+    super.<init>();
+    return;
+}
+
+public void modifyText(ModifyEvent p0) {
+    this.this$0.filter = this.val$filterTxt.getText();
+    this.this$0.shell.getDisplay().timerExec(333, this.this$0.filterRunnable);
+    return;
+}
+
+// ===== ConfigEditor$5 extends Object implements MenuListener
+final synthetic ConfigEditor this$0;
+
+ void <init>(ConfigEditor p0) {
+    Objects.requireNonNull(p0);
+    this.this$0 = p0;
+    super.<init>();
+    return;
+}
+
+public void menuShown(MenuEvent p0) {
+    v2 = (Config$ConfGroup)this.this$0.groupMenu.getData("grp");
+    v3 = this.this$0.config.groupContains(v2, Config$ConfFont);
+    this.this$0.increaseFonts.setEnabled(v3);
+    this.this$0.decreaseFonts.setEnabled(v3);
+    return;
+}
+
+public void menuHidden(MenuEvent p0) {
+    return;
+}
+
+// ===== ConfigEditor$6 extends SelectionAdapter 
+final synthetic ConfigEditor this$0;
+
+ void <init>(ConfigEditor p0) {
+    Objects.requireNonNull(p0);
+    this.this$0 = p0;
+    super.<init>();
+    return;
+}
+
+public void widgetSelected(SelectionEvent p0) {
+    if (MiSWT.confirmYesNo(this.this$0.shell, "This will reset all of the options to their default!\nAre you sure?") == 0) goto L40;
+    this.this$0.config.restoreDefaultConfVals();
+    this.this$0.modified();
+    this.this$0.rebuildOpts(0);
+    L40:
+    return;
+}
+
+// ===== ConfigEditor$7 extends SelectionAdapter 
+final synthetic ConfigEditor this$0;
+
+ void <init>(ConfigEditor p0) {
+    Objects.requireNonNull(p0);
+    this.this$0 = p0;
+    super.<init>();
+    return;
+}
+
+public void widgetSelected(SelectionEvent p0) {
+    this.this$0.errors = this.this$0.verifyNumbers();
+    if (this.this$0.errors != null) goto L48;
+    this.this$0.errors = this.this$0.config.apply(this.this$0.originals);
+    L48:
+    if (this.this$0.errors == null) goto L67;
+    this.this$0.rebuildOpts(0);
+    return;
+    L67:
+    this.this$0.rc = 1;
+    this.this$0.shell.dispose();
+    return;
+}
+
+// ===== ConfigEditor$8 extends SelectionAdapter 
+final synthetic ConfigEditor this$0;
+
+ void <init>(ConfigEditor p0) {
+    Objects.requireNonNull(p0);
+    this.this$0 = p0;
+    super.<init>();
+    return;
+}
+
+public void widgetSelected(SelectionEvent p0) {
+    if (this.this$0.apply_b.getEnabled() == 0) goto L28;
+    if (MiSWT.confirmYesNo(this.this$0.shell, "Do you want to close without applying changes?") == 0) goto L38;
+    L28:
+    this.this$0.shell.dispose();
+    L38:
+    return;
+}
+
+// ===== ConfigEditor$9 extends MouseAdapter 
+final synthetic Config$ConfGroup val$grp;
+final synthetic ConfigEditor this$0;
+
+ void <init>(ConfigEditor p0, Config$ConfGroup p1) {
+    this.val$grp = p1;
+    Objects.requireNonNull(p0);
+    this.this$0 = p0;
+    super.<init>();
+    return;
+}
+
+public void mouseDown(MouseEvent p0) {
+    if (p0.button != 3) goto L38;
+    this.this$0.groupMenu.setData("grp", this.val$grp);
+    this.this$0.groupMenu.setVisible(1);
+    goto L144;
+    L38:
+    if ((p0.stateMask & 262144) != 262144) goto L114;
+    if (this.val$grp.collapsed != 0) goto L64;
+    $s0 = 1;
+    goto L65;
+    L64:
+    $s0 = 0;
+    L65:
+    v2 = $s0;
+    v3 = this.this$0.config.groups.iterator();
+    L82:
+    if (v3.hasNext() == 0) goto L111;
+    v4 = (Config$ConfGroup)v3.next();
+    v4.collapsed = v2;
+    goto L82;
+    L111:
+    goto L136;
+    L114:
+    $s0 = this.val$grp;
+    if (this.val$grp.collapsed != 0) goto L132;
+    $s0 = this.val$grp;
+    $s1 = 1;
+    goto L133;
+    L132:
+    $s1 = 0;
+    L133:
+    $s0.collapsed = $s1;
+    L136:
+    this.this$0.rebuildOpts(0);
+    L144:
+    return;
+}
+
+// ===== ConfigEditor extends Object 
+private static final String GRP = "grp";
+private Config config;
+private int flags;
+private boolean rc;
+private String title;
+ Map errors;
+private Composite opts;
+private Shell shell;
+private static Image collapsedImage;
+private static Image expandedImage;
+private static Image menuImage;
+private String filter;
+private Color black;
+private Color white;
+private Map originals;
+private Menu groupMenu;
+private MenuItem restoreOriginals;
+private MenuItem restoreDefaults;
+private MenuItem increaseFonts;
+private MenuItem decreaseFonts;
+private SelectionAdapter groupMenu_sa;
+private ScrolledComposite sc;
+private Runnable filterRunnable;
+private Button apply_b;
+private int preferredWidth;
+
+public String getFilter() {
+    return this.filter;
+}
+
+public void setFilter(String p0) {
+    this.filter = p0;
+    return;
+}
+
+private File searchIconFile(String p0) {
+    v2 = System.getProperty("java.class.path");
+    if (v2 == null) goto L108;
+    v3 = v2.split(File.pathSeparator);
+    v4 = v3;
+    v5 = v4.length;
+    v6 = 0;
+    L29:
+    if (v6 >= v5) goto L108;
+    v7 = v4[v6];
+    if (v7.endsWith((File.separator + "bin")) == 0) goto L74;
+    v7 = v7.substring(0, (v7.length() - 4));
+    L74:
+    v8 = new File((v7 + p0));
+    if (v8.exists() == 0) goto L102;
+    return v8;
+    L102:
+    v6 += 1;
+    goto L29;
+    L108:
+    return null;
+}
+
+private Image getImageResource(Display p0, String p1) {
+    v3 = ConfigEditor.getResourceAsStream(p1);
+    if (v3 != null) goto L43;
+    v4 = this.searchIconFile(p1);
+    if (v4 == null) goto L43;
+    v3 = new FileInputStream(v4);
+    goto L43;
+    // handler for [23,33) catch Exception
+    L36:
+    v5 = $ex;
+    v5.printStackTrace();
+    L43:
+    if (v3 != null) goto L61;
+    System.err.println(("unable to find an image resource '" + p1 + "'"));
+    return null;
+    L61:
+    return new Image(p0, v3);
+}
+
+public void <init>(Config p0, String p1, int p2) {
+    super.<init>();
+    this.rc = 0;
+    this.errors = new HashMap();
+    this.filter = null;
+    this.originals = new HashMap();
+    this.groupMenu_sa = new ConfigEditor$1(this);
+    this.filterRunnable = new ConfigEditor$2(this);
+    this.config = p0;
+    this.flags = p2;
+    this.title = p1;
+    if (ConfigEditor.collapsedImage != null) goto L94;
+    ConfigEditor.collapsedImage = this.getImageResource(p0.display, "/icons/settings-group-collapsed.png");
+    L94:
+    if (ConfigEditor.expandedImage != null) goto L113;
+    ConfigEditor.expandedImage = this.getImageResource(p0.display, "/icons/settings-group-expanded.png");
+    L113:
+    if (ConfigEditor.menuImage != null) goto L132;
+    ConfigEditor.menuImage = this.getImageResource(p0.display, "/icons/ic_pulldown_menu.png");
+    L132:
+    v4 = p0.groups.iterator();
+    L143:
+    if (v4.hasNext() == 0) goto L232;
+    v5 = (Config$ConfGroup)v4.next();
+    v6 = p0.getGroupConfVals(v5);
+    v7 = v6.keySet().iterator();
+    L187:
+    if (v7.hasNext() == 0) goto L229;
+    v8 = (Config$ConfVal)v7.next();
+    this.originals.put(v8, v8.toString());
+    goto L187;
+    L229:
+    goto L143;
+    L232:
+    return;
+}
+
+private String repeat(String p0, int p1) {
+    v3 = new StringBuilder((p1 * p0.length()));
+    v4 = 0;
+    L17:
+    if (v4 >= p1) goto L35;
+    v3.append(p0);
+    v4 += 1;
+    goto L17;
+    L35:
+    return v3.toString();
+}
+
+public boolean open() {
+    return this.open(null);
+}
+
+public boolean open(Shell p0) {
+    this.shell = new Shell(p0, 67632);
+    this.black = this.shell.getDisplay().getSystemColor(2);
+    this.white = this.shell.getDisplay().getSystemColor(1);
+    this.shell.setText(this.title);
+    this.shell.setBackgroundMode(1);
+    this.shell.setBackground(this.shell.getDisplay().getSystemColor(22));
+    this.shell.addListener(31, new ConfigEditor$3(this));
+    this.preferredWidth = MiSWT.calcWidth(this.shell.getFont(), this.repeat("W", 40));
+    v2 = new layout.GridLayout();
+    v2.numColumns = 1;
+    v2.makeColumnsEqualWidth = 0;
+    v2.verticalSpacing = 3;
+    v2.horizontalSpacing = 3;
+    this.shell.setLayout(v2);
+    v3 = new Composite(this.shell, 0);
+    v3.setLayoutData(new layout.GridData(16384, 16777216, 1, 0, 1, 1));
+    v4 = new layout.RowLayout(256);
+    v4.center = 1;
+    v3.setLayout(v4);
+    v5 = new Text(v3, 2948);
+    $s0 = v5;
+    if (this.filter == null) goto L245;
+    $s0 = v5;
+    $s1 = this.filter;
+    goto L248;
+    L245:
+    $s1 = "";
+    L248:
+    $s0.setText($s1);
+    v5.setToolTipText("Type a string to match -- only matching elements will be shown.");
+    v5.addModifyListener(new ConfigEditor$4(this, v5));
+    v6 = new layout.RowData();
+    v6.width = MiSWT.calcWidth(v5.getFont(), "This is an example search string");
+    v5.setLayoutData(v6);
+    this.sc = new ScrolledComposite(this.shell, 2816);
+    this.opts = new Composite(this.sc, 536870912);
+    v3 = new layout.GridLayout(2, 0);
+    v3.verticalSpacing = 2;
+    v3.horizontalSpacing = 2;
+    this.opts.setLayoutData(new GridDataBuilder().wHint(this.preferredWidth).build());
+    this.opts.setLayout(v3);
+    this.opts.setBackground(this.white);
+    this.opts.setBackgroundMode(2);
+    this.sc.setBackground(this.opts.getBackground());
+    this.sc.setFocus();
+    this.sc.setContent(this.opts);
+    this.sc.setExpandHorizontal(1);
+    this.sc.setExpandVertical(0);
+    this.sc.setLayoutData(new layout.GridData(4, 4, 1, 1));
+    this.groupMenu = new Menu(this.shell, 8);
+    v3 = new MenuItem(this.groupMenu, 8);
+    v3.setText("&Expand all");
+    v3.setData(Boolean.valueOf(1));
+    v3.addSelectionListener(this.groupMenu_sa);
+    v3 = new MenuItem(this.groupMenu, 8);
+    v3.setText("&Collapse all");
+    v3.setData(Boolean.valueOf(0));
+    v3.addSelectionListener(this.groupMenu_sa);
+    new MenuItem(this.groupMenu, 2);
+    $t20 = new MenuItem(this.groupMenu, 8);
+    v3 = $t20;
+    this.restoreDefaults = $t20;
+    v3.setText("Restore group's defaults");
+    v3.addSelectionListener(this.groupMenu_sa);
+    $t22 = new MenuItem(this.groupMenu, 8);
+    v3 = $t22;
+    this.restoreOriginals = $t22;
+    v3.setText("Restore group's originals");
+    v3.addSelectionListener(this.groupMenu_sa);
+    new MenuItem(this.groupMenu, 2);
+    $t25 = new MenuItem(this.groupMenu, 8);
+    v3 = $t25;
+    this.increaseFonts = $t25;
+    v3.setText("Increase all fonts");
+    v3.addSelectionListener(this.groupMenu_sa);
+    $t27 = new MenuItem(this.groupMenu, 8);
+    v3 = $t27;
+    this.decreaseFonts = $t27;
+    v3.setText("Decrease all fonts");
+    v3.addSelectionListener(this.groupMenu_sa);
+    this.groupMenu.addMenuListener(new ConfigEditor$5(this));
+    v3 = new Composite(this.shell, 0);
+    v3.setLayoutData(new layout.GridData(4, 128, 1, 0, 1, 1));
+    v3.setLayout(new layout.GridLayout(5, 0));
+    v4 = MiSWT.getButtonDim(v3, "--Defaults--");
+    v5 = new Button(v3, 16777224);
+    v5.setText("Defaults");
+    v5.setLayoutData(new GridDataBuilder().wHint(v4.x).hGrab(1).build());
+    v5.setToolTipText("Set ALL values to their defaults.");
+    v5.addSelectionListener(new ConfigEditor$6(this));
+    this.apply_b = new Button(v3, 16777224);
+    this.apply_b.setText("Apply");
+    this.apply_b.setLayoutData(new GridDataBuilder().wHint(v4.x).build());
+    this.apply_b.addSelectionListener(new ConfigEditor$7(this));
+    this.apply_b.setEnabled(0);
+    v6 = new Button(v3, 16777224);
+    v6.setText("Cancel");
+    v6.setLayoutData(new GridDataBuilder().wHint(v4.x).build());
+    v6.addSelectionListener(new ConfigEditor$8(this));
+    this.shell.setDefaultButton(this.apply_b);
+    this.rebuildOpts(1);
+    v7 = this.shell.computeSize(-1, -1);
+    v8 = this.shell.getDisplay().getBounds();
+    this.shell.setMinimumSize(v7.x, (v8.height / 4));
+    v9 = MiSWT.stringExtent(Display.getDefault().getSystemFont(), this.repeat("W", 70));
+    this.shell.setSize(Math.max(v7.x, v9.x), Math.min(v8.height, (v9.y * 40)));
+    this.rebuildOpts(0);
+    this.shell.setLocation(MiSWT.centerLoc(this.shell.getParent(), this.shell.getSize()));
+    this.shell.setVisible(1);
+    this.shell.setFocus();
+    this.shell.addListener(11, lambda[ConfigEditor::lambda$open$0](this));
+    this.rc = 0;
+    v10 = this.shell.getDisplay();
+    L1189:
+    if (this.shell.isDisposed() != 0) goto L1226;
+    if (this.shell.getDisplay().readAndDispatch() != 0) goto L1189;
+    this.shell.getDisplay().sleep();
+    goto L1189;
+    L1226:
+    if (v10.isDisposed() != 0) goto L1244;
+    v10.timerExec(-1, this.filterRunnable);
+    L1244:
+    if (this.rc != 0) goto L1311;
+    v11 = this.originals.keySet().iterator();
+    L1267:
+    if (v11.hasNext() == 0) goto L1311;
+    v12 = (Config$ConfVal)v11.next();
+    v12.setValue((String)this.originals.get(v12));
+    goto L1267;
+    L1311:
+    return this.rc;
+}
+
+protected Map verifyNumbers() {
+    v1 = new HashMap();
+    v2 = this.config.groups.iterator();
+    L21:
+    if (v2.hasNext() == 0) goto L175;
+    v3 = (Config$ConfGroup)v2.next();
+    v4 = this.config.getGroupConfVals(v3);
+    v5 = v4.keySet().iterator();
+    L64:
+    if (v5.hasNext() == 0) goto L172;
+    v6 = (Config$ConfVal)v5.next();
+    if (v6.uiScratch == null) goto L169;
+    if ((v6 instanceof Config$ConfInteger) == 0) goto L121;
+    (Config$ConfInteger)v6.intValue = Integer.parseInt(v6.uiScratch);
+    goto L145;
+    L121:
+    if ((v6 instanceof Config$ConfDouble) == 0) goto L145;
+    (Config$ConfDouble)v6.doubleValue = Double.parseDouble(v6.uiScratch);
+    L145:
+    goto L169;
+    // handler for [94,145) catch NumberFormatException
+    L148:
+    v7 = $ex;
+    v1.put(v6, ("Invalid number! " + v7.getLocalizedMessage()));
+    L169:
+    goto L64;
+    L172:
+    goto L21;
+    L175:
+    if (v1.size() != 0) goto L188;
+    $s0 = null;
+    goto L189;
+    L188:
+    $s0 = v1;
+    L189:
+    return $s0;
+}
+
+private void setNoMargin(Composite p0) {
+    v2 = (layout.GridLayout)p0.getLayout();
+    v2.marginWidth = 0;
+    v2.marginHeight = 0;
+    v2.verticalSpacing = 2;
+    return;
+}
+
+private void rebuildOpts(boolean p0) {
+    v2 = this.opts.getChildren();
+    v3 = v2.length;
+    v4 = 0;
+    L14:
+    if (v4 >= v3) goto L37;
+    v5 = v2[v4];
+    v5.dispose();
+    v4 += 1;
+    goto L14;
+    L37:
+    v2 = null;
+    if (null == this.filter) goto L172;
+    if (this.filter.trim().length() == 0) goto L172;
+    v3 = new CLabel(this.opts, 16384);
+    v3.setText("Only matching items are shown.");
+    v3.setBackground(this.opts.getDisplay().getSystemColor(7));
+    v3.setForeground(this.opts.getDisplay().getSystemColor(3));
+    v3.setFont(MiSWT.getBiggerFont(3, 1));
+    v4 = new layout.GridData(768);
+    v4.horizontalSpan = 3;
+    v4.verticalIndent = 3;
+    v4.minimumHeight = MiSWT.getButtonDim(this.opts, "Wy").y;
+    v3.setLayoutData(v4);
+    v2 = v3;
+    L172:
+    v3 = this.errors.keySet().iterator();
+    L187:
+    if (v3.hasNext() == 0) goto L219;
+    v4 = (Config$ConfVal)v3.next();
+    v4.confGroup.collapsed = 0;
+    goto L187;
+    L219:
+    v3 = null;
+    v4 = null;
+    v5 = 0;
+    v6 = this.config.groups.iterator();
+    L241:
+    if (v6.hasNext() == 0) goto L1198;
+    v7 = (Config$ConfGroup)v6.next();
+    v8 = this.config.getGroupConfVals(v7);
+    if (null == this.filter) goto L456;
+    if (this.filter.trim().length() == 0) goto L456;
+    v9 = this.filter.toUpperCase();
+    if (v7.getDescription().toUpperCase().contains(v9) == 0) goto L329;
+    v7.collapsed = 0;
+    goto L456;
+    L329:
+    v10 = v8.entrySet().iterator();
+    L343:
+    if (v10.hasNext() == 0) goto L456;
+    v11 = (Config$ConfVal)(Map$Entry)v10.next().getKey();
+    if (null == this.errors.get(v11)) goto L391;
+    goto L447;
+    L391:
+    v12 = (v11.label + v11.toolTipText + String.valueOf(v11) + v11.comment).toUpperCase().replaceAll("\\<[^>]*>", "");
+    if (v12.contains(v9) != 0) goto L447;
+    v10.remove();
+    L447:
+    v7.collapsed = 0;
+    goto L343;
+    L456:
+    v9 = v8.entrySet().iterator();
+    L470:
+    if (v9.hasNext() == 0) goto L533;
+    v10 = (Config$ConfVal)(Map$Entry)v9.next().getKey();
+    if (v10.hidden == 0) goto L530;
+    if (null != this.errors.get(v10)) goto L530;
+    v9.remove();
+    L530:
+    goto L470;
+    L533:
+    if (v8.size() != 0) goto L546;
+    goto L241;
+    L546:
+    v5 += 1;
+    v9 = new Composite(this.opts, 0);
+    v10 = new layout.GridData(768);
+    v10.horizontalSpan = 2;
+    v10.minimumHeight = MiSWT.getButtonDim(this.opts, "Wy").y;
+    $s0 = v10;
+    if (v5 != 1) goto L611;
+    $s0 = v10;
+    $s1 = 0;
+    goto L620;
+    L611:
+    $s1 = ((v10.minimumHeight * 1) / 3);
+    L620:
+    $s0.verticalIndent = $s1;
+    v9.setLayoutData(v10);
+    v9.setBackground(new Color(this.shell.getDisplay(), 255, 245, 231));
+    v9.setForeground(this.black);
+    v9.setLayout(new layout.GridLayout(2, 0));
+    v10 = new CLabel(v9, 16384);
+    v10.setFont(MiSWT.getBiggerFont(3, 1));
+    $s0 = v10;
+    if (v7.collapsed == 0) goto L721;
+    $s0 = v10;
+    $s1 = ConfigEditor.collapsedImage;
+    goto L724;
+    L721:
+    $s1 = ConfigEditor.expandedImage;
+    L724:
+    $s0.setImage($s1);
+    $s0 = v10;
+    if (v7.collapsed == 0) goto L743;
+    $s0 = v10;
+    $s1 = "click to expand this group";
+    goto L746;
+    L743:
+    $s1 = "click to collapse this group";
+    L746:
+    $s0.setToolTipText($s1);
+    v10.setText(v7.getDescription());
+    v10.setForeground(this.black);
+    v10.setLayoutData(new layout.GridData(4, 16777216, 1, 0));
+    v11 = new CLabel(v9, 0);
+    v11.setImage(ConfigEditor.menuImage);
+    v11.setToolTipText("Open group's menu to adjust, reset, etc.");
+    v11.addMenuDetectListener(lambda[ConfigEditor::lambda$rebuildOpts$0](this, v7));
+    v11.addMouseListener(MouseListener.mouseDownAdapter(lambda[ConfigEditor::lambda$rebuildOpts$1](this, v7)));
+    v10.addMouseListener(new ConfigEditor$9(this, v7));
+    if (v7.collapsed == 0) goto L873;
+    if (p0 != 0) goto L873;
+    goto L241;
+    L873:
+    v4 = null;
+    v11 = v8.keySet().iterator();
+    L890:
+    if (v11.hasNext() == 0) goto L1195;
+    v12 = (Config$ConfVal)v11.next();
+    v13 = this.opts;
+    if (v12.rowable != 0) goto L932;
+    v4 = null;
+    goto L1050;
+    L932:
+    if (v4 != null) goto L1018;
+    v4 = new Composite(this.opts, 0);
+    v14 = new layout.GridData(4, 128, 1, 0, 2, 1);
+    v14.widthHint = this.preferredWidth;
+    v4.setLayoutData(v14);
+    v15 = new layout.RowLayout();
+    v15.pack = 0;
+    v15.wrap = 1;
+    v15.center = 1;
+    v4.setLayout(v15);
+    L1018:
+    v13 = new Composite(v4, 0);
+    v13.setLayout(new layout.GridLayout(2, 0));
+    this.setNoMargin(v13);
+    L1050:
+    v14 = (String)this.errors.get(v12);
+    v15 = new CLabel(v13, 0);
+    $s0 = v15;
+    $s1 = new GridDataBuilder().wHint(3).vAlign(4);
+    if (v14 == null) goto L1104;
+    $s0 = v15;
+    $s1 = new GridDataBuilder().wHint(3).vAlign(4);
+    $s2 = 2;
+    goto L1105;
+    L1104:
+    $s2 = 1;
+    L1105:
+    $s0.setLayoutData($s1.vSpan($s2).build());
+    if (v14 == null) goto L1172;
+    v16 = this.opts.getDisplay().getSystemColor(3);
+    v15.setBackground(v16);
+    if (v3 != null) goto L1146;
+    v3 = v15;
+    L1146:
+    v15 = new CLabel(v13, 0);
+    v15.setForeground(v16);
+    v15.setText(v14);
+    L1172:
+    this.fillConfType(v13, (String)v8.get(v12), v12);
+    goto L890;
+    L1195:
+    goto L241;
+    L1198:
+    if (v5 != 0) goto L1245;
+    if (v2 == null) goto L1245;
+    v2.dispose();
+    v6 = new CLabel(this.opts, 16384);
+    v6.setText("\nNo matching items found! Try a different search.\n");
+    v6.setFont(MiSWT.getBiggerFont(3, 1));
+    L1245:
+    $s0 = this.opts;
+    if (p0 == 0) goto L1257;
+    $s0 = this.opts;
+    $s1 = -1;
+    goto L1267;
+    L1257:
+    $s1 = this.sc.getClientArea().width;
+    L1267:
+    v6 = $s0.computeSize($s1, -1, 1);
+    if (p0 == 0) goto L1290;
+    this.sc.setMinWidth(v6.x);
+    L1290:
+    this.opts.setSize(v6);
+    this.opts.layout();
+    this.sc.setMinHeight(v6.y);
+    if (v3 == null) goto L1330;
+    this.sc.showControl(v3);
+    L1330:
+    return;
+}
+
+private Control createDesc(Composite p0, Config$ConfVal p1, String p2, int p3) {
+    v5 = new layout.GridData(16384, 16777216, 0, 0, 1, 1);
+    v5.horizontalAlignment = p3;
+    v5.horizontalIndent = 0;
+    if (p1.label.contains("<") == 0) goto L160;
+    if (p1.label.contains(">") == 0) goto L160;
+    v6 = new StyledTextStream(p0, 64);
+    $s0 = v6;
+    $s1 = p1.label;
+    if ((p1 instanceof Config$ConfBool) == 0) goto L89;
+    $s0 = v6;
+    $s1 = p1.label;
+    $s2 = "";
+    goto L92;
+    L89:
+    $s2 = ":";
+    L92:
+    $s0.setHTML(($s1 + $s2));
+    v6.text.setLeftMargin(0);
+    v6.setForeground(this.black);
+    v6.setLayoutData(v5);
+    v6.setToolTipText(("[" + p2 + "]\n\n" + p1.toolTipText));
+    v6.setSelectionListener(SelectionListener.widgetSelectedAdapter(lambda[ConfigEditor::lambda$createDesc$0]()));
+    return v6.text;
+    L160:
+    v6 = new CLabel(p0, 0);
+    v6.setForeground(this.black);
+    $s0 = v6;
+    $s1 = p1.label;
+    if ((p1 instanceof Config$ConfBool) == 0) goto L199;
+    $s0 = v6;
+    $s1 = p1.label;
+    $s2 = "";
+    goto L202;
+    L199:
+    $s2 = ":";
+    L202:
+    $s0.setText(($s1 + $s2));
+    v6.setLayoutData(v5);
+    v6.setLeftMargin(0);
+    v6.setToolTipText(("[" + p2 + "]\n\n" + p1.toolTipText));
+    return v6;
+}
+
+private void modified() {
+    this.apply_b.setEnabled(1);
+    return;
+}
+
+private void fillConfType(Composite p0, String p1, Config$ConfVal p2) {
+    v4 = new Composite(p0, 0);
+    v4.setLayoutData(new layout.GridData(4, 128, 1, 0));
+    if ((p2 instanceof Config$ConfInteger) == 0) goto L197;
+    v4.setLayout(new layout.GridLayout(2, 0));
+    this.createDesc(v4, p2, p1, 1);
+    v5 = (Config$ConfInteger)p2;
+    v6 = new Text(v4, 2048);
+    v6.setForeground(this.black);
+    v6.setEditable(p2.enabled);
+    $s0 = v6;
+    if (p2.uiScratch == null) goto L114;
+    $s0 = v6;
+    $s1 = p2.uiScratch;
+    goto L124;
+    L114:
+    $s1 = (v5.intValue);
+    L124:
+    $s0.setText($s1);
+    v7 = new layout.GridData(16384, 1024, 0, 0, 1, 1);
+    v7.widthHint = MiSWT.getButtonDim(this.opts, "12345678").x;
+    v6.setLayoutData(v7);
+    v6.addModifyListener(lambda[ConfigEditor::lambda$fillConfType$0](this, p2, v6));
+    v6.setToolTipText(p2.toolTipText);
+    goto L1349;
+    L197:
+    if ((p2 instanceof Config$ConfDouble) == 0) goto L383;
+    v4.setLayout(new layout.GridLayout(2, 0));
+    this.createDesc(v4, p2, p1, 1);
+    v5 = (Config$ConfDouble)p2;
+    v6 = new Text(v4, 2048);
+    v6.setForeground(this.black);
+    v6.setEditable(p2.enabled);
+    $s0 = v6;
+    if (p2.uiScratch == null) goto L282;
+    $s0 = v6;
+    $s1 = p2.uiScratch;
+    goto L310;
+    L282:
+    $a8 = new Object[1];
+    $a8[0] = Double.valueOf(v5.doubleValue);
+    $s1 = String.format(("%." + v5.decimalPlaces + "f"), $a8);
+    L310:
+    $s0.setText($s1);
+    v7 = new layout.GridData(16384, 1024, 0, 0, 1, 1);
+    v7.widthHint = MiSWT.getButtonDim(this.opts, "12345678.00").x;
+    v6.setLayoutData(v7);
+    v6.addModifyListener(lambda[ConfigEditor::lambda$fillConfType$1](this, p2, v6));
+    v6.setToolTipText(p2.toolTipText);
+    goto L1349;
+    L383:
+    if ((p2 instanceof Config$ConfBool) == 0) goto L504;
+    v5 = (Config$ConfBool)p2;
+    v6 = new Button(v4, 32);
+    v6.setEnabled(p2.enabled);
+    v6.setSelection(v5.boolValue);
+    v6.setLayoutData(new layout.GridData(16384, 128, 0, 0, 1, 1));
+    v6.addSelectionListener(SelectionListener.widgetSelectedAdapter(lambda[ConfigEditor::lambda$fillConfType$2](this, v5, v6)));
+    v6.setToolTipText(p2.toolTipText);
+    v4.setLayout(new layout.GridLayout(2, 0));
+    this.createDesc(v4, p2, p1, 1);
+    goto L1349;
+    L504:
+    if ((p2 instanceof Config$ConfColor) == 0) goto L664;
+    v5 = (Config$ConfColor)p2;
+    v4.setLayout(new layout.GridLayout(2, 0));
+    v6 = this.createDesc(v4, p2, p1, 131072);
+    (layout.GridData)v6.getLayoutData().grabExcessHorizontalSpace = 1;
+    v6 = new CLabel(v4, 2048);
+    v6.setBackground(v5.colorValue);
+    v6.setToolTipText(("Click to change\n\n" + p2.toolTipText));
+    v6.setLayoutData(new GridDataBuilder().hAlign(4).vAlign(4).wHint(MiSWT.getButtonDim(v4, "12345").x).build());
+    v6.addMouseListener(new ConfigEditor$10(this, v5, v6));
+    v6.addPaintListener(lambda[ConfigEditor::lambda$fillConfType$3](this, v6));
+    goto L1349;
+    L664:
+    if ((p2 instanceof Config$ConfFont) == 0) goto L857;
+    v5 = (Config$ConfFont)p2;
+    v4.setLayout(new layout.GridLayout(2, 0));
+    v6 = this.createDesc(v4, p2, p1, 131072);
+    (layout.GridData)v6.getLayoutData().grabExcessHorizontalSpace = 1;
+    v6 = new CLabel(v4, 2048);
+    v6.setFont(v5.fontValue);
+    v6.setText(v5.sampleText);
+    v6.setForeground(this.black);
+    v6.setBackground(this.white);
+    v6.setToolTipText(("Click to change\n\n" + p2.toolTipText));
+    v7 = new layout.GridData(16384, 16777216, 0, 0, 1, 1);
+    v7.widthHint = MiSWT.getButtonDim(v4, "This is a text string.").x;
+    v6.setLayoutData(v7);
+    v6.addMouseListener(new ConfigEditor$11(this, v5, v6));
+    v6.addPaintListener(lambda[ConfigEditor::lambda$fillConfType$4](this, v6));
+    goto L1349;
+    L857:
+    if ((p2 instanceof Config$ConfString) == 0) goto L1103;
+    v5 = (Config$ConfString)p2;
+    this.createDesc(v4, p2, p1, 16384);
+    v6 = new Text(v4, 2048);
+    v6.setForeground(this.black);
+    v6.setEditable(v5.enabled);
+    v6.setText(v5.stringValue);
+    if (v5.wHint == -1) goto L955;
+    v6.setLayoutData(new layout.GridData(v5.wHint, -1));
+    goto L975;
+    L955:
+    v6.setLayoutData(new layout.GridData(4, 16777216, 1, 0, 1, 1));
+    L975:
+    v6.setToolTipText(p2.toolTipText);
+    v6.addModifyListener(new ConfigEditor$12(this, v5, v6));
+    if (v5.stringType != Config$StringType.STRING) goto L1029;
+    v4.setLayout(new layout.GridLayout(2, 0));
+    goto L1100;
+    L1029:
+    v4.setLayout(new layout.GridLayout(3, 0));
+    v7 = new Button(v4, 8);
+    v7.setForeground(this.black);
+    v7.setText("browse");
+    v7.setFont(MiSWT.getBiggerFont(-1, 2));
+    v7.addSelectionListener(new ConfigEditor$13(this, v5, v6));
+    L1100:
+    goto L1349;
+    L1103:
+    if ((p2 instanceof Config$ConfAction) == 0) goto L1269;
+    v5 = (Config$ConfAction)p2;
+    v6 = new layout.GridLayout((1 + v5.actions.length), 0);
+    v6.horizontalSpacing = MiSWT.calcWidth(Display.getDefault().getSystemFont(), "Wi");
+    v4.setLayout(v6);
+    this.createDesc(v4, p2, p1, 16384);
+    v7 = v5.actions;
+    v8 = v7.length;
+    v9 = 0;
+    L1185:
+    if (v9 >= v8) goto L1266;
+    v10 = v7[v9];
+    v11 = new Link(v4, 0);
+    v11.setForeground(this.black);
+    v11.setFont(MiSWT.getBiggerFont(2, 1));
+    v11.setText(("<a>" + v10 + "</a>"));
+    v11.addSelectionListener(SelectionListener.widgetSelectedAdapter(lambda[ConfigEditor::lambda$fillConfType$5](this, v5, v10)));
+    v9 += 1;
+    goto L1185;
+    L1266:
+    goto L1349;
+    L1269:
+    v4.setLayout(new layout.GridLayout(2, 0));
+    this.createDesc(v4, p2, p1, 16384);
+    v5 = new CLabel(v4, 0);
+    v5.setForeground(this.black);
+    v5.setLayoutData(new layout.GridData(16384, 128, 0, 0, 1, 1));
+    v5.setText(("'" + p1 + "' not implemented!"));
+    L1349:
+    return;
+}
+
+private synthetic void lambda$fillConfType$5(Config$ConfAction p0, String p1, SelectionEvent p2) {
+    p0.consumer.accept(p1);
+    this.rebuildOpts(0);
+    this.modified();
+    return;
+}
+
+private synthetic void lambda$fillConfType$4(CLabel p0, PaintEvent p1) {
+    p1.gc.setForeground(this.shell.getDisplay().getSystemColor(15));
+    p1.gc.drawRectangle(0, 0, (p0.getSize().x - 1), (p0.getSize().y - 1));
+    return;
+}
+
+private synthetic void lambda$fillConfType$3(CLabel p0, PaintEvent p1) {
+    p1.gc.setForeground(this.shell.getDisplay().getSystemColor(4));
+    p1.gc.drawRectangle(0, 0, (p0.getSize().x - 1), (p0.getSize().y - 1));
+    return;
+}
+
+private synthetic void lambda$fillConfType$2(Config$ConfBool p0, Button p1, SelectionEvent p2) {
+    p0.boolValue = p1.getSelection();
+    this.modified();
+    return;
+}
+
+private synthetic void lambda$fillConfType$1(Config$ConfVal p0, Text p1, ModifyEvent p2) {
+    p0.uiScratch = p1.getText();
+    this.modified();
+    return;
+}
+
+private synthetic void lambda$fillConfType$0(Config$ConfVal p0, Text p1, ModifyEvent p2) {
+    p0.uiScratch = p1.getText();
+    this.modified();
+    return;
+}
+
+private static synthetic void lambda$createDesc$0(SelectionEvent p0) {
+    program.Program.launch(p0.text);
+    return;
+}
+
+private synthetic void lambda$rebuildOpts$1(Config$ConfGroup p0, MouseEvent p1) {
+    this.groupMenu.setData("grp", p0);
+    this.groupMenu.setVisible(1);
+    return;
+}
+
+private synthetic void lambda$rebuildOpts$0(Config$ConfGroup p0, MenuDetectEvent p1) {
+    this.groupMenu.setData("grp", p0);
+    this.groupMenu.setVisible(1);
+    return;
+}
+
+private synthetic void lambda$open$0(Event p0) {
+    v2 = this.opts.computeSize(this.sc.getClientArea().width, -1, 1);
+    this.opts.setSize(v2);
+    this.sc.setMinHeight(v2.x);
+    return;
+}

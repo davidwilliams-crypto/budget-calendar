@@ -1,0 +1,780 @@
+// ===== Payment$Hilight extends Object 
+ int date;
+ int bg_color;
+
+ void <init>() {
+    super.<init>();
+    return;
+}
+
+public String toString() {
+    $a1 = new Object[2];
+    $a1[0] = Integer.valueOf(this.date);
+    $a1[1] = Integer.valueOf(this.bg_color);
+    return String.format("[%d: %06x]", $a1);
+}
+
+// ===== Payment extends Object 
+public int id;
+public double amount;
+public String description;
+public int startDate;
+public int frequency;
+public char freq_type;
+public int n_pays;
+public int endDate;
+public String image_path;
+public int flags;
+public ArrayList opt;
+public ArrayList flag;
+public ArrayList note;
+public ArrayList hilighting;
+public boolean disabled;
+public String category;
+public double loan_amount;
+public char flag_value;
+public int grace_period_days;
+public HashSet calendarDays;
+public Integer default_bg_color_cache;
+public static final int NO_WEEKENDS = 1;
+public static final int TENTATIVE = 2;
+public static final int EARLY_PAY = 4;
+public static final int REMINDER = 8;
+public static final int END_MODE_MASK = 240;
+public static final int END_MODE_UNDEFINED = 0;
+public static final int END_MODE_INDEFINITE = 16;
+public static final int END_MODE_DATE = 32;
+public static final int END_MODE_N_PAYS = 48;
+public static final int END_MODE_LOAN_PAID = 64;
+public static final int IS_STICKY = 256;
+public static final int DEFAULT_COLOR_DATE = 99990101;
+public static final int URL_NOTE_DATE = 99990102;
+public static final int DATA_FILE_NUM_LINES = 99990103;
+public static final int DATA_FILE_EOD = 99990104;
+
+public int getEndMode() {
+    return (this.flags & 240);
+}
+
+public void setEndMode(int p0) {
+    if (p0 == 32) goto L24;
+    if (p0 == 16) goto L24;
+    if (p0 == 48) goto L24;
+    if (p0 != 64) goto L38;
+    L24:
+    this.flags = ((this.flags & -241) | p0);
+    L38:
+    return;
+}
+
+public boolean isNoWeekends() {
+    if ((this.flags & 1) != 1) goto L14;
+    $s0 = 1;
+    goto L15;
+    L14:
+    $s0 = 0;
+    L15:
+    return $s0;
+}
+
+public void setNoWeekends(boolean p0) {
+    if (p0 == 0) goto L17;
+    this.flags = (this.flags | 1);
+    goto L28;
+    L17:
+    this.flags = (this.flags & -2);
+    L28:
+    return;
+}
+
+public boolean isSticky() {
+    if ((this.flags & 256) != 256) goto L18;
+    $s0 = 1;
+    goto L19;
+    L18:
+    $s0 = 0;
+    L19:
+    return $s0;
+}
+
+public void setSticky(boolean p0) {
+    if (p0 == 0) goto L19;
+    this.flags = (this.flags | 256);
+    goto L31;
+    L19:
+    this.flags = (this.flags & -257);
+    L31:
+    return;
+}
+
+public boolean isReminder() {
+    if ((this.flags & 8) != 8) goto L16;
+    $s0 = 1;
+    goto L17;
+    L16:
+    $s0 = 0;
+    L17:
+    return $s0;
+}
+
+public void setReminder(boolean p0) {
+    if (p0 == 0) goto L18;
+    this.flags = (this.flags | 8);
+    goto L29;
+    L18:
+    this.flags = (this.flags & -9);
+    L29:
+    return;
+}
+
+public boolean isEarlyPay() {
+    if ((this.flags & 4) != 4) goto L14;
+    $s0 = 1;
+    goto L15;
+    L14:
+    $s0 = 0;
+    L15:
+    return $s0;
+}
+
+public void setEarlyPay(boolean p0) {
+    if (p0 == 0) goto L17;
+    this.flags = (this.flags | 4);
+    goto L28;
+    L17:
+    this.flags = (this.flags & -5);
+    L28:
+    return;
+}
+
+public boolean isTentative() {
+    if ((this.flags & 2) != 2) goto L14;
+    $s0 = 1;
+    goto L15;
+    L14:
+    $s0 = 0;
+    L15:
+    return $s0;
+}
+
+public void setTentative(boolean p0) {
+    if (p0 == 0) goto L17;
+    this.flags = (this.flags | 2);
+    goto L28;
+    L17:
+    this.flags = (this.flags & -3);
+    L28:
+    return;
+}
+
+public PaymentOption getOption(int p0) {
+    return (PaymentOption)this.opt.get(p0);
+}
+
+public PaymentOption getOptionByDate(int p0) {
+    v2 = this.getOptionIndex(p0);
+    if (-1 == v2) goto L17;
+    return this.getOption(v2);
+    L17:
+    return null;
+}
+
+public int getOptionIndex(int p0) {
+    v2 = this.opt.size();
+    v3 = 0;
+    L10:
+    if (v3 >= v2) goto L41;
+    if (p0 != (PaymentOption)this.opt.get(v3).date) goto L35;
+    return v3;
+    L35:
+    v3 += 1;
+    goto L10;
+    L41:
+    return -1;
+}
+
+public double getAmountBeforeDate(int p0) {
+    v2 = null;
+    v3 = this.opt.iterator();
+    L10:
+    if (v3.hasNext() == 0) goto L69;
+    v4 = (PaymentOption)v3.next();
+    if (v4.deleted != 0) goto L66;
+    if (v4.date >= p0) goto L66;
+    if (v2 == null) goto L63;
+    if (v2.date >= v4.date) goto L66;
+    L63:
+    v2 = v4;
+    L66:
+    goto L10;
+    L69:
+    if (v2 == null) goto L80;
+    $s0 = v2.amount;
+    goto L84;
+    L80:
+    $s0 = this.amount;
+    L84:
+    return $s0;
+}
+
+public void clear(int p0) {
+    v2 = this.getOptionIndex(p0);
+    if (-1 == v2) goto L20;
+    this.opt.remove(v2);
+    L20:
+    if (null == this.flag) goto L77;
+    v3 = this.flag.iterator();
+    L36:
+    if (v3.hasNext() == 0) goto L77;
+    v4 = (PaymentFlag)v3.next();
+    if (v4.date != p0) goto L74;
+    v3.remove();
+    goto L77;
+    L74:
+    goto L36;
+    L77:
+    return;
+}
+
+public void clearBefore(int p0) {
+    v2 = this.opt.iterator();
+    L8:
+    if (v2.hasNext() == 0) goto L44;
+    v3 = (PaymentOption)v2.next();
+    if (v3.date >= p0) goto L41;
+    v2.remove();
+    L41:
+    goto L8;
+    L44:
+    if (null == this.flag) goto L96;
+    v2 = this.flag.iterator();
+    L60:
+    if (v2.hasNext() == 0) goto L96;
+    v3 = (PaymentFlag)v2.next();
+    if (v3.date >= p0) goto L93;
+    v2.remove();
+    L93:
+    goto L60;
+    L96:
+    return;
+}
+
+public void clearAfter(int p0) {
+    v2 = this.opt.iterator();
+    L8:
+    if (v2.hasNext() == 0) goto L44;
+    v3 = (PaymentOption)v2.next();
+    if (v3.date <= p0) goto L41;
+    v2.remove();
+    L41:
+    goto L8;
+    L44:
+    if (null == this.flag) goto L96;
+    v2 = this.flag.iterator();
+    L60:
+    if (v2.hasNext() == 0) goto L96;
+    v3 = (PaymentFlag)v2.next();
+    if (v3.date <= p0) goto L93;
+    v2.remove();
+    L93:
+    goto L60;
+    L96:
+    return;
+}
+
+public void clearAll() {
+    this.opt.clear();
+    return;
+}
+
+public void moveTransaction(int p0, int p1, double p2) {
+    v5 = 94;
+    if (null == this.flag) goto L72;
+    v6 = this.flag.iterator();
+    L21:
+    if (v6.hasNext() == 0) goto L72;
+    v7 = (PaymentFlag)v6.next();
+    if (v7.date != p1) goto L69;
+    v5 = v7.value;
+    v6.remove();
+    goto L72;
+    L69:
+    goto L21;
+    L72:
+    v6 = this.getNote(p1);
+    v7 = this.getHilighting(p1);
+    this.update(p0, p2, 0);
+    this.update(p1, p2, 1);
+    if (v5 == 94) goto L114;
+    this.setFlag(p0, v5);
+    L114:
+    if (v6 == null) goto L132;
+    this.setNote(p0, v6);
+    this.setNote(p1, null);
+    L132:
+    if (v7 == -1) goto L151;
+    this.setHilighting(p0, v7);
+    this.setHilighting(p1, -1);
+    L151:
+    return;
+}
+
+private void update(int p0, double p1, boolean p2) {
+    v5 = this.getOptionIndex(p0);
+    if (-1 != v5) goto L41;
+    v6 = new PaymentOption();
+    this.opt.add(v6);
+    v6.date = p0;
+    goto L55;
+    L41:
+    v6 = (PaymentOption)this.opt.get(v5);
+    L55:
+    v6.amount = p1;
+    v6.deleted = p2;
+    return;
+}
+
+public void setCustomAmount(int p0, double p1) {
+    this.update(p0, p1, 0);
+    return;
+}
+
+public void setNoTransaction(int p0) {
+    this.update(p0, this.amount, 1);
+    return;
+}
+
+public void addNoTransaction(int p0) {
+    v2 = new PaymentOption();
+    v2.date = p0;
+    v2.amount = this.amount;
+    v2.deleted = 1;
+    this.opt.add(v2);
+    return;
+}
+
+public void addCustomAmount(int p0, double p1) {
+    v4 = new PaymentOption();
+    v4.date = p0;
+    v4.amount = p1;
+    v4.deleted = 0;
+    this.opt.add(v4);
+    return;
+}
+
+public void setFlag(int p0, char p1) {
+    v3 = null;
+    if (null == this.flag) goto L54;
+    v4 = this.flag.iterator();
+    L19:
+    if (v4.hasNext() == 0) goto L54;
+    v3 = (PaymentFlag)v4.next();
+    if (v3.date != p0) goto L19;
+    v3.value = p1;
+    return;
+    L54:
+    v3 = new PaymentFlag();
+    v3.date = p0;
+    v3.value = p1;
+    if (null != this.flag) goto L91;
+    this.flag = new ArrayList();
+    L91:
+    this.flag.add(v3);
+    return;
+}
+
+public char getFlag(int p0) {
+    if (null == this.flag) goto L50;
+    v2 = null;
+    v3 = this.flag.iterator();
+    L18:
+    if (v3.hasNext() == 0) goto L50;
+    v2 = (PaymentFlag)v3.next();
+    if (v2.date != p0) goto L18;
+    return v2.value;
+    L50:
+    return this.flag_value;
+}
+
+public void clearNotesBefore(int p0) {
+    if (null == this.note) goto L52;
+    v2 = this.note.iterator();
+    L16:
+    if (v2.hasNext() == 0) goto L52;
+    v3 = (Note)v2.next();
+    if (v3.date >= p0) goto L49;
+    v2.remove();
+    L49:
+    goto L16;
+    L52:
+    return;
+}
+
+public int getNoteCount() {
+    if (null != this.note) goto L12;
+    $s0 = 0;
+    goto L19;
+    L12:
+    $s0 = this.note.size();
+    L19:
+    return $s0;
+}
+
+public void setNote(int p0, String p1) {
+    v3 = null;
+    if (null == this.note) goto L68;
+    v4 = this.note.iterator();
+    L19:
+    if (v4.hasNext() == 0) goto L68;
+    v3 = (Note)v4.next();
+    if (v3.date != p0) goto L19;
+    if (p1 == null) goto L60;
+    v3.note = p1;
+    goto L67;
+    L60:
+    v4.remove();
+    L67:
+    return;
+    L68:
+    if (null != p1) goto L74;
+    return;
+    L74:
+    v3 = new Note();
+    v3.date = p0;
+    v3.note = p1;
+    if (null != this.note) goto L111;
+    this.note = new ArrayList();
+    L111:
+    this.note.add(v3);
+    return;
+}
+
+public void setURL(String p0) {
+    this.setNote(99990102, p0);
+    return;
+}
+
+public String getNote(int p0) {
+    if (null == this.note) goto L103;
+    v2 = null;
+    if (p0 != 0) goto L63;
+    v3 = "";
+    v4 = this.note.iterator();
+    L26:
+    if (v4.hasNext() == 0) goto L61;
+    v2 = (Note)v4.next();
+    v3 = (v3 + v2.note + " ");
+    goto L26;
+    L61:
+    return v3;
+    L63:
+    v3 = this.note.iterator();
+    L71:
+    if (v3.hasNext() == 0) goto L103;
+    v2 = (Note)v3.next();
+    if (v2.date != p0) goto L71;
+    return v2.note;
+    L103:
+    return null;
+}
+
+public String getURL() {
+    return this.getNote(99990102);
+}
+
+public String getOneLineNote(int p0) {
+    v2 = this.getNote(p0);
+    if (v2 != null) goto L13;
+    return "";
+    L13:
+    v2 = (" -- " + Budget.remove_new_lines(v2).trim());
+    if (v2.length() >= 80) goto L39;
+    $s0 = v2;
+    goto L51;
+    L39:
+    $s0 = (v2.substring(0, 78) + "...");
+    L51:
+    return $s0;
+}
+
+public void <init>() {
+    super.<init>();
+    this.flag_value = 94;
+    this.calendarDays = new HashSet();
+    this.default_bg_color_cache = null;
+    this.opt = new ArrayList(5);
+    this.description = "";
+    $t4 = new SimpleCalendar().get();
+    this.endDate = $t4;
+    this.startDate = $t4;
+    this.amount = 0.0;
+    this.n_pays = 1;
+    this.frequency = 1;
+    this.freq_type = 109;
+    this.flags = 48;
+    this.disabled = 0;
+    this.flag = null;
+    this.note = null;
+    this.grace_period_days = 0;
+    return;
+}
+
+public String getShortDescription() {
+    v1 = this.description.indexOf(59);
+    if (v1 == -1) goto L25;
+    return this.description.substring(0, v1);
+    L25:
+    return this.description;
+}
+
+public Payment clonePayment() {
+    v1 = new Payment();
+    v1.amount = this.amount;
+    v1.description = this.description;
+    v1.endDate = this.endDate;
+    v1.freq_type = this.freq_type;
+    v1.frequency = this.frequency;
+    v1.image_path = this.image_path;
+    v1.n_pays = this.n_pays;
+    v1.startDate = this.startDate;
+    v1.flags = this.flags;
+    v1.disabled = this.disabled;
+    v1.category = this.category;
+    v1.opt = new ArrayList(5);
+    v1.grace_period_days = this.grace_period_days;
+    v1.setDefaultHighlighting(this.getDefaultHilighting());
+    return v1;
+}
+
+public boolean isSameSchedule(Payment p0) {
+    if (this.startDate != p0.startDate) goto L81;
+    if (this.endDate != p0.endDate) goto L81;
+    if (this.freq_type != p0.freq_type) goto L81;
+    if (this.frequency != p0.frequency) goto L81;
+    if (this.disabled != p0.disabled) goto L81;
+    if (this.getEndMode() != p0.getEndMode()) goto L81;
+    if (this.n_pays != p0.n_pays) goto L81;
+    $s0 = 1;
+    goto L82;
+    L81:
+    $s0 = 0;
+    L82:
+    return $s0;
+}
+
+public boolean hasOptionsAfter(int p0) {
+    v2 = this.opt.iterator();
+    L8:
+    if (v2.hasNext() == 0) goto L40;
+    v3 = (PaymentOption)v2.next();
+    if (v3.date <= p0) goto L37;
+    return 1;
+    L37:
+    goto L8;
+    L40:
+    return 0;
+}
+
+public PaymentOption getFirstOptionAfter(int p0) {
+    v2 = null;
+    v3 = this.opt.iterator();
+    L10:
+    if (v3.hasNext() == 0) goto L61;
+    v4 = (PaymentOption)v3.next();
+    if (v4.date <= p0) goto L58;
+    if (v2 == null) goto L55;
+    if (v2.date <= v4.date) goto L58;
+    L55:
+    v2 = v4;
+    L58:
+    goto L10;
+    L61:
+    return v2;
+}
+
+public PaymentOption[] getOpt(int p0, int p1) {
+    v3 = new ArrayList();
+    v4 = this.opt.iterator();
+    L17:
+    if (v4.hasNext() == 0) goto L67;
+    v5 = (PaymentOption)v4.next();
+    if (p0 > v5.date) goto L64;
+    if (v5.date > p1) goto L64;
+    v3.add(v5);
+    L64:
+    goto L17;
+    L67:
+    if (v3.size() != 0) goto L76;
+    return null;
+    L76:
+    $a2 = new PaymentOption[v3.size()];
+    v4 = $a2;
+    return ([Lca.mishell.app.budget.PaymentOption;)v3.toArray(v4);
+}
+
+public List getDeleted(int p0, int p1) {
+    v3 = new LinkedList();
+    v4 = this.opt.iterator();
+    L17:
+    if (v4.hasNext() == 0) goto L77;
+    v5 = (PaymentOption)v4.next();
+    if (v5.deleted == 0) goto L74;
+    if (p0 > v5.date) goto L74;
+    if (v5.date > p1) goto L74;
+    v3.add(v5);
+    L74:
+    goto L17;
+    L77:
+    return v3;
+}
+
+public boolean isPaid(int p0, int p1) {
+    if (null == this.flag) goto L67;
+    v3 = null;
+    v4 = this.flag.iterator();
+    L19:
+    if (v4.hasNext() == 0) goto L67;
+    v3 = (PaymentFlag)v4.next();
+    if (p0 > v3.date) goto L19;
+    if (v3.date > p1) goto L19;
+    if (v3.value != 59) goto L19;
+    return 1;
+    L67:
+    return 0;
+}
+
+public void setDefaultHighlighting(int p0) {
+    this.setHilighting(99990101, p0);
+    return;
+}
+
+public void setHilighting(int p0, int p1) {
+    if (p0 != 99990101) goto L27;
+    if (p1 != -1) goto L19;
+    this.default_bg_color_cache = null;
+    goto L27;
+    L19:
+    this.default_bg_color_cache = Integer.valueOf(p1);
+    L27:
+    if (null == this.hilighting) goto L94;
+    v3 = this.hilighting.iterator();
+    L43:
+    if (v3.hasNext() == 0) goto L94;
+    v4 = (Payment$Hilight)v3.next();
+    if (v4.date != p0) goto L91;
+    if (p1 != -1) goto L84;
+    v3.remove();
+    return;
+    L84:
+    v4.bg_color = p1;
+    return;
+    L91:
+    goto L43;
+    L94:
+    if (-1 != p1) goto L100;
+    return;
+    L100:
+    v3 = new Payment$Hilight();
+    v3.date = p0;
+    v3.bg_color = p1;
+    if (null != this.hilighting) goto L137;
+    this.hilighting = new ArrayList();
+    L137:
+    this.hilighting.add(v3);
+    return;
+}
+
+public int getDefaultHilighting() {
+    if (this.default_bg_color_cache == null) goto L15;
+    return this.default_bg_color_cache.intValue();
+    L15:
+    return -1;
+}
+
+public int getHilighting(int p0) {
+    if (null == this.hilighting) goto L51;
+    v2 = this.hilighting.iterator();
+    L16:
+    if (v2.hasNext() == 0) goto L51;
+    v3 = (Payment$Hilight)v2.next();
+    if (v3.date != p0) goto L48;
+    return v3.bg_color;
+    L48:
+    goto L16;
+    L51:
+    return -1;
+}
+
+public String toString() {
+    v1 = ("[" + this.startDate + " - " + this.endDate + ", desc='" + this.description + "', amount=" + this.amount + ", freq=" + this.frequency + this.freq_type + ", n_pays=" + this.n_pays + ", loan=" + this.loan_amount + ", grace_days=" + this.grace_period_days + ", emode=");
+    switch (this.getEndMode()) { 16: L98, 32: L88, 48: L108, 64: L118; default: L125 }
+    L88:
+    v1 = (v1 + "date");
+    goto L125;
+    L98:
+    v1 = (v1 + "indefinite");
+    goto L125;
+    L108:
+    v1 = (v1 + "n_pays");
+    goto L125;
+    L118:
+    v1 = (v1 + "loan");
+    L125:
+    v1 = (v1 + ", other: ");
+    if (this.isNoWeekends() == 0) goto L146;
+    v1 = (v1 + "(no weekends)");
+    L146:
+    if (this.isEarlyPay() == 0) goto L160;
+    v1 = (v1 + "(early pay)");
+    L160:
+    if (this.isTentative() == 0) goto L174;
+    v1 = (v1 + "(tentative)");
+    L174:
+    if (this.isSticky() == 0) goto L188;
+    v1 = (v1 + "(sticky)");
+    L188:
+    if (this.disabled == 0) goto L202;
+    v1 = (v1 + "(disabled)");
+    L202:
+    if (this.image_path == null) goto L220;
+    v1 = (v1 + "\nimage='" + this.image_path + "'");
+    L220:
+    if (this.opt == null) goto L275;
+    v1 = (v1 + "\noptions: ");
+    v2 = this.opt.iterator();
+    L242:
+    if (v2.hasNext() == 0) goto L275;
+    v3 = (PaymentOption)v2.next();
+    v1 = (v1 + v3.toString());
+    goto L242;
+    L275:
+    if (this.flag == null) goto L330;
+    v1 = (v1 + "\nflags: ");
+    v2 = this.flag.iterator();
+    L297:
+    if (v2.hasNext() == 0) goto L330;
+    v3 = (PaymentFlag)v2.next();
+    v1 = (v1 + v3.toString());
+    goto L297;
+    L330:
+    if (this.note == null) goto L385;
+    v1 = (v1 + "\nnotes: ");
+    v2 = this.note.iterator();
+    L352:
+    if (v2.hasNext() == 0) goto L385;
+    v3 = (Note)v2.next();
+    v1 = (v1 + v3.toString());
+    goto L352;
+    L385:
+    if (this.hilighting == null) goto L440;
+    v1 = (v1 + "\nhighliting ");
+    v2 = this.hilighting.iterator();
+    L407:
+    if (v2.hasNext() == 0) goto L440;
+    v3 = (Payment$Hilight)v2.next();
+    v1 = (v1 + v3.toString());
+    goto L407;
+    L440:
+    v1 = (v1 + "]");
+    return v1;
+}

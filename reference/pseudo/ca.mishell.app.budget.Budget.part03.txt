@@ -1,0 +1,2873 @@
+public void <init>() {
+    super.<init>();
+    this.rcFileName = null;
+    this.use_dnd = 1;
+    this.do_calendar_update = 0;
+    this.do_rebuild = 0;
+    this.fileName = null;
+    this.dbKey = null;
+    this.tranFilterTxt = null;
+    this.notesText = null;
+    this.calViewFilter = null;
+    this.db = null;
+    this.initCal = new SimpleCalendar();
+    this.return_val = null;
+    this.initialRect = null;
+    this.initialMaximized = 0;
+    this.trial_version = 1;
+    this.opt_debug = 0;
+    this.do_best_fit = 0;
+    this.dont_show_zero_amount = 0;
+    this.do_bill_reminder_check = 0;
+    this.budgetStickMode = 0;
+    this.calendarDescriptionMaxLen = -1;
+    this.passwordMenuItem = null;
+    this.undoMoveMenuItem = null;
+    $a2 = new String[12];
+    $a2[0] = "Jan";
+    $a2[1] = "Feb";
+    $a2[2] = "Mar";
+    $a2[3] = "Apr";
+    $a2[4] = "May";
+    $a2[5] = "Jun";
+    $a2[6] = "Jul";
+    $a2[7] = "Aug";
+    $a2[8] = "Sep";
+    $a2[9] = "Oct";
+    $a2[10] = "Nov";
+    $a2[11] = "Dec";
+    this.monthName = $a2;
+    this.edit_ok = 0;
+    this.registration_already_started = 0;
+    this.pickDateCal = null;
+    this.dropTargets = new Vector();
+    this.dragSources = new Vector();
+    this.tempWidgets = new Vector();
+    this.lastCreateViewCal = null;
+    this.todayCell = null;
+    this.quickStatsCtnr = null;
+    this.bestFit = null;
+    $a6 = new String[7];
+    $a6[0] = "Sunday";
+    $a6[1] = "Monday";
+    $a6[2] = "Tuesday";
+    $a6[3] = "Wednesday";
+    $a6[4] = "Thursday";
+    $a6[5] = "Friday";
+    $a6[6] = "Saturday";
+    this.wDayName = $a6;
+    this.images = new HashMap();
+    this.noImage = null;
+    this.opt_print_current_month = 0;
+    this.excel_prg = null;
+    this.graph_bar_width = 25;
+    this.graph_bar_height = 110;
+    $a8 = new String[8];
+    $a8[0] = "Opening Balance";
+    $a8[1] = "Closing Balance";
+    $a8[2] = "Average Balance";
+    $a8[3] = "Total Income";
+    $a8[4] = "Total Expenses";
+    $a8[5] = "Disposable Income";
+    $a8[6] = "Minimum Balance";
+    $a8[7] = "Maximum Balance";
+    this.forecastType = $a8;
+    $a9 = new Budget$graphData[12];
+    this.graph_data = $a9;
+    v1 = 0;
+    L413:
+    if (v1 >= this.graph_data.length) goto L442;
+    this.graph_data[v1] = new Budget$graphData(this);
+    v1 += 1;
+    goto L413;
+    L442:
+    this.graph_last_min = 0;
+    this.graph_last_max = 0;
+    $a11 = new Rectangle[2];
+    this.graphHotSpots = $a11;
+    this.shellAdapterInvoked = 0;
+    this.shellAdapter = new Budget$4(this);
+    this.opt_show_balance = Budget.BALANCE_ALL;
+    this.opt_show_balance_supplied = 0;
+    this.opt_show_url = 0;
+    this.stat_line_color = 1;
+    this.lbl_underline = new Budget$9(this);
+    this.lbl_underline_textOnly = new Budget$10(this);
+    this.bump = new Budget$Bump(this);
+    this.unfoldComp = null;
+    this.unfoldMonthSelector = null;
+    this.unfoldFilterText = null;
+    $a16 = new String[5];
+    $a16[0] = "1st";
+    $a16[1] = "2nd";
+    $a16[2] = "3rd";
+    $a16[3] = "4th";
+    $a16[4] = "5th";
+    this.arr = $a16;
+    this.recentFilesMenuIndex = -1;
+    this.prompt_was_ctrl_ok = 0;
+    this.prompt_was_alt_ok = 0;
+    Budget.numFormatFrac0 = DecimalFormat.getNumberInstance();
+    Budget.numFormatFrac0.setMinimumFractionDigits(0);
+    Budget.numFormatFrac0.setMaximumFractionDigits(0);
+    Budget.numFormatFrac0.setGroupingUsed(1);
+    Budget.numFormatFrac1 = DecimalFormat.getNumberInstance();
+    Budget.numFormatFrac1.setMinimumFractionDigits(1);
+    Budget.numFormatFrac1.setMaximumFractionDigits(1);
+    Budget.numFormatFrac1.setGroupingUsed(1);
+    Budget.numFormatFrac2 = DecimalFormat.getNumberInstance();
+    Budget.numFormatFrac2.setMinimumFractionDigits(2);
+    Budget.numFormatFrac2.setMaximumFractionDigits(2);
+    Budget.numFormatFrac2.setGroupingUsed(1);
+    this.m_edit_ad = new Budget$119(this);
+    this.m_duplicate_ad = new Budget$120(this);
+    this.m_split_ad = new Budget$121(this);
+    this.m_duplicate_transaction = new Budget$122(this);
+    this.deletedOptSelected = new Budget$123(this);
+    this.all_transactions_menu_listener = new Budget$124(this);
+    this.six_months_avg_sa = new Budget$125(this);
+    this.six_month_avg_menu_listener = new Budget$126(this);
+    this.payments_remaining_menu_listener = new Budget$127(this);
+    this.hilight_menu_color_listener = new Budget$128(this);
+    this.hilight_menu_custom_color_listener = new Budget$129(this);
+    this.hilighting_menu_listener = new Budget$130(this);
+    this.m_move_ad = new Budget$131(this);
+    this.m_adjust_ad = new Budget$132(this);
+    this.m_remove_note_ad = new Budget$133(this);
+    this.m_edit_note_ad = new Budget$134(this);
+    this.m_remove_day_note_ad = new Budget$135(this);
+    this.m_edit_day_note_ad = new Budget$136(this);
+    this.m_flags_ad = new Budget$137(this);
+    this.m_remove_adjustment = new Budget$138(this);
+    this.m_open_url = new Budget$139(this);
+    this.m_delete_transaction = new Budget$140(this);
+    this.m_filter_transactions = new Budget$141(this);
+    this.mouse_ad = new Budget$142(this);
+    this.restore_ad = new Budget$143(this);
+    this.mouse_edit = new Budget$144(this);
+    this.m_remove_balance_adjustment = new Budget$145(this);
+    this.add_new = new Budget$146(this);
+    this.pickPaymentPmt = null;
+    this.add_wild_ad = new Budget$154(this);
+    this.restore_transaction = new Budget$155(this);
+    this.dropTargetAdapter = new Budget$156(this);
+    this.dropShellTargetPrev = null;
+    this.dropShellTargetNext = null;
+    this.dragSourceAdapter = new Budget$157(this);
+    this.nextMonthGraceDays = null;
+    this.flash_cell = null;
+    this.labelInFocus = null;
+    this.decimalsFont = null;
+    this.dayNumberMouseListener = new Budget$158(this);
+    this.minusZeroDotZero = Double.valueOf(-0.0).doubleValue();
+    this.stat_comparator = lambda[Budget::lambda$new$0]();
+    this.stat_ma = new Budget$169(this);
+    this.stat_transactions_ma = new Budget$170(this);
+    this.stat_mta = new Budget$171(this);
+    this.gc = null;
+    this.showStatsStats = null;
+    this.stat_rep_row_color = 0;
+    return;
+}
+
+private static String icon(String p0) {
+    return (Budget.icons_loc + p0);
+}
+
+private static String image(String p0) {
+    return (Budget.images_loc + p0);
+}
+
+private static String getRevision() {
+    v0 = Class.forName("ca.mishell.app.budget.svnRevision");
+    v1 = v0.getField("revision");
+    return (String)v1.get(null);
+    // handler for [0,23) catch Exception
+    L24:
+    v0 = $ex;
+    v0.printStackTrace();
+    return "??";
+}
+
+private String getWDayName(int p0) {
+    return this.wDayName[((this.getFirstDayOfWeek() + p0) % 7)];
+}
+
+ boolean isAppAlreadyRunning(int p0) {
+    Budget.serverSocket = new java.net.ServerSocket(p0, 3, java.net.InetAddress.getLocalHost());
+    Budget.serverSocket.setSoTimeout(0);
+    v2 = new Thread(new Budget$1(this));
+    v2.setDaemon(1);
+    v2.setName("singleInstanceGuard");
+    v2.start();
+    goto L65;
+    // handler for [0,54) catch java.net.BindException
+    L57:
+    v2 = $ex;
+    return 1;
+    // handler for [0,54) catch IOException
+    L60:
+    v2 = $ex;
+    v2.printStackTrace();
+    L65:
+    return 0;
+}
+
+public static void main(String[] p0) {
+    if (p0.length <= 0) goto L30;
+    if (p0[0].equalsIgnoreCase("--version") == 0) goto L30;
+    System.out.println(Budget.budgetVersion);
+    System.exit(0);
+    L30:
+    Display.setAppName("Budget");
+    v1 = new Display();
+    v2 = new Budget();
+    Budget.updateResourceLocation(v2);
+    v2.open(v1, p0);
+    v1.dispose();
+    goto L273;
+    // handler for [56,67) catch Exception
+    L70:
+    v3 = $ex;
+    if (v2.opt_debug == 0) goto L80;
+    throw v3;
+    L80:
+    v4 = (Budget.dirHome + File.separator + "budget-crash.log");
+    v5 = new PrintStream(new FileOutputStream(v4));
+    v5.print(("cwd=" + new File(".").getAbsolutePath() + "\nError message:" + v3.getMessage() + "\nStack Trace:\n"));
+    v3.printStackTrace(v5);
+    v5.print(("r" + Budget.revision + "\n"));
+    v5.close();
+    goto L167;
+    // handler for [93,162) catch Exception
+    L165:
+    v5 = $ex;
+    L167:
+    v5 = new StringWriter();
+    v6 = new PrintWriter(v5);
+    v3.printStackTrace(v6);
+    v1.dispose();
+    goto L202;
+    // handler for [193,197) catch Exception
+    L200:
+    v7 = $ex;
+    L202:
+    v7 = new Display();
+    v8 = new Shell(v7);
+    v9 = ("r" + Budget.revision + "\nError message:" + v3.getMessage() + "\ncwd=" + new File(".").getAbsolutePath() + "\nStack Trace:\n" + String.valueOf(v5.getBuffer()) + "\nCrash log file is '" + v4 + "'\n\n");
+    v2.showCrashError(v8, v9);
+    goto L273;
+    // handler for [80,268) catch Exception
+    L271:
+    v4 = $ex;
+    L273:
+    return;
+}
+
+private static void updateResourceLocation(Budget p0) {
+    v1 = new File(p0.getClass().getProtectionDomain().getCodeSource().getLocation().toURI().getPath());
+    Budget.jar_loc = v1.getParent();
+    if (Budget.jar_loc == null) goto L146;
+    if (Budget.jar_loc.contains("idea-projects") == 0) goto L92;
+    v2 = new File(Budget.jar_loc);
+    Budget.jar_loc = new File(v2.getParentFile().getParentFile().getParentFile().getParentFile(), "Budget").getAbsolutePath();
+    L92:
+    Budget.LICENSE_TXT = (Budget.jar_loc + File.separator + Budget.LICENSE_TXT);
+    Budget.icons_loc = (Budget.jar_loc + File.separator + Budget.icons_loc);
+    Budget.images_loc = (Budget.jar_loc + File.separator + Budget.images_loc);
+    goto L157;
+    L146:
+    Budget.jar_loc = ("." + File.separator);
+    L157:
+    Budget.is_jpackage = Budget.jar_loc.endsWith("app");
+    goto L180;
+    // handler for [0,169) catch Exception
+    L172:
+    v1 = $ex;
+    System.err.println(v1);
+    L180:
+    return;
+}
+
+public static double getMin(double[] p0) {
+    if (p0.length <= 0) goto L37;
+    v1 = p0[0];
+    v3 = 1;
+    L11:
+    if (v3 >= p0.length) goto L35;
+    if (v1 <= p0[v3]) goto L29;
+    v1 = p0[v3];
+    L29:
+    v3 += 1;
+    goto L11;
+    L35:
+    return v1;
+    L37:
+    return 0.0;
+}
+
+public static double getMax(double[] p0) {
+    if (p0.length <= 0) goto L37;
+    v1 = p0[0];
+    v3 = 1;
+    L11:
+    if (v3 >= p0.length) goto L35;
+    if (v1 >= p0[v3]) goto L29;
+    v1 = p0[v3];
+    L29:
+    v3 += 1;
+    goto L11;
+    L35:
+    return v1;
+    L37:
+    return 0.0;
+}
+
+public static double getAvg(double[] p0) {
+    v1 = 0.0;
+    v3 = 0;
+    L4:
+    if (v3 >= p0.length) goto L22;
+    v1 = (v1 + p0[v3]);
+    v3 += 1;
+    goto L4;
+    L22:
+    v1 = (v1 / (double)p0.length);
+    return v1;
+}
+
+private Budget$BarInfo getBarInfo(double p0, double p1, double p2, double p3, int p4, boolean p5, int p6) {
+    v12 = new Budget$BarInfo();
+    if (p2 <= p1) goto L25;
+    p2 = p1;
+    v12.clipped_top = 1;
+    L25:
+    if (p2 >= p0) goto L41;
+    p2 = p0;
+    v12.clipped_bottom = 1;
+    L41:
+    if (p0 <= 0.0) goto L73;
+    $t2 = (int)(((p2 - p0) / p3) * (double)p4);
+    v12.h = $t2;
+    v12.y = $t2;
+    goto L182;
+    L73:
+    if (p1 >= 0.0) goto L109;
+    v12.y = p4;
+    v12.h = Math.abs((int)(((p2 - p1) / p3) * (double)p4));
+    goto L182;
+    L109:
+    v12.h = Math.abs((int)((p2 / p3) * (double)p4));
+    if (p2 >= 0.0) goto L144;
+    v12.y = p6;
+    goto L182;
+    L144:
+    if (p5 == 0) goto L165;
+    v12.y = (p6 + v12.h);
+    goto L182;
+    L165:
+    v12.y = (int)(((p2 - p0) / p3) * (double)p4);
+    L182:
+    return v12;
+}
+
+private Point getGraphDim() {
+    v1 = new GC(this.display);
+    v2 = new Point(0, 0);
+    v1.setFont(this.cfg.fontGraphDayLabel.fontValue);
+    v3 = v1.stringExtent("10,000 ");
+    this.graph_bar_width = Math.max(v3.x, 30);
+    v4 = v1.stringExtent(" (-100,000)");
+    if (this.cfg.graphNMonths.intValue != -1) goto L85;
+    $s0 = 6;
+    goto L95;
+    L85:
+    $s0 = this.cfg.graphNMonths.intValue;
+    L95:
+    v5 = $s0;
+    v2.x = (((this.graph_bar_width * v5) + 7) + v4.x);
+    v6 = this.quickStatsCtnr.computeSize(-1, -1);
+    this.graph_bar_height = ((v6.y - v4.y) - v4.y);
+    if (Budget.runningOnMac != 0) goto L161;
+    if (Budget.runningOnLinux == 0) goto L175;
+    L161:
+    this.graph_bar_height = (this.graph_bar_height - v4.y);
+    L175:
+    v2.y = (v6.y + 2);
+    v1.dispose();
+    return v2;
+}
+
+private Budget$graphData getGraphData(int p0, int p1) {
+    v3 = 0;
+    L2:
+    if (v3 >= this.graph_data.length) goto L37;
+    if (p0 >= this.graph_data[v3].x_max) goto L31;
+    return this.graph_data[v3];
+    L31:
+    v3 += 1;
+    goto L2;
+    L37:
+    return null;
+}
+
+ Budget$BestScale getBestScale(double[] p0) {
+    v2 = new Budget$BestScale();
+    if (this.cfg.graphPresetMin != 0.0) goto L36;
+    if (this.cfg.graphPresetMax != 0.0) goto L36;
+    $s0 = 1;
+    goto L37;
+    L36:
+    $s0 = 0;
+    L37:
+    v3 = $s0;
+    v6 = 9;
+    v7 = Budget.getMin(p0);
+    v9 = Budget.getMax(p0);
+    if (v3 == 0) goto L63;
+    $s0 = v7;
+    goto L70;
+    L63:
+    $s0 = this.cfg.graphPresetMin;
+    L70:
+    v11 = $s0;
+    if (v3 == 0) goto L81;
+    $s0 = v9;
+    goto L88;
+    L81:
+    $s0 = this.cfg.graphPresetMax;
+    L88:
+    v13 = $s0;
+    if (v3 == 0) goto L138;
+    if (v11 < 0.0) goto L108;
+    if (v13 >= 0.0) goto L122;
+    L108:
+    if (v11 >= 0.0) goto L138;
+    if (v13 >= 0.0) goto L138;
+    L122:
+    if (v13 < 0.0) goto L135;
+    v11 = 0.0;
+    goto L138;
+    L135:
+    v13 = 0.0;
+    L138:
+    v15 = Budget.stepList;
+    v16 = v15.length;
+    v17 = 0;
+    L151:
+    if (v17 >= v16) goto L234;
+    v18 = v15[v17];
+    v4 = ((int)Math.ceil((v13 / (double)v18)) * v18);
+    v5 = ((int)Math.floor((v11 / (double)v18)) * v18);
+    v6 = (Math.abs((v4 - v5)) / v18);
+    if (v6 >= 10) goto L228;
+    v13 = (double)v4;
+    v11 = (double)v5;
+    goto L234;
+    L228:
+    v17 += 1;
+    goto L151;
+    L234:
+    v2.min = v11;
+    v2.max = v13;
+    this.graph_last_min = (int)v11;
+    this.graph_last_max = (int)v13;
+    $s0 = v2;
+    if (v6 == 0) goto L271;
+    $s0 = v2;
+    $s1 = v6;
+    goto L272;
+    L271:
+    $s1 = 1;
+    L272:
+    $s0.nLines = $s1;
+    return v2;
+}
+
+private void drawGraph(GC p0) {
+    v2 = this.get_graph_n_month();
+    v3 = new DecimalFormat(" #,##0; (-#,##0)");
+    v4 = new SimpleCalendar(this.initCal);
+    v4.set(1, 1);
+    v4.add(2, this.cfg.futureNMonths.intValue);
+    v4.set(2, 11);
+    v4.add(2, 1);
+    v5 = 1;
+    L74:
+    if (v5 > v2) goto L132;
+    v6 = new SimpleCalendar(this.curCal);
+    v6.set(1, 1);
+    v6.add(2, v5);
+    if (v6.equals(v4) == 0) goto L126;
+    v2 = v5;
+    goto L132;
+    L126:
+    v5 += 1;
+    goto L74;
+    L132:
+    v5 = this.calcGraphData(v2);
+    $a4 = new double[v5.length];
+    v6 = $a4;
+    v6[0] = v5[0];
+    v7 = 1;
+    L157:
+    if (v7 >= v6.length) goto L189;
+    v6[v7] = (v6[(v7 - 1)] + v5[v7]);
+    v7 += 1;
+    goto L157;
+    L189:
+    v7 = null;
+    if (this.cfg.graphPresetMin <= this.cfg.graphPresetMax) goto L242;
+    v8 = this.cfg.graphPresetMax;
+    this.cfg.graphPresetMax = this.cfg.graphPresetMin;
+    this.cfg.graphPresetMin = v8;
+    L242:
+    v8 = this.getBestScale(v5);
+    v9 = v8.min;
+    v11 = v8.max;
+    v13 = this.graph_bar_width;
+    v14 = (v13 * v2);
+    v15 = this.graph_bar_height;
+    p0.setFont(this.cfg.fontGraphDayLabel.fontValue);
+    v16 = p0.stringExtent("1.0").y;
+    v17 = Math.abs((int)(v11 - v9));
+    if (v11 < 0.0) goto L337;
+    if (v9 >= 0.0) goto L337;
+    $s0 = 1;
+    goto L338;
+    L337:
+    $s0 = 0;
+    L338:
+    v18 = $s0;
+    v19 = v15;
+    if (v18 == 0) goto L364;
+    v19 = (int)(((0.0 - v9) / (double)v17) * (double)v15);
+    L364:
+    p0.setBackground(this.cfg.bgColorDetails.colorValue);
+    p0.fillRectangle(0, 0, (v14 + 100), (v15 + 30));
+    $a5 = new Budget$BarInfo[v2];
+    v20 = $a5;
+    v21 = 0;
+    L403:
+    if (v21 >= v2) goto L619;
+    $s0 = p0;
+    if (v5[v21] < 0.0) goto L433;
+    $s0 = p0;
+    $s1 = this.cfg.graphBarColor.colorValue;
+    goto L443;
+    L433:
+    $s1 = this.cfg.graphNegativeBarColor.colorValue;
+    L443:
+    $s0.setBackground($s1);
+    $t6 = this.getBarInfo(v9, v11, v5[v21], (double)v17, v15, v18, v19);
+    v20[v21] = $t6;
+    v22 = $t6;
+    p0.fillRectangle(((v21 * v13) + 1), ((v16 + v15) - v22.y), v13, v22.h);
+    if (v22.clipped_top == 0) goto L555;
+    p0.setForeground(this.display.getSystemColor(7));
+    p0.setLineWidth(10);
+    p0.drawLine(((v21 * v13) + 1), v16, ((v21 * v13) + v13), v16);
+    L555:
+    if (v22.clipped_bottom == 0) goto L613;
+    p0.setForeground(this.display.getSystemColor(7));
+    p0.setLineWidth(10);
+    p0.drawLine(((v21 * v13) + 1), (v16 + v15), (((v21 * v13) + v13) - 1), (v16 + v15));
+    L613:
+    v21 += 1;
+    goto L403;
+    L619:
+    p0.setLineWidth(1);
+    v21 = 0;
+    L627:
+    if (v21 >= v2) goto L658;
+    this.graph_data[v21].x_max = (((v21 + 1) * v13) + 1);
+    v21 += 1;
+    goto L627;
+    L658:
+    p0.setForeground(this.cfg.graphGridColor.colorValue);
+    v21 = 0;
+    L675:
+    if (v21 > v2) goto L708;
+    p0.drawLine((v21 * v13), v16, (v21 * v13), (v16 + v15));
+    v21 += 1;
+    goto L675;
+    L708:
+    p0.setForeground(this.cfg.graphTextColor.colorValue);
+    p0.setBackground(this.cfg.bgColorDetails.colorValue);
+    v22 = 0;
+    L739:
+    if (v22 >= v2) goto L810;
+    v21 = this.monthName[((this.curCal.get(2) + v22) % 12)];
+    v23 = p0.stringExtent(v21);
+    p0.drawString(v21, ((v22 * v13) + ((v13 - v23.x) / 2)), ((v16 + v15) + 2), 1);
+    v22 += 1;
+    goto L739;
+    L810:
+    v22 = ((double)v17 / (double)v8.nLines);
+    p0.setForeground(this.cfg.graphGridColor.colorValue);
+    v24 = 0;
+    L839:
+    if (v24 > v8.nLines) goto L892;
+    p0.drawLine(0, (v16 + ((v24 * v15) / v8.nLines)), (v14 + 3), (v16 + ((v24 * v15) / v8.nLines)));
+    v24 += 1;
+    goto L839;
+    L892:
+    p0.setForeground(this.cfg.graphTextColor.colorValue);
+    v24 = 0;
+    v25 = 0;
+    v26 = 0;
+    L915:
+    if (v26 > v8.nLines) goto L979;
+    v27 = p0.stringExtent((" " + v3.format((v11 - (v22 * (double)v26)))));
+    v24 = Math.max(v24, v27.x);
+    v25 = Math.max(v25, v27.y);
+    v26 += 1;
+    goto L915;
+    L979:
+    v26 = p0.stringExtent(")").x;
+    v27 = 0;
+    L994:
+    if (v27 > v8.nLines) goto L1196;
+    v28 = (v11 - (v22 * (double)v27));
+    v30 = (" " + v3.format(v28));
+    v31 = p0.stringExtent(v30).x;
+    $s0 = p0;
+    $s1 = v30;
+    $s2 = (v14 + 7);
+    $s3 = (v24 - v31);
+    if (v28 < 0.0) goto L1064;
+    $s0 = p0;
+    $s1 = v30;
+    $s2 = (v14 + 7);
+    $s3 = (v24 - v31);
+    $s4 = v26;
+    goto L1065;
+    L1064:
+    $s4 = 0;
+    L1065:
+    $s0.drawString($s1, ($s2 + ($s3 - $s4)), (((v27 * v15) / v8.nLines) + (v16 / 2)), 1);
+    if (v27 == 0) goto L1102;
+    if (v27 != v8.nLines) goto L1190;
+    L1102:
+    v32 = (((v27 * v15) / v8.nLines) + (v16 / 2));
+    $s0 = this.graphHotSpots;
+    if (v27 != 0) goto L1133;
+    $s0 = this.graphHotSpots;
+    $s1 = 0;
+    goto L1134;
+    L1133:
+    $s1 = 1;
+    L1134:
+    $s0[$s1] = new Rectangle((v14 + 5), v32, v24, v25);
+    if (this.cfg.graphPresetMin != 0.0) goto L1176;
+    if (this.cfg.graphPresetMax == 0.0) goto L1190;
+    L1176:
+    p0.drawRectangle((v14 + 5), v32, v24, v25);
+    L1190:
+    v27 += 1;
+    goto L994;
+    L1196:
+    if (v18 == 0) goto L1240;
+    p0.setForeground(this.cfg.graphTextColor.colorValue);
+    p0.drawLine(0, ((v16 + v15) - v19), (v14 + 3), ((v16 + v15) - v19));
+    L1240:
+    v27 = "";
+    v28 = Budget.numFormatFrac0;
+    v29 = 0;
+    L1253:
+    if (v29 >= v2) goto L1294;
+    v30 = v28.format(v5[v29]);
+    if (v30.length() <= v27.length()) goto L1288;
+    v27 = v30;
+    L1288:
+    v29 += 1;
+    goto L1253;
+    L1294:
+    v27 = (v27 + " ");
+    v29 = new Font(p0.getDevice(), "Helvetica", p0.getFont().getFontData()[0].getHeight(), 0);
+    v30 = 0;
+    L1335:
+    v31 = p0.textExtent(v27);
+    v30 = v31.y;
+    if (v31.x >= v13) goto L1363;
+    goto L1397;
+    L1363:
+    v32 = v29;
+    v29 = this.changeFontSize(v29, -1);
+    p0.setFont(v29);
+    v32.dispose();
+    v32 = null;
+    if (v30 > 7) goto L1335;
+    L1397:
+    if (v30 < 7) goto L1541;
+    v31 = 0;
+    L1407:
+    if (v31 >= v2) goto L1541;
+    v32 = v28.format(v5[v31]);
+    v33 = p0.stringExtent(v32).x;
+    $s0 = p0;
+    if (v5[v31] < 0.0) goto L1460;
+    $s0 = p0;
+    $s1 = this.cfg.colorPositiveAmount.colorValue;
+    goto L1470;
+    L1460:
+    $s1 = this.cfg.colorNegativeAmount.colorValue;
+    L1470:
+    $s0.setForeground($s1);
+    v34 = new Rectangle(((v31 * v13) + ((v13 - v33) / 2)), ((((v16 + v15) - v20[v31].y) - v30) - 1), v33, v30);
+    p0.drawText(v32, v34.x, v34.y, 1);
+    v31 += 1;
+    goto L1407;
+    L1541:
+    return;
+}
+
+private double[] calcGraphData(int p0) {
+    $a1 = new double[p0];
+    v4 = $a1;
+    v5 = 0;
+    L8:
+    if (v5 >= p0) goto L527;
+    v4[v5] = 0.0;
+    v7 = new SimpleCalendar(this.curCal);
+    v7.set(1, 1);
+    v7.add(2, v5);
+    this.graph_data[v5].cal = new SimpleCalendar(v7);
+    v2 = v7.getActualMaximum(1);
+    switch (this.cfg.graphType) { 0: L128, 1: L154, 2: L188, 3: L371, 4: L371, 5: L442, 6: L249, 7: L249; default: L506 }
+    L128:
+    $t4 = this.db.getDay(v7);
+    v3 = $t4;
+    if ($t4 == null) goto L506;
+    v4[v5] = v3.opening_balance;
+    goto L506;
+    L154:
+    v7.set(1, v2);
+    $t5 = this.db.getDay(v7);
+    v3 = $t5;
+    if ($t5 == null) goto L506;
+    v4[v5] = v3.closing_balance;
+    goto L506;
+    L188:
+    v6 = 0;
+    L191:
+    if (v6 >= v2) goto L235;
+    $t6 = this.db.getDay(v7);
+    v3 = $t6;
+    if ($t6 == null) goto L223;
+    v4[v5] = (v4[v5] + v3.closing_balance);
+    L223:
+    v6 += 1;
+    v7.nextDay();
+    goto L191;
+    L235:
+    v4[v5] = (v4[v5] / (double)v6);
+    goto L506;
+    L249:
+    v8 = 0.0;
+    v10 = 0.0;
+    v6 = 0;
+    L258:
+    if (v6 >= v2) goto L339;
+    $t7 = this.db.getDay(v7);
+    v3 = $t7;
+    if ($t7 == null) goto L327;
+    if (v6 != 0) goto L295;
+    v10 = v3.closing_balance;
+    v8 = v3.closing_balance;
+    goto L327;
+    L295:
+    if (v8 <= v3.closing_balance) goto L311;
+    v8 = v3.closing_balance;
+    L311:
+    if (v10 >= v3.closing_balance) goto L327;
+    v10 = v3.closing_balance;
+    L327:
+    v6 += 1;
+    v7.nextDay();
+    goto L258;
+    L339:
+    if (this.cfg.graphType != 6) goto L361;
+    v4[v5] = v8;
+    goto L368;
+    L361:
+    v4[v5] = v10;
+    L368:
+    goto L506;
+    L371:
+    v8 = this.calcStatistics(v7, 1, 0);
+    switch (this.cfg.graphType) { 3: L416, 4: L429; default: L439 }
+    L416:
+    v4[v5] = v8.total_income;
+    goto L439;
+    L429:
+    v4[v5] = v8.total_expense;
+    L439:
+    goto L506;
+    L442:
+    v8 = 0.0;
+    v10 = 0.0;
+    $t8 = this.db.getDay(v7);
+    v3 = $t8;
+    if ($t8 == null) goto L468;
+    v8 = v3.opening_balance;
+    L468:
+    v7.set(1, v2);
+    $t9 = this.db.getDay(v7);
+    v3 = $t9;
+    if ($t9 == null) goto L496;
+    v10 = v3.closing_balance;
+    L496:
+    v4[v5] = (v10 - v8);
+    L506:
+    this.graph_data[v5].val = v4[v5];
+    v5 += 1;
+    goto L8;
+    L527:
+    this.graph_data[0].sum = this.graph_data[0].val;
+    v5 = 1;
+    L548:
+    if (v5 >= v4.length) goto L595;
+    this.graph_data[v5].sum = (this.graph_data[(v5 - 1)].sum + this.graph_data[v5].val);
+    v5 += 1;
+    goto L548;
+    L595:
+    if (p0 >= 12) goto L680;
+    v5 = p0;
+    L604:
+    if (v5 >= 12) goto L680;
+    this.graph_data[v5].cal = this.graph_data[(p0 - 1)].cal;
+    this.graph_data[v5].val = this.graph_data[(p0 - 1)].val;
+    this.graph_data[v5].x_max = this.graph_data[(p0 - 1)].x_max;
+    v5 += 1;
+    goto L604;
+    L680:
+    return v4;
+}
+
+private void updateShellTitle() {
+    $s0 = this.mainShell;
+    if (this.fileName != null) goto L17;
+    $s0 = this.mainShell;
+    $s1 = "New budget";
+    goto L21;
+    L17:
+    $s1 = this.fileName;
+    L21:
+    if (this.trial_version == 0) goto L34;
+    $s2 = " (unregistered)";
+    goto L37;
+    L34:
+    $s2 = "";
+    L37:
+    $s0.setText(($s1 + " - Budget Calendar" + $s2));
+    return;
+}
+
+private void addRecentFile(String p0) {
+    this.cfg.recentFile.remove(p0);
+    this.cfg.recentFile.insertElementAt(p0, 0);
+    L24:
+    if (this.cfg.recentFile.size() <= 5) goto L53;
+    this.cfg.recentFile.remove(5);
+    goto L24;
+    L53:
+    return;
+}
+
+private void loadRc(String p0) {
+    if (Budget.runningOnMac == 0) goto L11;
+    $s0 = 40;
+    goto L12;
+    L11:
+    $s0 = 0;
+    L12:
+    v2 = $s0;
+    if (Budget.runningOnMac == 0) goto L27;
+    $s0 = (800 - v2);
+    goto L30;
+    L27:
+    $s0 = 800;
+    L30:
+    v3 = $s0;
+    this.initialRect = new Rectangle(0, v2, 1200, v3);
+    this.cfg = new BudgetConfig(this.rcFileName);
+    this.fileName = this.cfg.lastFileName;
+    if (this.fileName == null) goto L107;
+    this.fileName = this.fileName.trim();
+    if (this.fileName.length() != 0) goto L107;
+    this.fileName = null;
+    L107:
+    if (this.cfg.windowHeight == -1) goto L168;
+    this.initialRect = new Rectangle(this.cfg.windowPosX, this.cfg.windowPosY, this.cfg.windowWidth, this.cfg.windowHeight);
+    this.initialMaximized = this.cfg.windowMaximized;
+    L168:
+    this.cfg.futureNMonths.intValue = Budget.clamp(this.cfg.futureNMonths.intValue, 12, 180);
+    this.cfg.graphNMonths.intValue = Budget.valid_month_n(this.cfg.graphNMonths.intValue);
+    return;
+}
+
+private void saveRc() {
+    this.cfg.firstRun = 0;
+    $s0 = this.cfg;
+    if (Budget.is_jpackage == 0) goto L22;
+    $s0 = this.cfg;
+    $s1 = 0;
+    goto L23;
+    L22:
+    $s1 = 1;
+    L23:
+    $s0.firstRunJPACKAGE = $s1;
+    this.cfg.lastFileName = this.fileName;
+    v1 = this.mainShell.getBounds();
+    this.cfg.windowPosX = v1.x;
+    this.cfg.windowPosY = v1.y;
+    this.cfg.windowHeight = v1.height;
+    this.cfg.windowWidth = v1.width;
+    this.cfg.windowMaximized = this.mainShell.getMaximized();
+    $s0 = this.cfg;
+    if (this.unfoldComp == null) goto L118;
+    $s0 = this.cfg;
+    $s1 = 1;
+    goto L119;
+    L118:
+    $s1 = 0;
+    L119:
+    $s0.startFolded = $s1;
+    v2 = this.cfg.save();
+    if (v2 == null) goto L152;
+    this.showError(this.mainShell, ("Unable to save config '" + this.rcFileName + "'\n" + v2));
+    L152:
+    return;
+}
+
+private boolean saveNewBudget() {
+    switch (this.confirmYesNoCancel(this.mainShell, "Do you want to save the new budget ?")) { 128: L38, 256: L36; default: L40 }
+    L36:
+    return 0;
+    L38:
+    return 1;
+    L40:
+    v1 = new FileDialog(this.mainShell, 8192);
+    $a2 = new String[1];
+    $a2[0] = "*.bgt";
+    v2 = $a2;
+    v1.setText("Save new budget...");
+    v1.setFilterExtensions(v2);
+    v3 = v1.open();
+    if (v3 == null) goto L198;
+    if (v3.length() <= 0) goto L198;
+    if (-1 != v3.indexOf(".bgt")) goto L112;
+    v3 = (v3 + ".bgt");
+    L112:
+    v4 = new File(v3);
+    if (v4.exists() == 0) goto L149;
+    if (this.confirmYesNo(this.mainShell, ("The '" + v3 + "' file already exists.\nDo you want to overwrite it ?")) == 0) goto L149;
+    return 0;
+    L149:
+    v5 = new StringBuffer();
+    if (0 != this.db.save(v3, this.dbKey, v5)) goto L191;
+    this.showError(this.mainShell, v5.toString());
+    return 0;
+    L191:
+    this.fileName = v3;
+    return 1;
+    L198:
+    return 0;
+}
+
+private String askPasswordIfEncrypted(String p0) {
+    if (BudgetDB.isEncrypted(p0) == 0) goto L82;
+    v2 = null;
+    L9:
+    v2 = this.prompt(null, this.budgetIcon(), "Password", "The budget file is password protected\nEnter the password:", "", Budget.PROMPT_PASSWORD);
+    if (v2 != null) goto L37;
+    return null;
+    L37:
+    if (v2.length() != 0) goto L58;
+    this.showError(this.mainShell, "Empty password!");
+    goto L9;
+    L58:
+    if (BudgetDB.isDecryptable(p0, v2) == 0) goto L68;
+    return v2;
+    L68:
+    this.showError(this.mainShell, "The password appears to be invalid!\n");
+    goto L9;
+    L82:
+    return null;
+}
+
+private boolean more_than_Ndays(int p0) {
+    if (this.db == null) goto L46;
+    $t1 = this.db.getOldestAdjustmentDate();
+    v2 = $t1;
+    if (-1 == $t1) goto L46;
+    v3 = new SimpleCalendar();
+    v3.add(1, (-p0));
+    if (v2 >= v3.get()) goto L46;
+    return 1;
+    L46:
+    v3 = new File(Budget.icons_loc);
+    v4 = (Calendar.getInstance().getTime().getTime() / 1000L);
+    if (File.separator.equals("\\") == 0) goto L110;
+    if (((v3.lastModified() / 1000L) + (long)((p0 * 24) * 3600)) >= v4) goto L110;
+    return 1;
+    L110:
+    goto L114;
+    // handler for [0,45) catch Exception
+    // handler for [46,109) catch Exception
+    L113:
+    v2 = $ex;
+    L114:
+    return 0;
+}
+
+private boolean is_trial_version() {
+    v1 = null;
+    v2 = this.cfg.regkey;
+    if (v2 == null) goto L24;
+    if (v2.trim().length() != 0) goto L151;
+    L24:
+    v1 = new BufferedReader(new FileReader("regkey.txt"));
+    v2 = v1.readLine();
+    goto L90;
+    // handler for [24,47) catch Exception
+    L50:
+    v3 = $ex;
+    if (Budget.runningOnWindows == 0) goto L85;
+    v1 = new BufferedReader(new FileReader((Budget.dirHome + "\\AppData\\Local\\VirtualStore\\Program Files\\MiShellSoft\\Budget\\regkey.txt")));
+    v2 = v1.readLine();
+    L85:
+    goto L90;
+    // handler for [51,85) catch Exception
+    L88:
+    v4 = $ex;
+    L90:
+    if (v1 != null) goto L139;
+    if (this.budgetStickMode == 0) goto L139;
+    v1 = new BufferedReader(new FileReader((Budget.dirData + File.separator + ".." + File.separator + "regkey.txt")));
+    v2 = v1.readLine();
+    goto L139;
+    // handler for [101,135) catch Exception
+    L138:
+    v3 = $ex;
+    L139:
+    if (v1 == null) goto L151;
+    v1.close();
+    goto L151;
+    // handler for [143,147) catch Exception
+    L150:
+    v3 = $ex;
+    L151:
+    if (v2 == null) goto L201;
+    if (1 != Budget.isValidKey(v2.trim())) goto L201;
+    this.cfg.regkey = v2.trim();
+    this.cfg.unlimitedHistory.boolValue = 1;
+    this.cfg.unlimitedHistory.enabled = 1;
+    return 0;
+    L201:
+    return 1;
+}
+
+private void checkRegistration() {
+    this.trial_version = this.is_trial_version();
+    if (this.trial_version == 0) goto L357;
+    v1 = new Budget$1Bool(this);
+    v1.value = this.more_than_Ndays(60);
+    if (this.more_than_Ndays(30) == 0) goto L357;
+    v2 = new Shell(this.mainShell, 2080);
+    v2.setImage(this.budgetIcon());
+    v2.setText("Budget Calendar");
+    v2.setLayout(new layout.GridLayout(1, 0));
+    v3 = new Label(v2, 0);
+    v3.setText("This is a trial version of the Budget Calendar.\nTo register your product, click this button:\n");
+    v3.setLayoutData(new layout.GridData(64));
+    v4 = new Button(v2, 8);
+    $s0 = v4;
+    if (v1.value != 0) goto L143;
+    $s0 = v4;
+    $s1 = " (waiting...100)";
+    goto L146;
+    L143:
+    $s1 = "";
+    L146:
+    $s0.setText(("https://www.mishell.ca/" + $s1));
+    v4.setLayoutData(new layout.GridData(64));
+    v4.addSelectionListener(new Budget$2(this, v1));
+    v5 = new Button(v2, 8);
+    v5.setText("Enter registration key");
+    v5.setLayoutData(new layout.GridData(64));
+    v5.addSelectionListener(new Budget$3(this, v1, v2));
+    this.centerShell(v2);
+    v6 = 20L;
+    v8 = (Calendar.getInstance().getTime().getTime() / 1000L);
+    v10 = (v8 - 1L);
+    L262:
+    if (v2.isDisposed() != 0) goto L346;
+    v8 = (Calendar.getInstance().getTime().getTime() / 1000L);
+    if (v10 == v8) goto L335;
+    v10 = v8;
+    if (v6 != 0L) goto L310;
+    v2.dispose();
+    goto L346;
+    L310:
+    if (v1.value != 0) goto L335;
+    v6 = (v6 - 1L);
+    v4.setText(("https://www.mishell.ca/ (waiting..." + v6 + ")"));
+    L335:
+    this.display.readAndDispatch();
+    goto L262;
+    L346:
+    if (v1.value == 0) goto L357;
+    System.exit(0);
+    L357:
+    return;
+}
+
+private void calc_min_date() {
+    if (this.cfg.unlimitedHistory.boolValue == 0) goto L66;
+    v1 = new SimpleCalendar(this.initCal);
+    v1.set(1, 1);
+    L32:
+    v1.add(2, -1);
+    if (null != this.db.getDay(v1)) goto L32;
+    goto L54;
+    L54:
+    v1.add(2, 1);
+    this.minDate = v1;
+    L66:
+    return;
+}
+
+private boolean saveAndCleanup() {
+    if (this.cfg.autosave.boolValue != 0) goto L104;
+    if (this.fileName == null) goto L104;
+    v1 = new MessageBox(this.mainShell, 448);
+    v1.setMessage("Do you want to save your budget?");
+    v1.setText("Save...");
+    switch (v1.open()) { 64: L88, 128: L91, 256: L97; default: L104 }
+    L88:
+    goto L104;
+    L91:
+    this.saveRc();
+    return 1;
+    L97:
+    this.shellAdapterInvoked = 0;
+    return 0;
+    L104:
+    if (0 != this.saveDB()) goto L114;
+    return 0;
+    L114:
+    this.saveRc();
+    return 1;
+}
+
+private void rebuildApp() {
+    this.minDate = new SimpleCalendar();
+    this.minDate.set(1, 1);
+    this.minDate.add(2, -1);
+    this.curCal = new SimpleCalendar(this.initCal);
+    this.curCal.set(1, 1);
+    this.maxDate = new SimpleCalendar(this.curCal);
+    this.maxDate.add(2, (this.cfg.futureNMonths.intValue - 1));
+    this.maxDate.set(2, 11);
+    this.db.rebuildDB(this.curCal, this.cfg.futureNMonths.intValue, this.cfg.unlimitedHistory.boolValue);
+    this.calc_min_date();
+    v1 = this.mainShell.getChildren();
+    v2 = 0;
+    L148:
+    if (v2 >= v1.length) goto L166;
+    v1[v2].dispose();
+    v2 += 1;
+    goto L148;
+    L166:
+    this.unfoldComp = null;
+    this.unfoldFilterText = null;
+    this.unfoldMonthSelector = null;
+    this.createShellContents();
+    this.calendarView.layout();
+    this.mainShell.layout();
+    this.show_current(this.calendarScroll);
+    return;
+}
+
+private void loadQuickPickTags() {
+    v1 = null;
+    v1 = new BufferedReader(new FileReader(Budget.image("image.tags")));
+    L23:
+    $t3 = v1.readLine();
+    v2 = $t3;
+    if (null == $t3) goto L136;
+    v3 = BudgetDB.split(v2, 61);
+    if (v3.length != 2) goto L133;
+    v4 = BudgetDB.split(v3[0], 44);
+    v5 = BudgetDB.split(v3[1], 44);
+    if (v4.length <= 0) goto L133;
+    if (v5.length <= 0) goto L133;
+    v6 = 0;
+    L81:
+    if (v6 >= v4.length) goto L133;
+    v7 = new Budget$ImgTag();
+    v7.substring = v4[v6].toUpperCase();
+    v7.images = v5;
+    Budget.imgTags.add(v7);
+    v6 += 1;
+    goto L81;
+    L133:
+    goto L23;
+    L136:
+    v1.close();
+    goto L159;
+    // handler for [2,140) catch Exception
+    L143:
+    v2 = $ex;
+    System.err.println(("Failed to load 'images.tags': " + String.valueOf(v2)));
+    L159:
+    return;
+}
+
+private Shell open(Display p0, String[] p1) {
+    this.display = p0;
+    v3 = null;
+    this.excel_prg = program.Program.findProgram(".xls");
+    goto L22;
+    // handler for [7,17) catch Exception
+    L20:
+    v4 = $ex;
+    L22:
+    if (null != this.excel_prg) goto L45;
+    this.excel_prg = program.Program.findProgram(".xlsx");
+    goto L45;
+    // handler for [30,40) catch Exception
+    L43:
+    v4 = $ex;
+    L45:
+    if (Budget.runningOnMac == 0) goto L57;
+    $s0 = "../../..";
+    goto L72;
+    L57:
+    if (Budget.runningOnLinux == 0) goto L69;
+    $s0 = "../..";
+    goto L72;
+    L69:
+    $s0 = "..\\..";
+    L72:
+    v4 = $s0;
+    v5 = new File((v4 + File.separator + "BudgetFiles" + File.separator + "data"));
+    if (v5.exists() == 0) goto L144;
+    if (v5.isDirectory() == 0) goto L144;
+    this.budgetStickMode = 1;
+    Budget.dirHome = Budget.dirCurrent;
+    Budget.dirData = v5.getCanonicalPath();
+    goto L144;
+    // handler for [123,131) catch IOException
+    L134:
+    v6 = $ex;
+    Budget.dirData = v5.getAbsolutePath();
+    L144:
+    this.rcFileName = (Budget.dirHome + File.separator + ".budgetrc");
+    this.mainShell = new Shell();
+    if (Budget.runningOnMac == 0) goto L297;
+    v6 = 0;
+    v7 = 0;
+    L182:
+    if (v7 >= p1.length) goto L224;
+    if (p1[v7].startsWith("-p") == 0) goto L218;
+    if (p1[v7].equals("-p") != 0) goto L218;
+    v6 += 1;
+    L218:
+    v7 += 1;
+    goto L182;
+    L224:
+    $a3 = new String[(p1.length - v6)];
+    v7 = $a3;
+    v6 = 0;
+    v8 = 0;
+    L240:
+    if (v8 >= p1.length) goto L294;
+    if (p1[v8].startsWith("-p") == 0) goto L276;
+    if (p1[v8].equals("-p") != 0) goto L276;
+    goto L288;
+    L276:
+    v7[v6] = p1[v8];
+    v6 += 1;
+    L288:
+    v8 += 1;
+    goto L240;
+    L294:
+    p1 = v7;
+    L297:
+    v6 = new CLIOpts("Budget", p1);
+    v8 = -1;
+    v9 = null;
+    L316:
+    $t5 = v6.getopt("prn:dc:ihbDzBZ:UC:");
+    v7 = $t5;
+    if (-1 == $t5) goto L639;
+    switch (v7) { 58: L549, 63: L549, 66: L525, 67: L456, 68: L541, 85: L448, 90: L505, 99: L602, 100: L594, 104: L549, 105: L565, 114: L586, 122: L533; default: L614 }
+    L448:
+    this.opt_show_url = 1;
+    goto L316;
+    L456:
+    v10 = v6.optarg().split(",");
+    if (v10.length != 2) goto L480;
+    $s0 = 1;
+    goto L481;
+    L480:
+    $s0 = 0;
+    L481:
+    Budget.ASSERT($s0, "bad command line for '-C year,name'");
+    v8 = Integer.parseInt(v10[0]);
+    v9 = v10[1];
+    goto L316;
+    L505:
+    this.opt_show_balance = Budget.parseInt(v6.optarg());
+    this.opt_show_balance_supplied = 1;
+    goto L316;
+    L525:
+    this.do_bill_reminder_check = 1;
+    goto L316;
+    L533:
+    this.dont_show_zero_amount = 1;
+    goto L316;
+    L541:
+    this.opt_debug = 1;
+    goto L316;
+    L549:
+    this.showInfo(this.mainShell, "Command line options:\n-r\tprint the current budget month and exit;\n-d\tdisable dnd operations\n-D\tdebug mode (no budget-crash.log) file\n-z\tdo not show '0' transaction amounts\n-B\tcheck bill remainders\n-Z{0|1|2}\n\tshow balance option: 0 - none, 1 - all, 2 - first&last.\n-c rcfile\n\tuse <rcfile> instead of .budgetrc\nEXPERIMENTAL:\n-C year,name\n\t* process the current data file;\n\t* remove all entries prior the year;\n\t* save into the file 'name'.\n");
+    return this.mainShell;
+    L565:
+    this.showInfo(this.mainShell, (Budget.revision + "\n"));
+    return this.mainShell;
+    L586:
+    this.opt_print_current_month = 1;
+    goto L316;
+    L594:
+    this.use_dnd = 0;
+    goto L316;
+    L602:
+    this.rcFileName = v6.optarg();
+    goto L316;
+    L614:
+    this.showError(this.mainShell, ("Declared but not handled option '" + v6.option() + "'"));
+    System.exit(1);
+    goto L316;
+    L639:
+    if (v6.optind() >= p1.length) goto L669;
+    v3 = p1[v6.optind()];
+    if (v3.trim().length() != 0) goto L669;
+    v3 = null;
+    L669:
+    this.loadRc(this.rcFileName);
+    this.white_color = p0.getSystemColor(1);
+    this.black_color = p0.getSystemColor(2);
+    if (this.cfg.singleInstance.boolValue == 0) goto L740;
+    if (this.isAppAlreadyRunning(this.cfg.port.intValue) == 0) goto L740;
+    this.showError(this.mainShell, "Budget Calendar is already running.");
+    System.exit(1);
+    L740:
+    if (this.cfg.licAgree != 0) goto L771;
+    if (0 != this.licAgree()) goto L763;
+    System.exit(10);
+    L763:
+    this.cfg.licAgree = 1;
+    L771:
+    if (Budget.runningOnMac == 0) goto L813;
+    if (this.cfg.firstRun == 0) goto L813;
+    if (1 != this.showYesNo(this.mainShell, "Are you using ONE BUTTON mouse?\nYou can always change it later -- File->preferences->One button mouse.\n")) goto L813;
+    this.cfg.oneButtonMouse.boolValue = 1;
+    L813:
+    if (Budget.is_jpackage == 0) goto L842;
+    if (this.cfg.firstRunJPACKAGE == 0) goto L842;
+    if (Budget.runningOnWindows == 0) goto L842;
+    this.msiSuggestUninstall(Budget.is_jpackage);
+    L842:
+    this.noImage = new Image(p0, Budget.icon("no-image.bmp"));
+    this.bestFit = new Budget$BestFit(this, p0);
+    if (this.is_trial_version() == 0) goto L902;
+    this.cfg.unlimitedHistory.boolValue = 0;
+    this.cfg.unlimitedHistory.enabled = 0;
+    L902:
+    v10 = new StringBuffer();
+    this.minDate = new SimpleCalendar();
+    this.minDate.set(1, 1);
+    this.minDate.add(2, -1);
+    this.curCal = new SimpleCalendar(this.initCal);
+    this.curCal.set(1, 1);
+    this.maxDate = new SimpleCalendar(this.curCal);
+    this.maxDate.add(2, (this.cfg.futureNMonths.intValue - 1));
+    this.maxDate.set(2, 11);
+    this.loadQuickPickTags();
+    if (v3 == null) goto L1027;
+    this.fileName = v3;
+    L1027:
+    if (this.fileName == null) goto L1194;
+    if (BudgetDB.isEncrypted(this.fileName) == 0) goto L1068;
+    this.dbKey = this.askPasswordIfEncrypted(this.fileName);
+    if (this.dbKey != null) goto L1068;
+    this.fileName = null;
+    L1068:
+    if (this.fileName == null) goto L1194;
+    v11 = this.cfg.unlimitedHistory.boolValue;
+    if (v9 == null) goto L1095;
+    v11 = 1;
+    L1095:
+    this.db = BudgetDB.load(this.fileName, this.dbKey, v10, this.curCal, this.cfg.futureNMonths.intValue, v11);
+    if (null != this.db) goto L1194;
+    if (this.opt_debug == 0) goto L1151;
+    System.err.println(v10);
+    L1151:
+    $s0 = this;
+    $s1 = this.mainShell;
+    $s2 = this.fileName;
+    if (this.dbKey == null) goto L1173;
+    $s0 = this;
+    $s1 = this.mainShell;
+    $s2 = this.fileName;
+    $s3 = "(password may be incorrect)\n";
+    goto L1176;
+    L1173:
+    $s3 = "";
+    L1176:
+    $s0.showError($s1, ("Unable to open '" + $s2 + "' file\n" + $s3 + "An empty budget will be created."));
+    this.fileName = null;
+    this.dbKey = null;
+    L1194:
+    if (this.fileName == null) goto L1223;
+    v11 = new File(this.fileName);
+    this.addRecentFile(v11.getAbsolutePath());
+    L1223:
+    if (v9 == null) goto L1244;
+    this.cut_off_history(this.fileName, this.db, v8, v9);
+    L1244:
+    if (this.db != null) goto L1316;
+    this.db = BudgetDB.load(null, null, v10, this.curCal, this.cfg.futureNMonths.intValue, this.cfg.unlimitedHistory.boolValue);
+    if (null != this.db) goto L1316;
+    this.showError(this.mainShell, ("Unable to initialize budget database.\n" + String.valueOf(v10)));
+    System.exit(1);
+    L1316:
+    this.calc_min_date();
+    this.mainShell.setImage(this.budgetIcon());
+    this.checkRegistration();
+    this.updateShellTitle();
+    if (this.initialRect == null) goto L1393;
+    if (this.initialMaximized != 0) goto L1393;
+    this.mainShell.setBounds(this.initialRect);
+    this.mainShell.setLocation(this.fixShellLocation(p0, this.mainShell.getSize(), this.mainShell.getLocation()));
+    goto L1475;
+    L1393:
+    if (this.initialMaximized == 0) goto L1467;
+    if (this.initialRect == null) goto L1456;
+    if (Budget.isInBounds(p0, new Point(this.initialRect.x, this.initialRect.y)) == 0) goto L1456;
+    this.mainShell.setLocation(this.initialRect.x, this.initialRect.y);
+    L1456:
+    this.mainShell.setMaximized(1);
+    goto L1475;
+    L1467:
+    this.centerShell(this.mainShell);
+    L1475:
+    this.attachDisplayListeners();
+    this.createShellContents();
+    if (this.cfg.startFolded == 0) goto L1501;
+    this.foldLabelListener.mouseDown(null);
+    L1501:
+    if (this.opt_print_current_month == 0) goto L1568;
+    v11 = this.getHtmlFileName();
+    if (null == v11) goto L1543;
+    this.saveHTML(v11, this.curCal, this.curCal);
+    program.Program.launch(Budget.html_name(v11));
+    L1543:
+    goto L1566;
+    // handler for [1508,1543) catch Exception
+    L1546:
+    v11 = $ex;
+    this.showError(this.mainShell, ("Unable to save HTML file\n" + String.valueOf(v11)));
+    L1566:
+    return null;
+    L1568:
+    if (this.db == null) goto L1825;
+    if (this.do_bill_reminder_check == 0) goto L1825;
+    if (this.db.fileName == null) goto L1825;
+    v11 = new File(this.db.fileName);
+    v12 = new SimpleCalendar(v11.lastModified());
+    v13 = new SimpleCalendar();
+    v13.add(1, 1);
+    v14 = Budget.numFormatFrac2;
+    v15 = "These payments are due:\n\n";
+    v16 = 0;
+    if (v12.lt(v13) == 0) goto L1793;
+    L1662:
+    if (v12.equals(v13) != 0) goto L1793;
+    v17 = this.db.getDay(v12);
+    if (v17 == null) goto L1782;
+    if (v17.hasTransactions() == 0) goto L1782;
+    v18 = v17.transactionIterator();
+    L1703:
+    if (v18.hasNext() == 0) goto L1782;
+    v19 = (Transaction)v18.next();
+    v15 = (v15 + String.valueOf(v12) + ":  " + v19.pmt.description + "  " + v14.format(v19.amount) + "\n");
+    v16 += 1;
+    if (v16 <= 15) goto L1779;
+    v15 = (v15 + "...\n");
+    goto L1782;
+    L1779:
+    goto L1703;
+    L1782:
+    v12.add(1, 1);
+    goto L1662;
+    L1793:
+    if (v16 != 0) goto L1800;
+    return null;
+    L1800:
+    v15 = (v15 + "\nDo you want to run Budget Calendar now?\n");
+    if (0 != this.showYesNo(this.mainShell, v15)) goto L1825;
+    return null;
+    L1825:
+    v11 = 0;
+    if (this.cfg.bestFit.boolValue == 0) goto L1850;
+    v11 = this.bestFit.cell_width;
+    L1850:
+    this.calendarView.layout();
+    this.mainShell.layout();
+    v12 = this;
+    this.mainShell.open();
+    this.mainShell.forceActive();
+    this.mainShell.forceFocus();
+    if (this.initialMaximized == 0) goto L1932;
+    if (this.cfg.bestFit.boolValue == 0) goto L1932;
+    this.bestFit.setSize();
+    if (v11 == this.bestFit.cell_width) goto L1932;
+    this.updateCalendarView();
+    L1932:
+    this.show_current(this.calendarScroll);
+    p0.addListener(21, new Budget$5(this));
+    this.mainShell.addShellListener(this.shellAdapter);
+    this.mainShell.addListener(11, new Budget$6(this));
+    if (this.db.size() != 0) goto L2006;
+    if (this.db.adjustmentsSize() != 0) goto L2006;
+    this.showHint();
+    L2006:
+    v13 = new Budget$7(this, p0);
+    p0.timerExec(20000, v13);
+    L2026:
+    if (this.mainShell.isDisposed() != 0) goto L2247;
+    if (this.do_calendar_update == 0) goto L2052;
+    this.do_calendar_update = 0;
+    this.updateCalendarView();
+    L2052:
+    if (this.do_rebuild == 0) goto L2068;
+    this.rebuildApp();
+    this.do_rebuild = 0;
+    L2068:
+    if (Budget.runningOnMac == 0) goto L2096;
+    if (this.mainShell.isVisible() != 0) goto L2096;
+    System.out.println("mainShell is no longer visible, exiting...");
+    goto L2247;
+    L2096:
+    if (p0.readAndDispatch() != 0) goto L2026;
+    if (this.do_best_fit == 0) goto L2117;
+    this.updateCalendarView();
+    goto L2026;
+    L2117:
+    if (this.flash_cell == null) goto L2239;
+    v14 = 0;
+    L2127:
+    if (v14 >= 3) goto L2234;
+    this.flash_cell.setBackground(this.cfg.bgColorCellHighlight.colorValue);
+    if (Budget.runningOnMac == 0) goto L2164;
+    p0.readAndDispatch();
+    goto L2168;
+    L2164:
+    p0.update();
+    L2168:
+    Thread.sleep(200L);
+    goto L2179;
+    // handler for [2168,2174) catch Exception
+    L2177:
+    v15 = $ex;
+    L2179:
+    this.flash_cell.setBackground((Color)this.flash_cell.getData("bgcolor"));
+    if (Budget.runningOnMac == 0) goto L2213;
+    p0.readAndDispatch();
+    goto L2217;
+    L2213:
+    p0.update();
+    L2217:
+    Thread.sleep(200L);
+    goto L2228;
+    // handler for [2217,2223) catch Exception
+    L2226:
+    v15 = $ex;
+    L2228:
+    v14 += 1;
+    goto L2127;
+    L2234:
+    this.flash_cell = null;
+    L2239:
+    p0.sleep();
+    goto L2026;
+    L2247:
+    if (this.shellAdapterInvoked != 0) goto L2277;
+    System.out.println("shellAdapterInvoked = false!\n");
+    System.out.println("Saving...!\n");
+    this.saveAndCleanup();
+    L2277:
+    return this.mainShell;
+}
+
+private void msiSuggestUninstall(boolean p0) {
+    v2 = new File("C:\\Program Files (x86)\\MiShellSoft\\Budget\\uninstall.exe");
+    if (v2.exists() == 0) goto L82;
+    if (p0 == 0) goto L28;
+    $s0 = "You are on the LATEST version of Budget, the older version could not be removed automatically.\n\n";
+    goto L31;
+    L28:
+    $s0 = "WARNING: Budget Calendar was updated to use Microsoft Windows Installer. Before installing, please uinstall the older version.\n\n";
+    L31:
+    v3 = ($s0 + "Would you like to uninstall the older version now?\n\nIf not, you can later safely uninstall 'MiShell*Budget (Remove Only)' without affecting the current version.");
+    if (this.showYesNo(this.mainShell, v3) == 0) goto L82;
+    v4 = Runtime.getRuntime();
+    $a2 = new String[2];
+    $a2[0] = "explorer.exe";
+    $a2[1] = ("/select," + v2.getAbsolutePath());
+    v4.exec($a2);
+    L82:
+    goto L90;
+    // handler for [0,82) catch Exception
+    L85:
+    v2 = $ex;
+    v2.printStackTrace();
+    L90:
+    return;
+}
+
+private static void ASSERT(boolean p0, String p1) {
+    if (p0 != 0) goto L15;
+    System.err.println(p1);
+    System.exit(1);
+    L15:
+    return;
+}
+
+private void cut_off_history(String p0, BudgetDB p1, int p2, String p3) {
+    if (p3.endsWith(".bgt") != 0) goto L20;
+    p3 = (p3 + ".bgt");
+    L20:
+    if (p1 == null) goto L28;
+    $s0 = 1;
+    goto L29;
+    L28:
+    $s0 = 0;
+    L29:
+    Budget.ASSERT($s0, "no data file to work with!");
+    Budget.ASSERT(this.cfg.unlimitedHistory.enabled, "no registration!");
+    if (new File(p3).exists() != 0) goto L70;
+    $s0 = 1;
+    goto L71;
+    L70:
+    $s0 = 0;
+    L71:
+    Budget.ASSERT($s0, ("file '" + p3 + "' already exists!"));
+    System.err.println((p0 + ": cutting-off on " + p2));
+    Budget.ASSERT(p1.cutOffHistoryPrior(p2), "no data reduction!");
+    System.err.println(("saving into '" + p3 + "':"));
+    v5 = new StringBuffer();
+    if (p1.save(p3, null, v5) != 0) goto L154;
+    System.err.println(v5.toString());
+    System.exit(1);
+    L154:
+    System.err.println("done.");
+    System.exit(0);
+    return;
+}
+
+private int get_graph_n_month() {
+    if (this.cfg.graphNMonths.intValue != -1) goto L30;
+    return Math.min((12 - this.curCal.getMonth()), 6);
+    L30:
+    return this.cfg.graphNMonths.intValue;
+}
+
+static int valid_month_n(int p0) {
+    if (-1 != p0) goto L7;
+    return p0;
+    L7:
+    if (p0 >= 1) goto L17;
+    p0 = 1;
+    goto L26;
+    L17:
+    if (p0 <= 12) goto L26;
+    p0 = 12;
+    L26:
+    return p0;
+}
+
+private static int clamp(int p0, int p1, int p2) {
+    if (p0 >= p1) goto L7;
+    return p1;
+    L7:
+    if (p0 <= p2) goto L14;
+    return p2;
+    L14:
+    return p0;
+}
+
+private Image getImage(String p0, Color p1) {
+    v3 = (p0 + "(" + p1.getBlue() + "," + p1.getGreen() + "," + p1.getRed() + ")");
+    v4 = this.noImage;
+    if (this.images.containsKey(v3) == 0) goto L52;
+    v4 = (Image)this.images.get(v3);
+    goto L102;
+    L52:
+    v4 = new Image(this.display, p0);
+    goto L74;
+    // handler for [52,66) catch Exception
+    L69:
+    v5 = $ex;
+    v4 = null;
+    L74:
+    if (v4 != null) goto L85;
+    v4 = this.noImage;
+    L85:
+    this.images.put(v3, v4);
+    v4.setBackground(p1);
+    L102:
+    return v4;
+}
+
+private Image getImageAlt(String p0, String p1, Color p2) {
+    v4 = this.getImage(p0, p2);
+    if (v4 != this.noImage) goto L24;
+    return this.getImage(p1, p2);
+    L24:
+    return v4;
+}
+
+private Image getScaledImage(String p0, Color p1, float p2) {
+    v4 = this.getImage(p0, p1);
+    if ((double)p2 != 1.0) goto L18;
+    return v4;
+    L18:
+    v5 = v4.getImageData().width;
+    v6 = v4.getImageData().height;
+    v7 = new Image(this.display, v4.getImageData().scaledTo((int)((float)v5 * p2), (int)((float)v6 * p2)));
+    return v7;
+}
+
+private void setMonthLabel() {
+    v1 = new SimpleDateFormat("MMMMMMMMMMMMM,yyyy");
+    this.monthLabel.setText(v1.format(this.curCal.getTime()));
+    this.monthLabel.getParent().layout();
+    v2 = (this.curCal.get() / 100);
+    $s0 = this.left_lbl;
+    if (v2 != (this.minDate.get() / 100)) goto L75;
+    $s0 = this.left_lbl;
+    $s1 = this.left_arrow_gray_img;
+    goto L79;
+    L75:
+    $s1 = this.left_arrow_img;
+    L79:
+    $s0.setImage($s1);
+    $s0 = this.right_lbl;
+    if (v2 != (this.maxDate.get() / 100)) goto L107;
+    $s0 = this.right_lbl;
+    $s1 = this.right_arrow_gray_img;
+    goto L111;
+    L107:
+    $s1 = this.right_arrow_img;
+    L111:
+    $s0.setImage($s1);
+    if (this.unfoldMonthSelector == null) goto L140;
+    this.unfoldMonthSelector.setText(("<a>" + this.monthLabel.getText() + "</a>"));
+    L140:
+    return;
+}
+
+private Label makeStatLabel(Composite p0, String p1, String p2, int p3) {
+    if (this.stat_line_color == 0) goto L14;
+    $s0 = this.bg_darker_color;
+    goto L18;
+    L14:
+    $s0 = p0.getBackground();
+    L18:
+    v5 = $s0;
+    $s0 = this;
+    if (this.stat_line_color != 0) goto L32;
+    $s0 = this;
+    $s1 = 1;
+    goto L33;
+    L32:
+    $s1 = 0;
+    L33:
+    $s0.stat_line_color = $s1;
+    v6 = new Label(p0, 131072);
+    v6.setText(p1);
+    v6.setBackground(v5);
+    $s0 = v6;
+    if (this.isDarkColor(v5) == 0) goto L80;
+    $s0 = v6;
+    $s1 = this.white_color;
+    goto L88;
+    L80:
+    $s1 = p0.getDisplay().getSystemColor(2);
+    L88:
+    $s0.setForeground($s1);
+    v6.setLayoutData(new layout.GridData(256));
+    v6.setFont(this.cfg.fontTran.fontValue);
+    v7 = new Label(p0, 131072);
+    v7.setBackground(v5);
+    v7.setForeground(this.cfg.colorPositiveAmount.colorValue);
+    v7.setFont(this.cfg.fontTran.fontValue);
+    v7.setText(p2);
+    v7.setLayoutData(new layout.GridData(256));
+    v7.setToolTipText("Click to switch graph type");
+    v7.addMouseListener(new Budget$8(this, p3));
+    return v7;
+}
+
+private int calendarLabelWidthHint(Control p0, String p1) {
+    v3 = 0;
+    v4 = new SimpleDateFormat("MMMMMMMMMMMMM,yyyy");
+    v5 = new SimpleCalendar(this.curCal);
+    v6 = 0;
+    L30:
+    if (v6 >= 12) goto L123;
+    v5.add(2, 1);
+    if ((p0 instanceof Button) == 0) goto L79;
+    (Button)p0.setText((p1 + v4.format(v5.getTime()) + p1));
+    goto L103;
+    L79:
+    (Label)p0.setText((p1 + v4.format(v5.getTime()) + p1));
+    L103:
+    v3 = Math.max(v3, p0.computeSize(-1, -1).x);
+    v6 += 1;
+    goto L30;
+    L123:
+    return v3;
+}
+
+ boolean hasMatches(Filter p0, SimpleCalendar p1) {
+    v3 = new SimpleCalendar(p1);
+    v4 = v3.getActualMaximum(1);
+    v5 = 1;
+    L19:
+    if (v5 > v4) goto L120;
+    v3.set(1, v5);
+    v6 = this.db.getDay(v3);
+    if (v6 != null) goto L51;
+    return 0;
+    L51:
+    if (v6.hasTransactions() == 0) goto L114;
+    v7 = v6.transactionIterator();
+    L66:
+    if (v7.hasNext() == 0) goto L114;
+    v8 = (Transaction)v7.next();
+    if (p0.isMatch(v8.pmt, v8.amount, v3.get()) == 0) goto L111;
+    return 1;
+    L111:
+    goto L66;
+    L114:
+    v5 += 1;
+    goto L19;
+    L120:
+    return 0;
+}
+
+private Font changeFontSize(Font p0, int p1) {
+    v3 = p0.getFontData();
+    v4 = 0;
+    L8:
+    if (v4 >= v3.length) goto L37;
+    v3[v4].setHeight((v3[v4].getHeight() + p1));
+    v4 += 1;
+    goto L8;
+    L37:
+    return new Font(this.display, v3);
+}
+
+private Font changeFontSize(Font p0, int p1, float p2) {
+    v4 = p0.getFontData();
+    v5 = 0;
+    L9:
+    if (v5 >= v4.length) goto L52;
+    v4[v5].setHeight((int)((float)v4[v5].getHeight() * p2));
+    v4[v5].setStyle(p1);
+    v5 += 1;
+    goto L9;
+    L52:
+    return new Font(this.display, v4);
+}
+
+private void updateFontSize(int p0) {
+    this.cfg.fontTran.fontValue = this.changeFontSize(this.cfg.fontTran.fontValue, p0);
+    this.cfg.fontCurMonthLink.fontValue = this.changeFontSize(this.cfg.fontCurMonthLink.fontValue, p0);
+    this.cfg.fontDate.fontValue = this.changeFontSize(this.cfg.fontDate.fontValue, p0);
+    this.cfg.fontAmount.fontValue = this.changeFontSize(this.cfg.fontAmount.fontValue, p0);
+    this.cfg.fontGraphDayLabel.fontValue = this.changeFontSize(this.cfg.fontGraphDayLabel.fontValue, p0);
+    this.cfg.fontPosTranAmount.fontValue = this.changeFontSize(this.cfg.fontPosTranAmount.fontValue, p0);
+    this.cfg.fontNegTranAmount.fontValue = this.changeFontSize(this.cfg.fontNegTranAmount.fontValue, p0);
+    this.cfg.fontImportantTran.fontValue = this.changeFontSize(this.cfg.fontImportantTran.fontValue, p0);
+    this.cfg.fontPaidTran.fontValue = this.changeFontSize(this.cfg.fontPaidTran.fontValue, p0);
+    if (Budget.runningOnMac == 0) goto L238;
+    this.scheduleRebuild();
+    goto L242;
+    L238:
+    this.rebuildApp();
+    L242:
+    return;
+}
+
+private void attachDisplayListeners() {
+    this.display.addFilter(1, new Budget$11(this));
+    this.display.addFilter(37, new Budget$12(this));
+    return;
+}
+
+private void flash_latest_adjustment() {
+    v1 = this.db.getLatestAdjustmentDate();
+    if (v1 != -1) goto L14;
+    return;
+    L14:
+    if (this.curCal.getYm() == SimpleCalendar.getYm(v1)) goto L46;
+    this.curCal.set(v1).set(1, 1);
+    this.updateCalendarView();
+    L46:
+    v2 = this.cells;
+    v3 = v2.length;
+    v4 = 0;
+    L57:
+    if (v4 >= v3) goto L103;
+    v5 = v2[v4];
+    v6 = (SimpleCalendar)v5.getData();
+    if (v6.get() != v1) goto L97;
+    this.flash_cell = v5;
+    goto L103;
+    L97:
+    v4 += 1;
+    goto L57;
+    L103:
+    return;
+}
+
+private boolean isActiveShell(Shell p0) {
+    v2 = this.display.getFocusControl();
+    if (v2 == null) goto L28;
+    v3 = v2.getShell();
+    if (v3 != p0) goto L26;
+    $s0 = 1;
+    goto L27;
+    L26:
+    $s0 = 0;
+    L27:
+    return $s0;
+    L28:
+    return 0;
+}
+
+private void createShellContents() {
+    v1 = new SimpleDateFormat("EEEEEEEEEEEEEE");
+    v2 = new SimpleCalendar(2010, 9, 24);
+    v3 = 0;
+    L28:
+    if (v3 >= 7) goto L59;
+    this.wDayName[v3] = v1.format(v2.getTime());
+    v3 += 1;
+    v2.nextDay();
+    goto L28;
+    L59:
+    this.stat_line_color = 1;
+    this.mainShell.setLayout(new layout.FillLayout());
+    v1 = new Menu(this.mainShell, 2);
+    v2 = this.mainShell.getMenuBar();
+    if (v2 == null) goto L115;
+    this.mainShell.setMenuBar(null);
+    v2.dispose();
+    L115:
+    this.mainShell.setMenuBar(v1);
+    this.createFileMenu(v1);
+    this.createEditMenu(v1);
+    this.createHelpMenu(v1);
+    v3 = new Composite(this.mainShell, 0);
+    v4 = new layout.GridLayout();
+    v4.marginHeight = 1;
+    v4.marginWidth = 1;
+    v4.verticalSpacing = 0;
+    v3.setLayout(v4);
+    $s0 = new Composite(?);
+    $s1 = new Composite(?);
+    $s2 = v3;
+    if (this.isDarkColor(this.cfg.bgColorDetails.colorValue) == 0) goto L210;
+    $s0 = new Composite(?);
+    $s1 = new Composite(?);
+    $s2 = v3;
+    $s3 = 0;
+    goto L213;
+    L210:
+    $s3 = 2056;
+    L213:
+    $s1.<init>($s2, $s3);
+    v5 = $s0;
+    v5.setLayoutData(new layout.GridData(768));
+    v5.setBackground(this.cfg.bgColorDetails.colorValue);
+    if (this.isDarkColor(this.cfg.bgColorDetails.colorValue) == 0) goto L352;
+    this.bg_darker_color = new Color(this.display, Budget.clamp((this.cfg.bgColorDetails.colorValue.getRed() + 32), 0, 255), Budget.clamp((this.cfg.bgColorDetails.colorValue.getGreen() + 32), 0, 255), Budget.clamp((this.cfg.bgColorDetails.colorValue.getBlue() + 32), 0, 255));
+    goto L436;
+    L352:
+    this.bg_darker_color = new Color(this.display, Budget.clamp((this.cfg.bgColorDetails.colorValue.getRed() - 10), 0, 255), Budget.clamp((this.cfg.bgColorDetails.colorValue.getGreen() - 10), 0, 255), Budget.clamp((this.cfg.bgColorDetails.colorValue.getBlue() - 10), 0, 255));
+    L436:
+    if (this.isDarkColor(this.cfg.bgColorDetails.colorValue) == 0) goto L461;
+    v3.setBackground(this.bg_darker_color);
+    L461:
+    v4 = new layout.GridLayout(5, 0);
+    v4.marginWidth = 2;
+    v4.marginHeight = 2;
+    v4.horizontalSpacing = 8;
+    v5.setLayout(v4);
+    v6 = new Composite(v5, 0);
+    v6.setBackground(this.bg_darker_color);
+    v7 = new layout.GridData();
+    v7.verticalSpan = 2;
+    v7.verticalAlignment = 4;
+    v6.setLayoutData(v7);
+    v7 = new layout.GridLayout();
+    v7.marginWidth = 2;
+    v6.setLayout(v7);
+    v7 = new Label(v6, 0);
+    v7.setBackground(this.bg_darker_color);
+    $s0 = v7;
+    $s1 = this;
+    if (this.isDarkColor(this.cfg.bgColorDetails.colorValue) == 0) goto L619;
+    $s0 = v7;
+    $s1 = this;
+    $s2 = Budget.icon("fold-light.png");
+    goto L625;
+    L619:
+    $s2 = Budget.icon("fold.png");
+    L625:
+    $s0.setImage($s1.getImage($s2, this.cfg.bgColorDetails.colorValue));
+    v7.setToolTipText("Fold Details View");
+    v7.setLayoutData(new layout.GridData(1028));
+    this.foldLabelListener = new Budget$13(this, v5);
+    v7.addMouseListener(this.foldLabelListener);
+    v8 = new Composite(v5, 0);
+    this.quickStatsCtnr = v8;
+    v8.setLayout(new layout.GridLayout(2, 0));
+    v8.setBackground(this.cfg.bgColorDetails.colorValue);
+    (layout.GridLayout)v8.getLayout().horizontalSpacing = 1;
+    (layout.GridLayout)v8.getLayout().verticalSpacing = 2;
+    (layout.GridLayout)v8.getLayout().marginHeight = 0;
+    v8.setLayoutData(new layout.GridData(2));
+    (layout.GridData)v8.getLayoutData().verticalSpan = 2;
+    v9 = new Composite(v8, 0);
+    v9.setBackground(this.cfg.bgColorDetails.colorValue);
+    v9.setLayout(new layout.GridLayout(12, 0));
+    (layout.GridLayout)v9.getLayout().horizontalSpacing = 3;
+    (layout.GridLayout)v9.getLayout().marginHeight = 0;
+    v9.setLayoutData(new layout.GridData(64));
+    (layout.GridData)v9.getLayoutData().horizontalSpan = 2;
+    v10 = new SimpleDateFormat("MMM");
+    v11 = new SimpleCalendar(this.initCal);
+    v13 = 0;
+    L915:
+    if (v13 >= 12) goto L1058;
+    v12 = new Label(v9, 0);
+    v12.setText(v10.format(v11.getTime()));
+    v12.setForeground(this.cfg.colorCurrentMonth.colorValue);
+    v12.setBackground(this.cfg.bgColorDetails.colorValue);
+    $s0 = v12;
+    if (v13 != 0) goto L999;
+    $s0 = v12;
+    $s1 = this.cfg.fontCurMonthLink.fontValue;
+    goto L1009;
+    L999:
+    $s1 = this.cfg.fontTran.fontValue;
+    L1009:
+    $s0.setFont($s1);
+    v12.setData(Integer.valueOf(v13));
+    v12.addPaintListener(this.lbl_underline);
+    v12.addMouseListener(new Budget$14(this));
+    v11.add(2, 1);
+    v13 += 1;
+    goto L915;
+    L1058:
+    v9 = new Composite(v8, 0);
+    v9.setBackground(this.cfg.bgColorDetails.colorValue);
+    v9.setLayout(new layout.GridLayout(3, 0));
+    (layout.GridLayout)v9.getLayout().marginHeight = 0;
+    v9.setLayoutData(new layout.GridData(64));
+    (layout.GridData)v9.getLayoutData().horizontalSpan = 2;
+    this.left_lbl = new Label(v9, 0);
+    this.left_arrow_img = new Image(this.display, Budget.icon("left_arrow.gif"));
+    this.left_arrow_img.setBackground(this.cfg.bgColorDetails.colorValue);
+    this.left_arrow_gray_img = new Image(this.display, Budget.icon("left_arrow_gray.gif"));
+    this.left_arrow_gray_img.setBackground(this.cfg.bgColorDetails.colorValue);
+    this.left_lbl.setImage(this.left_arrow_img);
+    this.left_lbl.setBackground(this.cfg.bgColorDetails.colorValue);
+    this.left_lbl.addMouseListener(new Budget$15(this));
+    this.monthLabel = new Label(v9, 0);
+    this.monthLabel.setFont(this.cfg.fontMonth.fontValue);
+    this.monthLabel.setForeground(this.cfg.colorCurrentMonth.colorValue);
+    this.monthLabel.setBackground(v5.getBackground());
+    v13 = new layout.GridData();
+    v13.horizontalAlignment = 2;
+    v13.grabExcessHorizontalSpace = 1;
+    this.monthLabel.setLayoutData(v13);
+    this.right_lbl = new Label(v9, 0);
+    this.right_arrow_img = new Image(this.display, Budget.icon("right_arrow.gif"));
+    this.right_arrow_img.setBackground(this.cfg.bgColorDetails.colorValue);
+    this.right_arrow_gray_img = new Image(this.display, Budget.icon("right_arrow_gray.gif"));
+    this.right_arrow_gray_img.setBackground(this.cfg.bgColorDetails.colorValue);
+    this.right_lbl.setImage(this.right_arrow_img);
+    this.right_lbl.setBackground(this.cfg.bgColorDetails.colorValue);
+    this.right_lbl.addMouseListener(new Budget$16(this));
+    v14 = 0;
+    v10 = new SimpleDateFormat("MMMMMMMMMMMMM,yyyy");
+    v11 = new SimpleCalendar(this.curCal);
+    v15 = 0;
+    L1524:
+    if (v15 >= 12) goto L1582;
+    v11.add(2, 1);
+    this.monthLabel.setText(v10.format(v11.getTime()));
+    v9.pack();
+    v14 = Math.max(v14, v9.getSize().x);
+    v15 += 1;
+    goto L1524;
+    L1582:
+    this.monthLabel.addPaintListener(this.lbl_underline);
+    this.updateMonthLabelMenu();
+    this.monthLabel.addMouseListener(new Budget$17(this));
+    v13 = new layout.GridData();
+    v13.horizontalAlignment = 2;
+    v13.widthHint = v14;
+    v13.horizontalSpan = 2;
+    v9.setLayoutData(v13);
+    this.openingBalance = this.makeStatLabel(v8, "Opening Balance:", "0.0", 0);
+    this.closingBalance = this.makeStatLabel(v8, "Closing Balance:", "0.0", 1);
+    this.minBalance = this.makeStatLabel(v8, "Minimum Balance:", "0.0", 6);
+    this.totalAvgBal = this.makeStatLabel(v8, "Avg Daily Balance:", "0.0", 2);
+    this.maxBalance = this.makeStatLabel(v8, "Maximum Balance:", "0.0", 7);
+    this.totalIncome = this.makeStatLabel(v8, "Total Income:", "0.0", 3);
+    this.totalExpenses = this.makeStatLabel(v8, "Total Expenses:", "0.0", 4);
+    this.totalsDiff = this.makeStatLabel(v8, "", "0.0", 5);
+    this.setMonthLabel();
+    this.forecastLbl = new Label(v5, 0);
+    this.forecastLbl.setText(("Forecast: " + this.forecastType[this.cfg.graphType]));
+    this.forecastLbl.setFont(this.cfg.fontTran.fontValue);
+    this.forecastLbl.setBackground(this.cfg.bgColorDetails.colorValue);
+    this.forecastLbl.setForeground(this.cfg.colorCurrentMonth.colorValue);
+    this.forecastLbl.addPaintListener(this.lbl_underline);
+    v8 = new Budget$18(this);
+    v9 = new Menu(v5);
+    v11 = 0;
+    L1913:
+    if (v11 >= this.forecastType.length) goto L1970;
+    v10 = new MenuItem(v9, 0);
+    v10.setText(this.forecastType[v11]);
+    v10.setData(Integer.valueOf(v11));
+    v10.addSelectionListener(v8);
+    v11 += 1;
+    goto L1913;
+    L1970:
+    this.forecastLbl.setMenu(v9);
+    this.forecastLbl.addMouseListener(new Budget$19(this, v9));
+    v12 = new Composite(v5, 0);
+    v4 = new layout.GridLayout(5, 0);
+    v4.marginHeight = 0;
+    v4.marginWidth = 0;
+    v4.horizontalSpacing = 5;
+    v12.setLayout(v4);
+    v12.setLayoutData(new layout.GridData(256));
+    v12.setBackground(this.cfg.bgColorDetails.colorValue);
+    v11 = new Label(v12, 0);
+    v11.setText("Brief Summary /");
+    v11.setBackground(this.cfg.bgColorDetails.colorValue);
+    $s0 = v11;
+    if (this.isDarkColor(this.cfg.bgColorDetails.colorValue) == 0) goto L2135;
+    $s0 = v11;
+    $s1 = this.white_color;
+    goto L2144;
+    L2135:
+    $s1 = v12.getDisplay().getSystemColor(2);
+    L2144:
+    $s0.setForeground($s1);
+    v11.setFont(this.cfg.fontTran.fontValue);
+    v11.setLayoutData(new layout.GridData());
+    v13 = new Label(v12, 0);
+    v13.setText("Full Summary");
+    v13.setFont(this.cfg.fontTran.fontValue);
+    v13.setForeground(this.cfg.colorCurrentMonth.colorValue);
+    v13.setBackground(this.cfg.bgColorDetails.colorValue);
+    v13.setToolTipText("Click -- open full details stats window\nCtrl+Click -- to open at the default location with the default size\n");
+    v13.addMouseListener(new Budget$20(this));
+    v13.addPaintListener(this.lbl_underline);
+    v11 = new Label(v12, 0);
+    v11.setText("          Filter:");
+    v11.setBackground(this.cfg.bgColorDetails.colorValue);
+    v11.setToolTipText(Budget.filterToolTipText);
+    this.calViewFilter = null;
+    this.tranFilterTxt = new Text(v12, 2048);
+    this.tranFilterTxt.setToolTipText(Budget.filterToolTipText);
+    this.tranFilterTxt.setFont(this.cfg.fontTran.fontValue);
+    this.tranFilterTxt.setForeground(this.display.getSystemColor(3));
+    this.setFilterText("");
+    v14 = new layout.GridData(768);
+    this.tranFilterTxt.setLayoutData(v14);
+    this.tranFilterTxt.addSelectionListener(new Budget$21(this));
+    v12 = new Label(v5, 0);
+    v12.setText("Notes");
+    v12.setForeground(this.cfg.colorCurrentMonth.colorValue);
+    v12.setFont(this.cfg.fontTran.fontValue);
+    v12.setBackground(this.cfg.bgColorDetails.colorValue);
+    v12.addMouseListener(new Budget$22(this));
+    v12.addPaintListener(this.lbl_underline);
+    this.graphCanvas = new Canvas(v5, 0);
+    v12 = this.getGraphDim();
+    v13 = this.graphCanvas.computeTrim(0, 0, v12.x, v12.y);
+    v12.x = v13.width;
+    v12.y = v13.height;
+    this.graphCanvas.setFocus();
+    v14 = new layout.GridData();
+    v14.heightHint = v12.y;
+    v14.widthHint = v12.x;
+    v14.horizontalIndent = 10;
+    v14.horizontalAlignment = 768;
+    v14.verticalAlignment = 1;
+    this.graphCanvas.setLayoutData(v14);
+    this.graphCanvas.addPaintListener(new Budget$23(this));
+    this.graphCanvas.setToolTipText("");
+    this.graphCanvas.addMouseListener(new Budget$24(this));
+    this.graphCanvas.addMouseMoveListener(new Budget$25(this));
+    this.stats_scroll = new ScrolledComposite(v5, 768);
+    this.stats_scroll.setLayoutData(new layout.GridData(1040));
+    (layout.GridData)this.stats_scroll.getLayoutData().heightHint = v12.y;
+    (layout.GridData)this.stats_scroll.getLayoutData().horizontalIndent = 10;
+    this.stats_view = new Composite(this.stats_scroll, 0);
+    this.stats_scroll.setContent(this.stats_view);
+    this.stats_scroll.setExpandHorizontal(1);
+    this.stats_scroll.setExpandVertical(1);
+    this.notesText = new Text(v5, 16386);
+    v14 = new layout.GridData(1808);
+    v14.widthHint = 20;
+    v14.heightHint = 20;
+    this.notesText.setLayoutData(v14);
+    this.notesText.setText(this.db.notes);
+    this.notesText.setToolTipText(this.db.notes);
+    this.notesText.setEditable(0);
+    this.notesText.setBackground(this.cfg.bgColorNotes.colorValue);
+    this.notesText.setForeground(this.cfg.colorNotes.colorValue);
+    $s0 = this;
+    $s1 = new Composite(?)3;
+    $s2 = new Composite(?)3;
+    $s3 = v3;
+    if (this.isDarkColor(this.cfg.bgColorDetails.colorValue) == 0) goto L2945;
+    $s0 = this;
+    $s1 = new Composite(?)3;
+    $s2 = new Composite(?)3;
+    $s3 = v3;
+    $s4 = 0;
+    goto L2948;
+    L2945:
+    $s4 = 2048;
+    L2948:
+    $s2.<init>($s3, (($s4 | 256) | 512));
+    $s0.calendarScroll = $s1;
+    this.calendarScroll.setLayoutData(new layout.GridData(1808));
+    this.calendarView = new Composite(this.calendarScroll, 0);
+    this.calendarScroll.setContent(this.calendarView);
+    v5 = new layout.GridData();
+    v5.horizontalSpan = 2;
+    v3.setLayoutData(v5);
+    v6 = new layout.GridLayout();
+    v6.numColumns = 7;
+    v6.makeColumnsEqualWidth = 1;
+    v6.marginWidth = 8;
+    v6.marginHeight = 8;
+    v6.verticalSpacing = 2;
+    v6.horizontalSpacing = 2;
+    this.calendarView.setBackground(this.cfg.bgColorWindow.colorValue);
+    this.calendarView.setLayout(v6);
+    v5 = null;
+    this.createCalendarView(this.calendarScroll, this.calendarView, this.curCal);
+    this.calendarScroll.setExpandHorizontal(1);
+    this.calendarScroll.setExpandVertical(1);
+    return;
+}
+
+static void debug_identify_children(Display p0, Composite p1) {
+    $a1 = new Color[6];
+    $a1[0] = p0.getSystemColor(7);
+    $a1[1] = p0.getSystemColor(3);
+    $a1[2] = p0.getSystemColor(5);
+    $a1[3] = p0.getSystemColor(13);
+    $a1[4] = p0.getSystemColor(16);
+    $a1[5] = p0.getSystemColor(12);
+    v2 = $a1;
+    v3 = p1.getChildren();
+    v4 = 0;
+    L66:
+    if (v4 >= v3.length) goto L129;
+    v5 = v3[v4];
+    if ((v3[v4] instanceof ScrolledComposite) == 0) goto L98;
+    Budget.debug_identify_children(p0, (Composite)v5);
+    L98:
+    v5.setBackground(v2[(v4 % v2.length)]);
+    v5.addPaintListener(new Budget$26(p0));
+    v4 += 1;
+    goto L66;
+    L129:
+    return;
+}
+
+private void setFilterText(String p0) {
+    this.tranFilterTxt.setText(p0);
+    if (this.unfoldComp == null) goto L23;
+    this.unfoldFilterText.setText(p0);
+    L23:
+    return;
+}
+
+private Composite createUnfoldComp(Composite p0) {
+    v2 = new Composite(p0.getParent(), 0);
+    v2.setBackground(this.cfg.bgColorDetails.colorValue);
+    v2.setLayoutData(new layout.GridData(4, 0, 1, 0));
+    v3 = new layout.GridLayout(6, 0);
+    v3.horizontalSpacing = 15;
+    v3.marginHeight = 0;
+    v2.setLayout(v3);
+    v4 = new Label(v2, 0);
+    v4.setBackground(this.bg_darker_color);
+    $s0 = v4;
+    $s1 = this;
+    if (this.isDarkColor(this.cfg.bgColorDetails.colorValue) == 0) goto L118;
+    $s0 = v4;
+    $s1 = this;
+    $s2 = Budget.icon("unfold-light.png");
+    goto L124;
+    L118:
+    $s2 = Budget.icon("unfold.png");
+    L124:
+    $s0.setImage($s1.getImage($s2, this.cfg.bgColorWindow.colorValue));
+    v4.setLayoutData(new layout.GridData(0, 16777216, 0, 1));
+    v4.setToolTipText("Show Details View");
+    v4.addMouseListener(new Budget$27(this, p0));
+    this.unfoldMonthSelector = new Link(v2, 0);
+    this.unfoldMonthSelector.setBackground(v2.getBackground());
+    $s0 = this.unfoldMonthSelector;
+    if (this.isDarkColor(v2.getBackground()) == 0) goto L226;
+    $s0 = this.unfoldMonthSelector;
+    $s1 = this.white_color;
+    goto L230;
+    L226:
+    $s1 = this.black_color;
+    L230:
+    $s0.setForeground($s1);
+    this.unfoldMonthSelector.setLinkForeground(this.cfg.colorCurrentMonth.colorValue);
+    this.unfoldMonthSelector.setText("<a>September 2000 </a>");
+    v5 = new layout.GridData();
+    v5.widthHint = (this.unfoldMonthSelector.computeSize(-1, -1).x + 10);
+    this.unfoldMonthSelector.setLayoutData(v5);
+    this.unfoldMonthSelector.setToolTipText("Click to choose a different month");
+    this.setMonthLabel();
+    this.unfoldMonthSelector.addMouseListener(new Budget$28(this));
+    v5 = new Label(v2, 0);
+    v5.setText("Filter:");
+    v5.setToolTipText(Budget.filterToolTipText);
+    v5.setBackground(v2.getBackground());
+    $s0 = v5;
+    if (this.isDarkColor(v2.getBackground()) == 0) goto L383;
+    $s0 = v5;
+    $s1 = this.white_color;
+    goto L387;
+    L383:
+    $s1 = this.black_color;
+    L387:
+    $s0.setForeground($s1);
+    this.unfoldFilterText = new Text(v2, 2048);
+    this.unfoldFilterText.setToolTipText(Budget.filterToolTipText);
+    this.unfoldFilterText.setFont(this.cfg.fontTran.fontValue);
+    this.unfoldFilterText.setForeground(this.display.getSystemColor(3));
+    this.unfoldFilterText.setText(this.tranFilterTxt.getText());
+    v6 = new layout.GridData();
+    v6.widthHint = 200;
+    this.unfoldFilterText.setLayoutData(v6);
+    this.unfoldFilterText.addSelectionListener(new Budget$29(this));
+    v6 = new Link(v2, 0);
+    v6.setText("<a>Summary</a>");
+    v6.setBackground(v2.getBackground());
+    v6.setForeground(this.cfg.colorCurrentMonth.colorValue);
+    v6.setLinkForeground(this.cfg.colorCurrentMonth.colorValue);
+    v6.setToolTipText("Click to open Full Summary Window");
+    v6.addMouseListener(new Budget$30(this));
+    v6 = new Link(v2, 0);
+    v6.setText("<a>Notes</a>");
+    v6.setBackground(v2.getBackground());
+    v6.setForeground(this.cfg.colorCurrentMonth.colorValue);
+    v6.setLinkForeground(this.cfg.colorCurrentMonth.colorValue);
+    v6.addMouseListener(new Budget$31(this, v6));
+    v6.setToolTipText(("Click to edit budget notes. Current notes:\n" + this.db.notes));
+    return v2;
+}
+
+private void updateMonthLabelMenu() {
+    v1 = new ArrayList();
+    v2 = new SimpleCalendar(this.minDate).setDayOne();
+    L23:
+    if (v2.inRange(this.minDate, this.maxDate) == 0) goto L61;
+    v1.add(new SimpleCalendar(v2));
+    v2.add(2, 1);
+    goto L23;
+    L61:
+    $a4 = new SimpleCalendar[v1.size()];
+    v3 = this.createStatStartEndMenu(this.mainShell, ([Lca.mishell.misc.SimpleCalendar;)v1.toArray($a4), new Budget$32(this), null, null);
+    this.monthLabel.setMenu(v3);
+    return;
+}
+
+public static String sdate(int p0) {
+    v1 = new SimpleDateFormat("dd-MMM-yyyy");
+    v2 = new SimpleCalendar(p0);
+    return v1.format(v2.getTime());
+}
+
+public static String sdate(SimpleCalendar p0) {
+    v1 = new SimpleDateFormat("dd-MMM-yyyy");
+    return v1.format(p0.getTime());
+}
+
+public static String sdate_MY(SimpleCalendar p0) {
+    v1 = new SimpleDateFormat("MMMMMMMMMMMM-yyyy");
+    return v1.format(p0.getTime());
+}
+
+private void fillPaymentsTable(Table p0, Payment p1) {
+    v3 = Budget.numFormatFrac2;
+    v4 = this.initCal.get();
+    v5 = new Filter((String)p0.getData("filter"));
+    this.db.sort();
+    p0.setRedraw(0);
+    p0.removeAll();
+    if (p1 != null) goto L80;
+    v6 = p0.getSelection();
+    if (v6 == null) goto L80;
+    if (v6.length <= 0) goto L80;
+    p1 = (Payment)v6[0].getData();
+    L80:
+    v6 = this.db.size();
+    v7 = new Vector();
+    v8 = 0;
+    L101:
+    if (v8 >= v6) goto L165;
+    v9 = this.db.get(v8);
+    if (v9.id != 0) goto L130;
+    goto L159;
+    L130:
+    if (v5 == null) goto L159;
+    if (v5.isMatch(v9, v9.amount, 0) == 0) goto L159;
+    v7.add(v9);
+    L159:
+    v8 += 1;
+    goto L101;
+    L165:
+    v8 = Budget.sortColumn;
+    if (v8 == null) goto L189;
+    $s0 = (Comparator)v8.getData("comp");
+    goto L190;
+    L189:
+    $s0 = null;
+    L190:
+    v9 = $s0;
+    if (v9 == null) goto L204;
+    v7.sort(v9);
+    L204:
+    v10 = 0;
+    L207:
+    if (v10 >= v7.size()) goto L668;
+    v11 = 1;
+    v12 = (Payment)v7.get(v10);
+    v13 = new TableItem(p0, 0);
+    v14 = v12.image_path;
+    if (v14 == null) goto L287;
+    if (v14.length() <= 0) goto L287;
+    v13.setImage(this.getImage(Budget.image(v14), this.cfg.bgColorWindow.colorValue));
+    L287:
+    v13.setData(v12);
+    $t4 = v11;  // value before increment
+    v11 += 1;
+    v13.setText($t4, (v3.format(v12.amount)));
+    $t5 = v11;  // value before increment
+    v11 += 1;
+    $s0 = v13;
+    $s1 = $t5;
+    if (v12.category != null) goto L339;
+    $s0 = v13;
+    $s1 = $t5;
+    $s2 = "";
+    goto L344;
+    L339:
+    $s2 = v12.category;
+    L344:
+    $s0.setText($s1, $s2);
+    $t6 = v11;  // value before increment
+    v11 += 1;
+    v13.setText($t6, v12.description);
+    $t7 = v11;  // value before increment
+    v11 += 1;
+    v13.setText($t7, Budget.sdate(v12.startDate));
+    if (v12.startDate <= v4) goto L405;
+    v13.setForeground(this.cfg.colorFuturePayment.colorValue);
+    L405:
+    if (v12.getEndMode() == 16) goto L481;
+    $t8 = v11;  // value before increment
+    v11 += 1;
+    v13.setText($t8, Budget.sdate(v12.endDate));
+    if (v12.endDate >= v4) goto L458;
+    v13.setForeground(this.cfg.colorPastPayment.colorValue);
+    L458:
+    $t9 = v11;  // value before increment
+    v11 += 1;
+    v13.setText($t9, (v12.n_pays));
+    goto L507;
+    L481:
+    $t10 = v11;  // value before increment
+    v11 += 1;
+    v13.setText($t10, "---");
+    $t11 = v11;  // value before increment
+    v11 += 1;
+    v13.setText($t11, "---");
+    L507:
+    $t12 = v11;  // value before increment
+    v11 += 1;
+    v13.setText($t12, (v12.frequency + v12.freq_type));
+    $t13 = v11;  // value before increment
+    v11 += 1;
+    $s0 = v13;
+    $s1 = $t13;
+    if (v12.isNoWeekends() == 0) goto L553;
+    $s0 = v13;
+    $s1 = $t13;
+    $s2 = "yes";
+    goto L556;
+    L553:
+    $s2 = "";
+    L556:
+    $s0.setText($s1, $s2);
+    $t14 = v11;  // value before increment
+    v11 += 1;
+    $s0 = v13;
+    $s1 = $t14;
+    if (v12.isEarlyPay() == 0) goto L580;
+    $s0 = v13;
+    $s1 = $t14;
+    $s2 = "[E]";
+    goto L583;
+    L580:
+    $s2 = "";
+    L583:
+    if (v12.isTentative() == 0) goto L597;
+    $s3 = "[T]";
+    goto L600;
+    L597:
+    $s3 = "";
+    L600:
+    if (v12.getEndMode() != 64) goto L616;
+    $s4 = "[L]";
+    goto L619;
+    L616:
+    $s4 = "";
+    L619:
+    $s0.setText($s1, ($s2 + $s3 + $s4));
+    if (v12.disabled == 0) goto L650;
+    v13.setForeground(this.cfg.colorDisabledPayment.colorValue);
+    L650:
+    if (v12 != p1) goto L662;
+    p0.select(v10);
+    L662:
+    v10 += 1;
+    goto L207;
+    L668:
+    p0.showSelection();
+    p0.setRedraw(1);
+    return;
+}
+
+private Label makeLabel(Composite p0, String p1) {
+    v3 = new Label(p0, 0);
+    v3.setText(p1);
+    v3.setFont(this.cfg.fontLabel.fontValue);
+    v3.setLayoutData(new layout.GridData(128));
+    return v3;
+}
+
+private Text makeField(Composite p0, String p1, String p2, int p3) {
+    this.makeLabel(p0, p1);
+    v5 = new Text(p0, 2048);
+    v5.setText(p2);
+    v6 = new layout.GridData();
+    v6.widthHint = p3;
+    v5.setLayoutData(v6);
+    return v5;
+}
+
+private void showError(Shell p0, String p1) {
+    v3 = new MessageBox(p0, 1);
+    v3.setText("Error");
+    v3.setMessage(p1);
+    v3.open();
+    return;
+}
+
+private int showCrashError(Shell p0, String p1) {
+    v3 = new MessageBox(p0, 1);
+    v3.setText("Error -- Budget Calendar Crashed.");
+    v3.setMessage(p1);
+    return v3.open();
+}
+
+private void showInfo(Shell p0, String p1) {
+    v3 = new MessageBox(p0, 2);
+    v3.setText("Information");
+    v3.setMessage(p1);
+    v3.open();
+    return;
+}
+
+private boolean showYesNo(Shell p0, String p1) {
+    v3 = new MessageBox(p0, 194);
+    v3.setText("Information");
+    v3.setMessage(p1);
+    if (64 != v3.open()) goto L37;
+    $s0 = 1;
+    goto L38;
+    L37:
+    $s0 = 0;
+    L38:
+    return $s0;
+}
+
+private Button makeRadio(Composite p0, String p1, char p2, char p3) {
+    v5 = new Button(p0, 16);
+    v5.setText(p1);
+    if (p3 != p2) goto L30;
+    v5.setSelection(1);
+    L30:
+    v5.setLayoutData(new layout.GridData(4));
+    return v5;
+}
+
+private boolean checkEndPayment(Button p0, Text p1) {
+    if (p0.getSelection() == 0) goto L20;
+    if (Integer.parseInt(p1.getText()) > 1) goto L20;
+    return 1;
+    L20:
+    goto L28;
+    // handler for [0,19) catch Exception
+    L23:
+    v3 = $ex;
+    v3.printStackTrace();
+    L28:
+    return 0;
+}
+
+private void updateEndSelection(int p0, Button p1, Button p2, Text p3, Button p4, Text p5, Button p6, Button p7, Text p8) {
+    $s0 = p1;
+    if (p0 != 16) goto L11;
+    $s0 = p1;
+    $s1 = 1;
+    goto L12;
+    L11:
+    $s1 = 0;
+    L12:
+    $s0.setSelection($s1);
+    $s0 = p2;
+    if (p0 != 48) goto L26;
+    $s0 = p2;
+    $s1 = 1;
+    goto L27;
+    L26:
+    $s1 = 0;
+    L27:
+    $s0.setSelection($s1);
+    $s0 = p3;
+    if (p0 != 48) goto L42;
+    $s0 = p3;
+    $s1 = 1;
+    goto L43;
+    L42:
+    $s1 = 0;
+    L43:
+    $s0.setEnabled($s1);
+    $s0 = p4;
+    if (p0 != 32) goto L58;
+    $s0 = p4;
+    $s1 = 1;
+    goto L59;
+    L58:
+    $s1 = 0;
+    L59:
+    $s0.setSelection($s1);
+    $s0 = p5;
+    if (p0 != 32) goto L74;
+    $s0 = p5;
+    $s1 = 1;
+    goto L75;
+    L74:
+    $s1 = 0;
+    L75:
+    $s0.setEnabled($s1);
+    $s0 = p6;
+    if (p0 != 32) goto L90;
+    $s0 = p6;
+    $s1 = 1;
+    goto L91;
+    L90:
+    $s1 = 0;
+    L91:
+    $s0.setEnabled($s1);
+    $s0 = p7;
+    if (p0 != 64) goto L106;
+    $s0 = p7;
+    $s1 = 1;
+    goto L107;
+    L106:
+    $s1 = 0;
+    L107:
+    $s0.setSelection($s1);
+    $s0 = p8;
+    if (p0 != 64) goto L122;
+    $s0 = p8;
+    $s1 = 1;
+    goto L123;
+    L122:
+    $s1 = 0;
+    L123:
+    $s0.setEnabled($s1);
+    return;
+}
+
+private String get_nth_week_msg(String p0) {
+    v2 = new SimpleCalendar(BudgetDB.toDate(p0)).getWeekOfMonth();
+    v3 = new SimpleCalendar(BudgetDB.toDate(p0)).getDayOfWeek();
+    return (this.arr[v2] + " " + this.wDayName[v3] + " in a month");
+}
+
+private String get_last_weekday_msg(SimpleCalendar p0) {
+    return ("Last " + this.wDayName[p0.getDayOfWeek()] + " in a month");
+}
+
+private Budget$AvgStats getSixMonthsAvg(String p0, SimpleCalendar p1) {
+    v3 = new Budget$AvgStats(this);
+    p1 = new SimpleCalendar(p1).setDayOne();
+    v4 = 0.0;
+    v6 = 0;
+    v7 = 0;
+    v8 = new SimpleCalendar(p1).add(2, -6);
+    v9 = -1;
+    L49:
+    if (v8.lt(p1) == 0) goto L238;
+    v10 = this.db.getDay(v8);
+    if (null == v10) goto L227;
+    if (v10.hasTransactions() == 0) goto L227;
+    v11 = v10.transactionIterator();
+    L90:
+    if (v11.hasNext() == 0) goto L227;
+    v12 = (Transaction)v11.next();
+    if (v12.pmt.disabled != 0) goto L224;
+    if (v12.pmt.description.equalsIgnoreCase(p0) == 0) goto L224;
+    if (v6 != 0) goto L152;
+    v3.first = v8.get();
+    L152:
+    v6 += 1;
+    v4 = (v4 + v12.amount);
+    if (v9 == v8.getYm()) goto L185;
+    v9 = v8.getYm();
+    v7 += 1;
+    L185:
+    v3.last = v8.get();
+    v3.lastTransactions.add(0, new Budget$TranInfo(this, v3.last, v12.amount, v12.pmt));
+    L224:
+    goto L90;
+    L227:
+    v8.add(1, 1);
+    goto L49;
+    L238:
+    if (v6 < 3) goto L273;
+    v3.first_last_days_diff = SimpleCalendar.getDiff(new SimpleCalendar(v3.first), new SimpleCalendar(v3.last));
+    L273:
+    v3.first = (((v3.first / 100) * 100) + 1);
+    v3.last = new SimpleCalendar(v3.last).setDayLast().get();
+    v3.total = v4;
+    v3.n = v6;
+    v3.nm = v7;
+    if (v6 == 0) goto L343;
+    v3.pt = (v4 / (double)v6);
+    L343:
+    if (v7 == 0) goto L372;
+    v3.pm = (v4 / (double)v7);
+    v3.pd = ((v4 / (double)v7) / 30.25);
+    L372:
+    v3.np = this.db.getNumberOfPlannedTransactions(p0, new SimpleCalendar(v3.first), new SimpleCalendar(v3.last));
+    if (v3.np == 0) goto L425;
+    v3.pp = (v4 / (double)v3.np);
+    L425:
+    return v3;
+}
+
+private void updateQuickPicks(Composite p0, String p1, Button p2) {
+    p1 = p1.toUpperCase();
+    v4 = new HashSet();
+    v5 = Budget.imgTags.iterator();
+    L22:
+    if (v5.hasNext() == 0) goto L107;
+    v6 = (Budget$ImgTag)v5.next();
+    if (-1 == p1.indexOf(v6.substring)) goto L104;
+    v7 = 0;
+    L60:
+    if (v7 >= v6.images.length) goto L104;
+    v4.add(v6.images[v7]);
+    if (v4.size() != 10) goto L98;
+    goto L107;
+    L98:
+    v7 += 1;
+    goto L60;
+    L104:
+    goto L22;
+    L107:
+    if (Budget.lastQuickPicks == null) goto L124;
+    if (Budget.lastQuickPicks.equals(v4) != 0) goto L302;
+    L124:
+    Budget.lastQuickPicks = v4;
+    v5 = p0.getChildren();
+    p0.setRedraw(0);
+    v6 = 2;
+    L143:
+    if (v6 >= v5.length) goto L165;
+    v5[v6].dispose();
+    v6 += 1;
+    goto L143;
+    L165:
+    if (v4.size() <= 0) goto L293;
+    $a2 = new String[v4.size()];
+    v6 = ([Ljava.lang.String;)v4.toArray($a2);
+    v7 = 0;
+    L194:
+    if (v7 >= v6.length) goto L293;
+    v8 = new Button(p0, 8);
+    v9 = this.getImage(Budget.image(v6[v7]), v8.getBackground());
+    if (v9 != null) goto L246;
+    v8.dispose();
+    goto L287;
+    L246:
+    v8.setImage(v9);
+    v8.setData(v6[v7]);
+    v8.setToolTipText(v6[v7]);
+    v8.addSelectionListener(new Budget$33(this, p2));
+    L287:
+    v7 += 1;
+    goto L194;
+    L293:
+    p0.layout();
+    p0.setRedraw(1);
+    L302:
+    return;
+}
+

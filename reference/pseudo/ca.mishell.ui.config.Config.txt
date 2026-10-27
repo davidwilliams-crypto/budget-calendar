@@ -1,0 +1,834 @@
+// ===== Config$ConfAction extends Config$ConfVal 
+public String[] actions;
+public function.Consumer consumer;
+
+public void <init>(Config p0, Config$ConfGroup p1, String p2, String p3, String[] p4) {
+    Objects.requireNonNull(p0);
+    super.<init>(p0, p1, p2, p3, "action,theme");
+    this.actions = p4;
+    return;
+}
+
+public void setConsumer(function.Consumer p0) {
+    this.consumer = p0;
+    return;
+}
+
+public void setValue(String p0) {
+    return;
+}
+
+// ===== Config$ConfBool extends Config$ConfVal 
+public boolean boolValue;
+
+public void <init>(Config p0, Config$ConfGroup p1, String p2, String p3, boolean p4) {
+    Objects.requireNonNull(p0);
+    super.<init>(p0, p1, p2, p3, "bool");
+    this.boolValue = p4;
+    return;
+}
+
+public void <init>(Config p0, Config$ConfGroup p1, String p2, boolean p3) {
+    Objects.requireNonNull(p0);
+    super.<init>(p0, p1, p2, null, "bool");
+    this.boolValue = p3;
+    return;
+}
+
+public String toString() {
+    return (this.boolValue);
+}
+
+public void setValue(String p0) {
+    $s0 = this;
+    if (p0.trim().equals("1") != 0) goto L28;
+    $s0 = this;
+    if (p0.trim().toLowerCase().equals("true") == 0) goto L32;
+    $s0 = this;
+    L28:
+    $s1 = 1;
+    goto L33;
+    L32:
+    $s1 = 0;
+    L33:
+    $s0.boolValue = $s1;
+    return;
+}
+
+// ===== Config$ConfColor extends Config$ConfVal 
+public Color colorValue;
+final synthetic Config this$0;
+
+public void <init>(Config p0, Config$ConfGroup p1, String p2, String p3, Color p4) {
+    Objects.requireNonNull(p0);
+    this.this$0 = p0;
+    super.<init>(p0, p1, p2, p3, "color");
+    this.colorValue = p4;
+    this.rowable = 1;
+    return;
+}
+
+public void <init>(Config p0, Config$ConfGroup p1, String p2) {
+    Objects.requireNonNull(p0);
+    this.this$0 = p0;
+    super.<init>(p0, p1, p2, null, "color");
+    this.rowable = 1;
+    return;
+}
+
+public String toString() {
+    v1 = (((this.colorValue.getRed() << 16) + (this.colorValue.getGreen() << 8)) + this.colorValue.getBlue());
+    $a1 = new Object[1];
+    $a1[0] = Integer.valueOf(v1);
+    return String.format("%06x", $a1);
+}
+
+public void setValue(String p0) {
+    if (this.toString().equals(p0) != 0) goto L74;
+    v2 = 0;
+    v2 = Integer.parseInt(p0, 16);
+    goto L25;
+    // handler for [13,20) catch Exception
+    L23:
+    v6 = $ex;
+    L25:
+    v3 = ((v2 >> 16) % 256);
+    v4 = ((v2 >> 8) % 256);
+    v5 = (v2 % 256);
+    this.colorValue = new Color(this.this$0.display, v3, v4, v5);
+    L74:
+    return;
+}
+
+// ===== Config$ConfDouble extends Config$ConfVal 
+public double doubleValue;
+ int decimalPlaces;
+
+public void <init>(Config p0, Config$ConfGroup p1, String p2, String p3, double p4) {
+    Objects.requireNonNull(p0);
+    super.<init>(p0, p1, p2, p3, "number");
+    this.decimalPlaces = 2;
+    this.doubleValue = p4;
+    return;
+}
+
+public String toString() {
+    return (this.doubleValue);
+}
+
+public void setValue(String p0) {
+    this.doubleValue = Double.parseDouble(p0);
+    goto L16;
+    // handler for [0,8) catch NumberFormatException
+    L11:
+    v2 = $ex;
+    v2.printStackTrace();
+    L16:
+    return;
+}
+
+public Config$ConfDouble setDecimalPlaces(int p0) {
+    this.decimalPlaces = p0;
+    return this;
+}
+
+// ===== Config$ConfFont extends Config$ConfVal 
+public Font fontValue;
+public String sampleText;
+final synthetic Config this$0;
+
+public void <init>(Config p0, Config$ConfGroup p1, String p2, String p3, Font p4, String p5) {
+    Objects.requireNonNull(p0);
+    this.this$0 = p0;
+    super.<init>(p0, p1, p2, p3, "font");
+    this.fontValue = p4;
+    this.sampleText = p5;
+    this.rowable = 1;
+    return;
+}
+
+public void <init>(Config p0, Config$ConfGroup p1, String p2, String p3, Font p4) {
+    Objects.requireNonNull(p0);
+    this.this$0 = p0;
+    super.<init>(p0, p1, p2, p3, "font");
+    this.fontValue = p4;
+    this.sampleText = "Sample Text";
+    this.rowable = 1;
+    return;
+}
+
+public void <init>(Config p0, Config$ConfGroup p1, String p2, String p3) {
+    Objects.requireNonNull(p0);
+    this.this$0 = p0;
+    super.<init>(p0, p1, p2, "", "font");
+    this.fontValue = null;
+    this.sampleText = p3;
+    this.rowable = 1;
+    return;
+}
+
+public String toString() {
+    v1 = this.fontValue.getFontData();
+    return v1[0].toString();
+}
+
+public void setValue(String p0) {
+    if (this.toString().equals(p0) != 0) goto L37;
+    this.fontValue = new Font(this.this$0.display, new FontData(p0));
+    L37:
+    return;
+}
+
+// ===== Config$ConfGroup extends Object 
+private final String description;
+public boolean collapsed;
+
+public void <init>(Config p0, String p1) {
+    Objects.requireNonNull(p0);
+    super.<init>();
+    p0.groups.add(this);
+    this.description = p1;
+    this.collapsed = 0;
+    return;
+}
+
+public void <init>(Config p0, String p1, boolean p2) {
+    Objects.requireNonNull(p0);
+    super.<init>();
+    p0.groups.add(this);
+    this.description = p1;
+    this.collapsed = p2;
+    return;
+}
+
+public String getDescription() {
+    return this.description;
+}
+
+// ===== Config$ConfInteger extends Config$ConfVal 
+public int intValue;
+
+public void <init>(Config p0, Config$ConfGroup p1, String p2, String p3, int p4) {
+    Objects.requireNonNull(p0);
+    super.<init>(p0, p1, p2, p3, "number");
+    this.intValue = p4;
+    return;
+}
+
+public void <init>(Config p0, Config$ConfGroup p1, String p2, int p3) {
+    Objects.requireNonNull(p0);
+    super.<init>(p0, p1, p2, null, "number");
+    this.intValue = p3;
+    return;
+}
+
+public String toString() {
+    return (this.intValue);
+}
+
+public void setValue(String p0) {
+    this.intValue = Integer.parseInt(p0);
+    goto L16;
+    // handler for [0,8) catch NumberFormatException
+    L11:
+    v2 = $ex;
+    v2.printStackTrace();
+    L16:
+    return;
+}
+
+// ===== Config$ConfString extends Config$ConfVal 
+public String stringValue;
+public Config$StringType stringType;
+public int wHint;
+
+public void <init>(Config p0, Config$ConfGroup p1, String p2, String p3, String p4, Config$StringType p5) {
+    Objects.requireNonNull(p0);
+    super.<init>(p0, p1, p2, p3, "string");
+    this.stringType = Config$StringType.STRING;
+    this.wHint = -1;
+    this.stringValue = p4;
+    this.stringType = p5;
+    return;
+}
+
+public void <init>(Config p0, Config$ConfGroup p1, String p2, String p3, String p4) {
+    Objects.requireNonNull(p0);
+    super.<init>(p0, p1, p2, p3, "string");
+    this.stringType = Config$StringType.STRING;
+    this.wHint = -1;
+    this.stringValue = p4;
+    this.stringType = Config$StringType.STRING;
+    return;
+}
+
+public Config$ConfString setWHint(int p0) {
+    this.wHint = p0;
+    return this;
+}
+
+public String toString() {
+    return this.stringValue;
+}
+
+public void setValue(String p0) {
+    this.stringValue = p0;
+    return;
+}
+
+public Config$ConfString defaultValue(String p0) {
+    this.stringValue = p0;
+    return this;
+}
+
+// ===== Config$ConfVal extends Object 
+public final Config$ConfGroup confGroup;
+ String uiScratch;
+public String label;
+public String toolTipText;
+public String comment;
+public boolean enabled;
+public boolean hidden;
+public boolean rowable;
+
+public void <init>(Config p0, Config$ConfGroup p1, String p2, String p3, String p4) {
+    Objects.requireNonNull(p0);
+    super.<init>();
+    this.enabled = 1;
+    this.hidden = 0;
+    this.rowable = 0;
+    this.label = p2;
+    $s0 = this;
+    if (p3 != null) goto L42;
+    $s0 = this;
+    $s1 = "";
+    goto L44;
+    L42:
+    $s1 = p3;
+    L44:
+    $s0.toolTipText = $s1;
+    this.confGroup = p1;
+    this.comment = p4;
+    return;
+}
+
+public abstract void setValue(String p0);
+
+// ===== Config$Int extends Object 
+public int value;
+
+public void <init>(int p0) {
+    super.<init>();
+    this.value = p0;
+    return;
+}
+
+public String toString() {
+    return (this.value);
+}
+
+// ===== Config$StringType extends Enum 
+public static final enum Config$StringType FILE;
+public static final enum Config$StringType DIR;
+public static final enum Config$StringType STRING;
+private static final synthetic Config$StringType[] $VALUES;
+
+public static Config$StringType[] values() {
+    return ([Lca.mishell.ui.config.Config$StringType;)Config$StringType.$VALUES.clone();
+}
+
+public static Config$StringType valueOf(String p0) {
+    return (Config$StringType)Enum.valueOf(Config$StringType, p0);
+}
+
+private void <init>(String p0, int p1) {
+    super.<init>(p0, p1);
+    return;
+}
+
+private static synthetic Config$StringType[] $values() {
+    $a1 = new Config$StringType[3];
+    $a1[0] = Config$StringType.FILE;
+    $a1[1] = Config$StringType.DIR;
+    $a1[2] = Config$StringType.STRING;
+    return $a1;
+}
+
+static void <clinit>() {
+    Config$StringType.FILE = new Config$StringType("FILE", 0);
+    Config$StringType.DIR = new Config$StringType("DIR", 1);
+    Config$StringType.STRING = new Config$StringType("STRING", 2);
+    Config$StringType.$VALUES = Config$StringType.$values();
+    return;
+}
+
+// ===== Config extends Object 
+protected final List groups;
+protected Display display;
+private String configFileName;
+private Set ignoreSet;
+private Map defaults;
+
+public void <init>() {
+    super.<init>();
+    this.groups = new Vector();
+    this.display = Display.getDefault();
+    this.configFileName = null;
+    this.ignoreSet = new TreeSet();
+    this.defaults = new HashMap();
+    return;
+}
+
+public Config setConfigFileName(String p0) {
+    this.configFileName = p0;
+    return this;
+}
+
+public String getConfigFileName() {
+    return this.configFileName;
+}
+
+public void setIgnores(Set p0) {
+    this.ignoreSet.clear();
+    this.ignoreSet.addAll(p0);
+    return;
+}
+
+public boolean load() {
+    return this.load(lambda[Config::lambda$load$0]());
+}
+
+public boolean load(function.BiConsumer p0) {
+    v2 = 0;
+    v3 = Config.loadProperties(this.configFileName, 0);
+    v4 = v3.entrySet().iterator();
+    L22:
+    if (v4.hasNext() == 0) goto L593;
+    v5 = (Map$Entry)v4.next();
+    v6 = (String)v5.getKey();
+    if (this.ignoreSet.contains(v6) == 0) goto L73;
+    goto L22;
+    L73:
+    v7 = (String)v5.getValue();
+    v9 = -1;
+    $t1 = v6.indexOf(".");
+    v8 = $t1;
+    if (-1 == $t1) goto L141;
+    v9 = Integer.parseInt(v6.substring((v8 + 1)));
+    if (v9 >= 0) goto L131;
+    throw new ArrayIndexOutOfBoundsException(v9);
+    L131:
+    v6 = v6.substring(0, v8);
+    L141:
+    v10 = this.getClass().getField(v6);
+    v11 = v10.getModifiers();
+    v12 = v10.get(this);
+    if (reflect.Modifier.isStatic(v11) != 0) goto L559;
+    if (reflect.Modifier.isTransient(v11) != 0) goto L559;
+    if (reflect.Modifier.isFinal(v11) != 0) goto L559;
+    v13 = v10.getType();
+    if (v13 != String) goto L216;
+    v10.set(this, v7);
+    goto L559;
+    L216:
+    if (v13 != Boolean.TYPE) goto L258;
+    $s0 = v10;
+    $s1 = this;
+    if (v7.equals("true") != 0) goto L247;
+    $s0 = v10;
+    $s1 = this;
+    if (v7.equals("1") == 0) goto L251;
+    $s0 = v10;
+    $s1 = this;
+    L247:
+    $s2 = 1;
+    goto L252;
+    L251:
+    $s2 = 0;
+    L252:
+    $s0.setBoolean($s1, $s2);
+    goto L559;
+    L258:
+    if (v13 != Color) goto L338;
+    v14 = 0;
+    v14 = Integer.parseInt(v7, 16);
+    goto L282;
+    // handler for [268,277) catch Exception
+    L280:
+    v18 = $ex;
+    L282:
+    v15 = ((v14 >> 16) % 256);
+    v16 = ((v14 >> 8) % 256);
+    v17 = (v14 % 256);
+    v10.set(this, new Color(this.display, v15, v16, v17));
+    goto L559;
+    L338:
+    if (v13 != Integer.TYPE) goto L360;
+    v10.setInt(this, Integer.parseInt(v7));
+    goto L559;
+    L360:
+    if (v13 != Double.TYPE) goto L382;
+    v10.setDouble(this, Double.parseDouble(v7));
+    goto L559;
+    L382:
+    if (v13 != Font) goto L425;
+    v14 = null;
+    v14 = new FontData(v7);
+    v10.set(this, new Font(this.display, v14));
+    goto L559;
+    L425:
+    if (v13 != Config$Int) goto L448;
+    (Config$Int)v12.value = Integer.parseInt(v7);
+    goto L559;
+    L448:
+    if (v13 != Config$ConfGroup) goto L473;
+    (Config$ConfGroup)v12.collapsed = v7.equals("true");
+    goto L559;
+    L473:
+    if ((v12 instanceof Config$ConfVal) == 0) goto L494;
+    (Config$ConfVal)v12.setValue(v7);
+    goto L559;
+    L494:
+    if ((v12 instanceof Vector) == 0) goto L544;
+    if (v9 < 0) goto L544;
+    v14 = (Vector)v12;
+    v14.setSize(Math.max(v14.size(), (v9 + 1)));
+    v14.set(v9, v7);
+    goto L559;
+    L544:
+    throw new NoClassDefFoundError(("'" + v6 + "' -- unsupported type"));
+    L559:
+    goto L590;
+    // handler for [85,559) catch NoSuchFieldException
+    L562:
+    v8 = $ex;
+    v2 += 1;
+    p0.accept(v6, v7);
+    goto L590;
+    // handler for [85,559) catch Exception
+    L580:
+    v8 = $ex;
+    v2 += 1;
+    v8.printStackTrace();
+    L590:
+    goto L22;
+    L593:
+    if (v2 != 0) goto L601;
+    $s0 = 1;
+    goto L602;
+    L601:
+    $s0 = 0;
+    L602:
+    return $s0;
+}
+
+public String save() {
+    v1 = new Properties();
+    v2 = this.getClass().getFields();
+    v3 = v2.length;
+    v4 = 0;
+    L22:
+    if (v4 >= v3) goto L536;
+    v5 = v2[v4];
+    v6 = v5.getModifiers();
+    if (reflect.Modifier.isStatic(v6) != 0) goto L530;
+    if (reflect.Modifier.isTransient(v6) != 0) goto L530;
+    if (reflect.Modifier.isFinal(v6) != 0) goto L530;
+    v7 = v5.getType();
+    v8 = v5.getName();
+    v9 = v5.get(this);
+    if (v7 != String) goto L111;
+    if (v9 == null) goto L530;
+    v1.put(v8, v9);
+    goto L530;
+    L111:
+    if (v7 != Boolean.TYPE) goto L146;
+    $s0 = v1;
+    $s1 = v8;
+    if (v5.getBoolean(this) == 0) goto L136;
+    $s0 = v1;
+    $s1 = v8;
+    $s2 = "true";
+    goto L139;
+    L136:
+    $s2 = "false";
+    L139:
+    $s0.put($s1, $s2);
+    goto L530;
+    L146:
+    if (v7 != Color) goto L213;
+    v10 = (Color)v9;
+    v11 = (((v10.getRed() << 16) + (v10.getGreen() << 8)) + v10.getBlue());
+    $a2 = new Object[1];
+    $a2[0] = Integer.valueOf(v11);
+    v1.put(v8, String.format("%06x", $a2));
+    goto L530;
+    L213:
+    if (v7 != Integer.TYPE) goto L242;
+    v1.put(v8, (v5.getInt(this)));
+    goto L530;
+    L242:
+    if (v7 != Double.TYPE) goto L271;
+    v1.put(v8, (v5.getDouble(this)));
+    goto L530;
+    L271:
+    if (v7 != Font) goto L309;
+    v10 = (Font)v9;
+    v11 = v10.getFontData();
+    v1.put(v8, v11[0].toString());
+    goto L530;
+    L309:
+    if (v7 != Config$Int) goto L331;
+    v1.put(v8, v9.toString());
+    goto L530;
+    L331:
+    if (v7 != Config$ConfGroup) goto L367;
+    $s0 = v1;
+    $s1 = v8;
+    if ((Config$ConfGroup)v9.collapsed == 0) goto L357;
+    $s0 = v1;
+    $s1 = v8;
+    $s2 = "true";
+    goto L360;
+    L357:
+    $s2 = "false";
+    L360:
+    $s0.put($s1, $s2);
+    goto L530;
+    L367:
+    if ((v9 instanceof Config$ConfAction) == 0) goto L378;
+    goto L530;
+    L378:
+    if ((v9 instanceof Config$ConfVal) == 0) goto L401;
+    v1.put(v8, v9.toString());
+    goto L530;
+    L401:
+    if ((v9 instanceof Vector) == 0) goto L515;
+    v10 = (Vector)v9;
+    if (v10.size() == 0) goto L512;
+    if (v10.get(0).getClass() != String) goto L485;
+    v11 = v10;
+    v12 = 0;
+    L445:
+    if (v12 >= v11.size()) goto L482;
+    v1.put((v8 + "." + v12), v11.get(v12));
+    v12 += 1;
+    goto L445;
+    L482:
+    goto L512;
+    L485:
+    throw new NoClassDefFoundError(("'" + v8 + "' -- unsupported Vector<" + v10.get(0).getClass().getName() + ">"));
+    L512:
+    goto L530;
+    L515:
+    throw new NoClassDefFoundError(("'" + v8 + "' -- unsupported type"));
+    L530:
+    v4 += 1;
+    goto L22;
+    L536:
+    goto L549;
+    // handler for [8,536) catch Exception
+    L539:
+    v2 = $ex;
+    v2.printStackTrace();
+    return v2.getMessage();
+    L549:
+    return Config.saveProperties(this.configFileName, v1);
+}
+
+public static Properties loadProperties(String p0, boolean p1) {
+    v2 = new Properties();
+    v3 = null;
+    v3 = new FileInputStream(p0);
+    v2.load(v3);
+    goto L38;
+    // handler for [10,24) catch Exception
+    L27:
+    v4 = $ex;
+    if (p1 != 0) goto L38;
+    v4.printStackTrace();
+    L38:
+    if (v3 == null) goto L51;
+    v3.close();
+    goto L51;
+    // handler for [42,46) catch Exception
+    L49:
+    v4 = $ex;
+    L51:
+    return v2;
+}
+
+public static String saveProperties(String p0, Properties p1) {
+    v2 = null;
+    v3 = null;
+    v4 = 0;
+    v5 = new File(p0);
+    v6 = new File((p0 + ".bak"));
+    if (v5.exists() == 0) goto L68;
+    if (FileOps.copyFile(v5, v6) != 0) goto L68;
+    v2 = ("unable to backup '" + v5.getAbsolutePath() + "' to '" + v6.getAbsolutePath() + "'");
+    return v2;
+    L68:
+    v3 = new FileOutputStream(p0);
+    p1.store(v3, "");
+    v4 = 1;
+    goto L109;
+    // handler for [68,88) catch Exception
+    L91:
+    v7 = $ex;
+    v7.printStackTrace();
+    v2 = ("Exception: " + String.valueOf(v7));
+    L109:
+    if (v3 == null) goto L125;
+    v3.close();
+    goto L125;
+    // handler for [113,117) catch Exception
+    L120:
+    v7 = $ex;
+    v4 = 0;
+    L125:
+    if (v6.exists() == 0) goto L155;
+    if (v4 != 0) goto L149;
+    v6.renameTo(v5);
+    goto L155;
+    L149:
+    v6.delete();
+    L155:
+    return v2;
+}
+
+ Map getGroupConfVals(Config$ConfGroup p0) {
+    v2 = new LinkedHashMap();
+    v3 = this.getClass().getFields();
+    v4 = v3.length;
+    v5 = 0;
+    L23:
+    if (v5 >= v4) goto L111;
+    v6 = v3[v5];
+    v7 = v6.get(this);
+    if ((v7 instanceof Config$ConfVal) == 0) goto L85;
+    if ((Config$ConfVal)v7.confGroup != p0) goto L85;
+    v8 = (Config$ConfVal)v7;
+    v2.put(v8, v6.getName());
+    L85:
+    goto L105;
+    // handler for [36,85) catch IllegalArgumentException
+    L88:
+    v8 = $ex;
+    v8.printStackTrace();
+    goto L105;
+    // handler for [36,85) catch IllegalAccessException
+    L98:
+    v8 = $ex;
+    v8.printStackTrace();
+    L105:
+    v5 += 1;
+    goto L23;
+    L111:
+    return v2;
+}
+
+public boolean groupContains(Config$ConfGroup p0, Class p1) {
+    v3 = this.getClass().getFields();
+    v4 = v3.length;
+    v5 = 0;
+    L15:
+    if (v5 >= v4) goto L93;
+    v6 = v3[v5];
+    v7 = v6.get(this);
+    if ((v7 instanceof Config$ConfVal) == 0) goto L67;
+    if (v7.getClass() != p1) goto L67;
+    if ((Config$ConfVal)v7.confGroup != p0) goto L67;
+    return 1;
+    L67:
+    goto L87;
+    // handler for [28,66) catch IllegalArgumentException
+    L70:
+    v8 = $ex;
+    v8.printStackTrace();
+    goto L87;
+    // handler for [28,66) catch IllegalAccessException
+    L80:
+    v8 = $ex;
+    v8.printStackTrace();
+    L87:
+    v5 += 1;
+    goto L15;
+    L93:
+    return 0;
+}
+
+public static String getDocumentsPath() {
+    v0 = System.getProperty("user.home");
+    if (v0 == null) goto L90;
+    if (File.separator.equals("\\") == 0) goto L90;
+    v1 = (v0 + "\\Documents");
+    v2 = new File(v1);
+    if (v2.exists() == 0) goto L58;
+    if (v2.isDirectory() == 0) goto L58;
+    v0 = v1;
+    goto L90;
+    L58:
+    v1 = (v0 + "\\My Documents");
+    v2 = new File(v1);
+    if (v2.exists() == 0) goto L90;
+    if (v2.isDirectory() == 0) goto L90;
+    v0 = v1;
+    L90:
+    return v0;
+}
+
+public static String getFullRCPath(String p0) {
+    v1 = System.getProperty("user.home");
+    return (v1 + File.separator + p0);
+}
+
+public final void storeDefaultConfVals() {
+    this.defaults.clear();
+    v1 = this.groups.iterator();
+    L19:
+    if (v1.hasNext() == 0) goto L102;
+    v2 = (Config$ConfGroup)v1.next();
+    v3 = this.getGroupConfVals(v2);
+    v4 = v3.keySet().iterator();
+    L57:
+    if (v4.hasNext() == 0) goto L99;
+    v5 = (Config$ConfVal)v4.next();
+    this.defaults.put(v5, v5.toString());
+    goto L57;
+    L99:
+    goto L19;
+    L102:
+    return;
+}
+
+public final void restoreDefaultConfVals() {
+    v1 = this.defaults.keySet().iterator();
+    L15:
+    if (v1.hasNext() == 0) goto L54;
+    v2 = (Config$ConfVal)v1.next();
+    v2.setValue((String)this.defaults.get(v2));
+    goto L15;
+    L54:
+    return;
+}
+
+public final void restoreDefaultConfVals(Config$ConfGroup p0) {
+    v2 = this.defaults.keySet().iterator();
+    L15:
+    if (v2.hasNext() == 0) goto L62;
+    v3 = (Config$ConfVal)v2.next();
+    if (p0 != v3.confGroup) goto L59;
+    v3.setValue((String)this.defaults.get(v3));
+    L59:
+    goto L15;
+    L62:
+    return;
+}
+
+public abstract Map apply(Map p0);
+
+private static synthetic void lambda$load$0(String p0, String p1) {
+    System.err.println(("unknown field: " + p0 + "=" + p1));
+    return;
+}

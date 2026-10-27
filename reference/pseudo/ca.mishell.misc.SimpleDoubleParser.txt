@@ -1,0 +1,84 @@
+// ===== SimpleDoubleParser extends Object 
+
+public void <init>() {
+    super.<init>();
+    return;
+}
+
+public static double parseDouble(String p0) {
+    v1 = p0.length();
+    if (v1 <= 17) goto L25;
+    throw new NumberFormatException(("invalid number: string is too long '" + p0 + "'"));
+    L25:
+    if (v1 != 0) goto L39;
+    throw new NumberFormatException("invalid number: string is empty");
+    L39:
+    v2 = p0.charAt(0);
+    if (v2 != 45) goto L55;
+    $s0 = 1;
+    goto L56;
+    L55:
+    $s0 = 0;
+    L56:
+    v3 = $s0;
+    if (v3 != 0) goto L67;
+    if (v2 != 43) goto L71;
+    L67:
+    $s0 = 1;
+    goto L72;
+    L71:
+    $s0 = 0;
+    L72:
+    v4 = $s0;
+    if (v4 < v1) goto L94;
+    throw new NumberFormatException(("invalid number: '" + p0 + "'"));
+    L94:
+    v5 = 0.0;
+    L97:
+    if (v4 >= v1) goto L193;
+    v7 = (p0.charAt(v4) - 48);
+    if (v7 < 0) goto L126;
+    if (v7 <= 9) goto L175;
+    L126:
+    if (v7 != -2) goto L156;
+    v4 += 1;
+    if (v4 != v1) goto L193;
+    throw new NumberFormatException(("invalid number: no digits after decimal separator in '" + p0 + "'"));
+    L156:
+    throw new NumberFormatException(("invalid number: unexpected character '" + p0.charAt(v4) + "'"));
+    L175:
+    v5 = ((v5 * 10.0) + (double)v7);
+    v4 += 1;
+    goto L97;
+    L193:
+    if (v4 != v1) goto L212;
+    if (v3 == 0) goto L209;
+    $s0 = (-v5);
+    goto L211;
+    L209:
+    $s0 = v5;
+    L211:
+    return $s0;
+    L212:
+    v7 = 1.0;
+    L215:
+    if (v4 >= v1) goto L289;
+    v9 = (p0.charAt(v4) - 48);
+    if (v9 < 0) goto L244;
+    if (v9 <= 9) goto L263;
+    L244:
+    throw new NumberFormatException(("invalid number: unexpected character: '" + p0.charAt(v4) + "'"));
+    L263:
+    v5 = ((v5 * 10.0) + (double)v9);
+    v7 = (v7 * 10.0);
+    v4 += 1;
+    goto L215;
+    L289:
+    if (v3 == 0) goto L299;
+    $s0 = (-v5);
+    goto L301;
+    L299:
+    $s0 = v5;
+    L301:
+    return ($s0 / v7);
+}

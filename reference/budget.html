@@ -1,0 +1,677 @@
+<html>
+
+<head>
+<meta http-equiv=Content-Type content="text/html; charset=us-ascii">
+<meta name=Generator content="Microsoft Word 11 (filtered)">
+<title>Budget Calendar</title>
+
+<style>
+<!--
+ /* Font Definitions */
+ @font-face
+	{font-family:Wingdings;
+	panose-1:5 0 0 0 0 0 0 0 0 0;}
+@font-face
+	{font-family:Batang;
+	panose-1:2 3 6 0 0 1 1 1 1 1;}
+@font-face
+	{font-family:"\@Batang";
+	panose-1:0 0 0 0 0 0 0 0 0 0;}
+@font-face
+	{font-family:"Courier \(W1\)";
+	panose-1:2 7 3 9 2 2 5 2 4 4;}
+ /* Style Definitions */
+ p.MsoNormal, li.MsoNormal, div.MsoNormal
+	{margin:0cm;
+	margin-bottom:.0001pt;
+	font-size:12.0pt;
+	font-family:"Times New Roman";}
+h4
+	{margin-right:0cm;
+	margin-left:0cm;
+	font-size:12.0pt;
+	font-family:"Times New Roman";
+	font-weight:bold;}
+a:link, span.MsoHyperlink
+	{color:blue;
+	text-decoration:underline;}
+a:visited, span.MsoHyperlinkFollowed
+	{color:maroon;
+	text-decoration:underline;}
+p
+	{margin-right:0cm;
+	margin-left:0cm;
+	font-size:12.0pt;
+	font-family:"Times New Roman";}
+p.styleheading4135pt, li.styleheading4135pt, div.styleheading4135pt
+	{margin-top:30.0pt;
+	margin-right:0cm;
+	margin-bottom:0cm;
+	margin-left:0cm;
+	margin-bottom:.0001pt;
+	font-size:13.5pt;
+	font-family:"Times New Roman";
+	font-weight:bold;}
+p.stylenormalweb135pt, li.stylenormalweb135pt, div.stylenormalweb135pt
+	{margin-top:6.0pt;
+	margin-right:0cm;
+	margin-left:0cm;
+	font-size:13.5pt;
+	font-family:"Times New Roman";}
+span.normalwebchar
+	{font-family:Batang;}
+span.stylenormalweb135ptchar
+	{font-family:Batang;}
+span.heading4char
+	{font-family:Batang;
+	font-weight:bold;}
+span.styleheading4135ptchar
+	{font-family:Batang;
+	font-weight:bold;}
+@page Section1
+	{size:612.0pt 792.0pt;
+	margin:72.0pt 90.0pt 72.0pt 90.0pt;}
+div.Section1
+	{page:Section1;}
+ /* List Definitions */
+ ol
+	{margin-bottom:0cm;}
+ul
+	{margin-bottom:0cm;}
+-->
+img {
+	height: auto;
+	width: auto;
+	max-width: 700px;
+	max-height: 700px;
+}
+</style>
+
+</head>
+
+<body bgcolor=white lang=EN-US link=blue vlink=maroon>
+
+<div class=Section1>
+
+<div>
+<TABLE bgcolor=white border=0 cellspacing=0 cellpadding=0 width=700>
+<TD>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+<TD>
+<p class=styleheading4135pt>Budget Calendar -- MiShell Software Systems. </p>
+
+<p class=styleheading4135pt>Contents</p>
+
+<a href="#overview">Overview</a><br>
+<a href="#pmtvstran">Payments vs. Transactions</a><br>
+<a href="#add">Adding a payment</a><br>
+<a href="#edit">Payment Editing</a><br>
+<a href="#del">Deleting a payment</a><br>
+<a href="#move">Moving a transaction</a><br>
+<a href="#adjust">Adjusting a transaction amount</a><br>
+<a href="#restore">Restoring a transaction</a><br>
+<a href="#baladj">Balance adjustments</a><br>
+<a href="#deladj">Removing balance adjustment</a><br>
+<a href="#split">Altering a payment's regular amount on a date</a><br>
+<a href="#filter">Filter expression</a><br>
+<a href="#images">Adding your own images</a><br>
+<a href="#excel">Using Excel Reports</a><br>
+<a href="#buy">Buy/Register</a><br>
+<a href="#thanks">Special Thanks to</a><br>
+
+<a name="overview"><p class=styleheading4135pt>Overview</p></a>
+
+<p class=stylenormalweb135pt>The Budget Calendar is designed to help you easily
+comprehend your budget. The key feature is allowing you to see the shortfalls
+of your budget on day by day basis. </p>
+
+<p class=stylenormalweb135pt>The main window contains a calendar view of a
+budget month with income/expense transactions in the calendar cells. </p>
+
+<p><span style='font-size:13.5pt'><img src="image002.jpg"></span></p>
+
+<p class=stylenormalweb135pt>These are the parts of the main window on the
+screen shot above: </p>
+
+<p class=MsoNormal style='margin-left:18.0pt;text-indent:-18.0pt'><span
+style='font-size:10.0pt;font-family:Symbol'>&middot;</span><span
+style='font-size:7.0pt'>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; </span><b><span
+style='font-size:13.5pt'>Month Selector and Quick Stats</span></b><span
+style='font-size:13.5pt'>. This pane contains the initial and closing balances,
+actual income and expenses totals. </span></p>
+
+<p class=MsoNormal style='margin-left:18.0pt;text-indent:-18.0pt'><span
+style='font-size:10.0pt;font-family:Symbol'>&middot;</span><span
+style='font-size:7.0pt'>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; </span><b><span
+style='font-size:13.5pt'>Forecast graph</span></b><span style='font-size:13.5pt'>.
+Each bar represents average daily balance (by default) for the future month
+(planned, not actual, if that was an actual amount I would not be doing this).
+You can change the type of the graph by clicking on the graph's title and
+selecting a different type, or by clicking on a quick stats item.</span></p>
+
+<p class=MsoNormal style='margin-left:18.0pt;text-indent:-18.0pt'><span
+style='font-size:10.0pt;font-family:Symbol'>&middot;</span><span
+style='font-size:7.0pt'>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; </span><b><span
+style='font-size:13.5pt'>Brief Summary</span></b><span style='font-size:13.5pt'>.<b>
+</b>Split of the payments of the current month. It shows all payments which are
+more or equal to 5% of the total income, to see all payments click on <b>Full</b>
+<b>Summary</b>. The &#8220;+/-&#8220; column shows the difference between
+planned and actual values. Put mouse pointer on top of a summary item &#8211;
+appropriate cells in the calendar will be highlighted. If you click on a name
+of a transaction or a category the selected string will be applied as the
+filter.</span></p>
+
+<p class=MsoNormal style='margin-left:18.0pt;text-indent:-18.0pt'><span
+style='font-size:10.0pt;font-family:Symbol'>&middot;</span><span
+style='font-size:7.0pt'>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><b><span
+style='font-size:13.5pt'>Filter. </span></b><span style='font-size:13.5pt'>Type
+your filter in. The transactions that do not match the entered filter won&#8217;t
+be displayed in the calendar view. The stats will be filtered too. See Filter expression
+for details.</span></p>
+
+<p class=MsoNormal style='margin-left:18.0pt;text-indent:-18.0pt'><span
+style='font-size:10.0pt;font-family:Symbol'>&middot;</span><span
+style='font-size:7.0pt'>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; </span><b><span
+style='font-size:13.5pt'>Notes</span></b><span style='font-size:13.5pt'>.
+Simple text field that lets you add notes.</span></p>
+
+<p class=MsoNormal style='margin-left:18.0pt;text-indent:-18.0pt'><span
+style='font-size:10.0pt;font-family:Symbol'>&middot;</span><span
+style='font-size:7.0pt'>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; </span><b><span
+style='font-size:13.5pt'>Calendar cells</span></b><span style='font-size:13.5pt'>.
+Each cell has: </span></p>
+
+<p class=MsoNormal style='margin-left:54.0pt;text-indent:-18.0pt'><span
+style='font-size:10.0pt;font-family:Symbol'>&middot;</span><span
+style='font-size:7.0pt'>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; </span><span
+style='font-size:13.5pt'>The day of the month in the left top corner. The
+&#8220;&#8230;&#8221; after the number indicate that there is a note attached
+to this day. The &#8216; sign indicates that there were transactions removed
+from this day &#8211; the cells context menu can be used to restore them.</span></p>
+
+<p class=MsoNormal style='margin-left:54.0pt;text-indent:-18.0pt'><span
+style='font-size:10.0pt;font-family:Symbol'>&middot;</span><span
+style='font-size:7.0pt'>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; </span><span
+style='font-size:13.5pt'>This day&#8217;s transaction(s), each transaction has:</span></p>
+
+<p class=MsoNormal style='margin-left:90.0pt;text-indent:-18.0pt'><span
+style='font-size:10.0pt;font-family:Symbol'>&middot;</span><span
+style='font-size:7.0pt'>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; </span><span
+style='font-size:13.5pt'>Image (optional)</span></p>
+
+<p class=MsoNormal style='margin-left:90.0pt;text-indent:-18.0pt'><span
+style='font-size:10.0pt;font-family:Symbol'>&middot;</span><span
+style='font-size:7.0pt'>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; </span><span
+style='font-size:13.5pt'>Description start with the &#8220;&#8230;&#8221; then
+there is a note attached to this transaction</span></p>
+
+<p class=MsoNormal style='margin-left:90.0pt;text-indent:-18.0pt'><span
+style='font-size:10.0pt;font-family:Symbol'>&middot;</span><span
+style='font-size:7.0pt'>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; </span><span
+style='font-size:13.5pt'>Amount &#8211; the &#8216; sign after the number
+indicates that this amount was adjusted, the * sign indicates that this is the
+last transaction of this payment.</span></p>
+
+<p class=MsoNormal style='margin-left:54.0pt;text-indent:-18.0pt'><span
+style='font-size:10.0pt;font-family:Symbol'>&middot;</span><span
+style='font-size:7.0pt'>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; </span><span
+style='font-size:13.5pt'>The bottom bar is the day's ending balance:</span></p>
+
+<p class=MsoNormal style='margin-left:90.0pt;text-indent:-18.0pt'><span
+style='font-size:10.0pt;font-family:Symbol'>&middot;</span><span
+style='font-size:7.0pt'>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; </span><span
+style='font-size:13.5pt'>The pink bar indicates the maximum balance of the
+month. </span></p>
+
+<p class=MsoNormal style='margin-left:90.0pt;text-indent:-18.0pt'><span
+style='font-size:10.0pt;font-family:Symbol'>&middot;</span><span
+style='font-size:7.0pt'>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; </span><span
+style='font-size:13.5pt'>The darker blue indicates the minimum balance of the
+month. </span></p>
+
+<p class=MsoNormal style='margin-left:90.0pt;text-indent:-18.0pt'><span
+style='font-size:10.0pt;font-family:Symbol'>&middot;</span><span
+style='font-size:7.0pt'>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; </span><span
+style='font-size:13.5pt'>When the pointer hovers over the bar you will see the
+sums of day&#8217;s income and expenses (Day&#8217;s In and Out).</span></p>
+
+<a name="pmtvstran"><p class=styleheading4135pt>Payments vs. Transactions</p></a>
+
+<p class=stylenormalweb135pt>This budget application deals with payments and
+transactions. A payment consists of one or more transactions. A transaction is
+a simple money operation that adds or subtracts some amount from you balance on
+a particular date and it belongs to a payment. There can't be two transactions
+for the same payment in one cell. When you create a payment you specify the
+following for the payment: </p>
+
+<ul style='margin-top:0cm' type=disc>
+ <li class=MsoNormal><span style='font-size:13.5pt'>The scheduled date of the
+     first transaction; </span></li>
+ <li class=MsoNormal><span style='font-size:13.5pt'>How often transactions
+     occur; </span></li>
+ <li class=MsoNormal><span style='font-size:13.5pt'>The end date, or number of
+     payments, or <b><i>indefinite</i></b>, or until a loan is paid off. </span></li>
+</ul>
+
+<p class=stylenormalweb135pt>Based on this information the transactions are
+added into the calendar view. </p>
+
+<a name="add"><p class=styleheading4135pt>Adding a payment</p></a>
+
+<ul style='margin-top:0cm' type=disc>
+ <li class=MsoNormal><b><span style='font-size:13.5pt'>Calendar View</span></b><span
+     style='font-size:13.5pt'>: Right-click on a cell heading (day number bar) or
+     anywhere else other than transactions and click on <b>Add a new payment</b>.
+     </span></li>
+ <li class=MsoNormal><b><span style='font-size:13.5pt'>&quot;List of All
+     Payments&quot; </span></b><span style='font-size:13.5pt'>window<b>:</b>
+     Right-click and click on <b>Add a new payment</b>. </span></li>
+</ul>
+
+<p><span class=stylenormalweb135ptchar><span style='font-size:13.5pt;
+font-family:"Times New Roman"'>Either of these actions opens the </span></span><b><span
+style='font-size:13.5pt'>Payment Editing</span></b><span
+class=stylenormalweb135ptchar><span style='font-size:13.5pt;font-family:"Times New Roman"'>
+window. To create a new payment based on an existing one, right-click the
+payment and select </span></span><b><span style='font-size:13.5pt'>Duplicate
+payment</span></b><span class=stylenormalweb135ptchar><span style='font-size:
+13.5pt;font-family:"Times New Roman"'>. </span></span></p>
+
+<a name="edit"><p class=styleheading4135pt>Payment Editing</p></a>
+
+<p class=stylenormalweb135pt>When you create a new payment of modify an
+existing one (by double-clicking on a transaction or a payment) you see this
+window: </p>
+
+<p class=stylenormalweb135pt><img
+src="image005.jpg"></p>
+
+<table class=MsoNormalTable border=0 cellspacing=0 cellpadding=0>
+ <tr>
+  <td width=131 valign=top style='width:98.55pt;padding:2.25pt 2.25pt 2.25pt 2.25pt'>
+  <p class=MsoNormal><b></IMG>Field</b> </p>
+  </td>
+  <td width=451 valign=top style='width:337.95pt;padding:2.25pt 2.25pt 2.25pt 2.25pt'>
+  <p class=MsoNormal><b>Description</b> </p>
+  </td>
+ </tr>
+ <tr>
+  <td valign=top style='padding:2.25pt 2.25pt 2.25pt 2.25pt'>
+  <p class=MsoNormal><i>Description</i> </p>
+  </td>
+  <td valign=top style='padding:2.25pt 2.25pt 2.25pt 2.25pt'>
+  <p class=MsoNormal>A brief description of the payment. If the description is
+  too long (and looks bad in the calendar cells) you can put ';' in the text.
+  Text before the ';' is put in the calendar view. In the list of all payments
+  the whole text is shown. </p>
+  </td>
+ </tr>
+ <tr>
+  <td valign=top style='padding:2.25pt 2.25pt 2.25pt 2.25pt'>
+  <p class=MsoNormal><i>Category</i></p>
+  </td>
+  <td valign=top style='padding:2.25pt 2.25pt 2.25pt 2.25pt'>
+  <p class=MsoNormal>A category to which this payment belongs. This name will
+  be used for statistics calculation and reports</p>
+  </td>
+ </tr>
+ <tr>
+  <td valign=top style='padding:2.25pt 2.25pt 2.25pt 2.25pt'>
+  <p class=MsoNormal><i>Amount</i> </p>
+  </td>
+  <td valign=top style='padding:2.25pt 2.25pt 2.25pt 2.25pt'>
+  <p class=MsoNormal>The regular amount for this payment. Use Expense and
+  Income radio buttons to specify what it is. If you hover the mouse pointer
+  over this field a balloon text with a suggested amount will show. The
+  suggested amount is an average of all transactions of this payment in the
+  last 6 months.</p>
+  </td>
+ </tr>
+ <tr>
+  <td valign=top style='padding:2.25pt 2.25pt 2.25pt 2.25pt'>
+  <p class=MsoNormal><i>Expense/Income</i></p>
+  </td>
+  <td valign=top style='padding:2.25pt 2.25pt 2.25pt 2.25pt'>
+  <p class=MsoNormal>Convenience check boxes. </p>
+  </td>
+ </tr>
+ <tr>
+  <td valign=top style='padding:2.25pt 2.25pt 2.25pt 2.25pt'>
+  <p class=MsoNormal><i>Disabled</i></p>
+  </td>
+  <td valign=top style='padding:2.25pt 2.25pt 2.25pt 2.25pt'>
+  <p class=MsoNormal>Check this box if you want to disable this payment. Transactions
+  for this payment will still appear in the calendar cells but will be grayed
+  out and not used in the balance calculations. This option is useful when you
+  want to try a different payment schedule without changing too much stuff.</p>
+  </td>
+ </tr>
+ <tr>
+  <td valign=top style='padding:2.25pt 2.25pt 2.25pt 2.25pt'>
+  <p class=MsoNormal><i>Start Date</i> </p>
+  </td>
+  <td valign=top style='padding:2.25pt 2.25pt 2.25pt 2.25pt'>
+  <p class=MsoNormal>The first transaction day of this payment. </p>
+  </td>
+ </tr>
+ <tr>
+  <td valign=top style='padding:2.25pt 2.25pt 2.25pt 2.25pt'>
+  <p class=MsoNormal><i>End</i> </p>
+  </td>
+  <td valign=top style='padding:2.25pt 2.25pt 2.25pt 2.25pt'>
+  <p class=MsoNormal>The end date of the payment. Use the radio button to
+  specify this value. </p>
+  </td>
+ </tr>
+ <tr>
+  <td valign=top style='padding:2.25pt 2.25pt 2.25pt 2.25pt'>
+  <p class=MsoNormal><i>Grace Period</i></p>
+  </td>
+  <td valign=top style='padding:2.25pt 2.25pt 2.25pt 2.25pt'>
+  <p class=MsoNormal>Number of grace days for transactions. When you hover over
+  a transaction the &#8220;valid&#8221; days for this transaction will be
+  highlighted.</p>
+  </td>
+ </tr>
+ <tr>
+  <td valign=top style='padding:2.25pt 2.25pt 2.25pt 2.25pt'>
+  <p class=MsoNormal><i>Pay Every</i> </p>
+  </td>
+  <td valign=top style='padding:2.25pt 2.25pt 2.25pt 2.25pt'>
+  <p class=MsoNormal>How often transactions are added into the calendar. The
+  &#8220;Nth Weekday of a month&#8221; option is a special one. When this
+  option is selected the number box is disabled &#8211; because as the name
+  states this is done every month. Let&#8217;s say you have a payment that goes
+  on the first Monday of a month. You create a new payment on the first Monday
+  of a month, and check this option. From now on Budget Calendar will place
+  recurring transaction on the First Monday of the following month(s).</p>
+  </td>
+ </tr>
+ <tr>
+  <td valign=top style='padding:2.25pt 2.25pt 2.25pt 2.25pt'>
+  <p class=MsoNormal><i>Amount paid</i></p>
+  </td>
+  <td valign=top style='padding:2.25pt 2.25pt 2.25pt 2.25pt'>
+  <p class=MsoNormal>This is useful if you try to payout a loan without fixed
+  payment amount.</p>
+  </td>
+ </tr>
+ <tr>
+  <td valign=top style='padding:2.25pt 2.25pt 2.25pt 2.25pt'>
+  <p class=MsoNormal><i>Business Days Only</i> and <i>Early Pay</i></p>
+  </td>
+  <td valign=top style='padding:2.25pt 2.25pt 2.25pt 2.25pt'>
+  <p class=MsoNormal>Check this option if the specified payment transactions
+  happen only during business days (i.e. no Saturdays and Sundays).&nbsp; The
+  transactions will be moved to the next Monday unless the Early Pay is set,
+  then they are moved to the previous Friday.</p>
+  </td>
+ </tr>
+ <tr>
+  <td valign=top style='padding:2.25pt 2.25pt 2.25pt 2.25pt'>
+  <p class=MsoNormal><i>Tentative</i></p>
+  </td>
+  <td valign=top style='padding:2.25pt 2.25pt 2.25pt 2.25pt'>
+  <p class=MsoNormal>Tentative transactions will automatically slide to the current
+  date if the current date is in the transaction&#8217;s pay period &#8211;
+  provided that there are no adjustments in this pay period. Pay period is
+  calculated based on the payment&#8217;s start date and the &#8216;Pay
+  every:&#8217; data. For example if you set up Pay Every 2 weeks starting on
+  the 2nd of a month, indefinitely. The payment periods will be: 2nd to 15th,
+  16th to 29th and etc. The grace period days are not used directly &#8211; the
+  pay period defines the &#8220;grace period days&#8221;. In our example it is
+  14 days.</p>
+  <p class=MsoNormal>If there were no adjustments in the pay periods before the
+  current pay period &#8211; there will be no transactions in these periods.
+  (simply removed). </p>
+  <p class=MsoNormal>If you remove a tentative transaction from the current or
+  a future pay period, you will be able to restore it by using the &#8220;Restore&#8230;&#8221;
+  menu item on the current day or on the future period&#8217;s first day
+  &#8211; provided you don&#8217;t have adjustments in that period. </p>
+  <p class=MsoNormal>This type of transaction is helpful when you write cheques
+  by hand and not sure when they get cashed-in.</p>
+  </td>
+ </tr>
+ <tr>
+  <td valign=top style='padding:2.25pt 2.25pt 2.25pt 2.25pt'>
+  <p class=MsoNormal><i>Sticky</i></p>
+  </td>
+  <td valign=top style='padding:2.25pt 2.25pt 2.25pt 2.25pt'>
+  <p class=MsoNormal>Override transaction's default (regular) amount with the last adjustment in the calendar before this transaction's date, if available. This is useful when future transactions' amounts tend to <i>stick</i> around.
+  Using this flag with <b>Disabled</b> allows to emulate a balance of some other continues amounts.</p>
+  </td>
+ </tr>
+ <tr>
+  <td valign=top style='padding:2.25pt 2.25pt 2.25pt 2.25pt'>
+  <p class=MsoNormal><i>Mark as</i></p>
+  </td>
+  <td valign=top style='padding:2.25pt 2.25pt 2.25pt 2.25pt'>
+  <p class=MsoNormal>Convenience flags </p>
+  </td>
+ </tr>
+ <tr>
+  <td valign=top style='padding:2.25pt 2.25pt 2.25pt 2.25pt'>
+  <p class=MsoNormal><i>Image</i> </p>
+  </td>
+  <td valign=top style='padding:2.25pt 2.25pt 2.25pt 2.25pt'>
+  <p class=MsoNormal>The image for the calendar view to place beside the
+  transaction text. Click on the image button to select an image.
+  Quick pick images may be displayed beside the image. You can click on
+  a quick pick image to use it. Quick pick images are displayed based
+  on the words you put in the description and category.</p>
+  </td>
+ </tr>
+</table>
+
+<a name="del"><p class=styleheading4135pt>Deleting a payment</p></a>
+
+<p><span class=stylenormalweb135ptchar><span style='font-size:13.5pt;
+font-family:"Times New Roman"'>Click on </span></span><b><span
+style='font-size:13.5pt'>List of All Payments</span></b><span
+class=stylenormalweb135ptchar><span style='font-size:13.5pt;font-family:"Times New Roman"'>
+in the </span></span><b><span style='font-size:13.5pt'>File</span></b><span
+class=stylenormalweb135ptchar><span style='font-size:13.5pt;font-family:"Times New Roman"'>
+menu. In The </span></span><b><span style='font-size:13.5pt'>List of all
+Payments</span></b><span class=stylenormalweb135ptchar><span style='font-size:
+13.5pt;font-family:"Times New Roman"'> window, find the required payment in the
+table. Right-click the payment and click on </span></span><b><span
+style='font-size:13.5pt'>Delete payment</span></b><span
+class=stylenormalweb135ptchar><span style='font-size:13.5pt;font-family:"Times New Roman"'>.
+You can open the </span></span><b><span style='font-size:13.5pt'>Edit</span></b><span
+class=stylenormalweb135ptchar><span style='font-size:13.5pt;font-family:"Times New Roman"'>
+dialog on a transaction and click on </span></span><b><span style='font-size:
+13.5pt'>Delete</span></b><span class=stylenormalweb135ptchar><span
+style='font-size:13.5pt;font-family:"Times New Roman"'> button.</span></span></p>
+
+<a name="move"><p class=styleheading4135pt>Moving a transaction</p></a>
+
+<p><span class=stylenormalweb135ptchar><span style='font-size:13.5pt;
+font-family:"Times New Roman"'>Right-click on a transaction and click on </span></span><b><span
+style='font-size:13.5pt'>Move Transaction</span></b><span
+class=stylenormalweb135ptchar><span style='font-size:13.5pt;font-family:"Times New Roman"'>
+item. In the </span></span><b><span style='font-size:13.5pt'>Date Picker</span></b><span
+class=stylenormalweb135ptchar><span style='font-size:13.5pt;font-family:"Times New Roman"'>
+window select the required date to which you want to move the transaction. If
+you need to move a transaction within the currently visible month, you can drag
+the transaction to the new date. Moved transactions have the </span></span><b><span
+style='font-size:13.5pt'>'</span></b><span class=stylenormalweb135ptchar><span
+style='font-size:13.5pt;font-family:"Times New Roman"'> symbol as the suffix. </span></span></p>
+
+<a name="adjust"><p class=styleheading4135pt>Adjusting a transaction amount</p></a>
+
+<p><span class=stylenormalweb135ptchar><span style='font-size:13.5pt;
+font-family:"Times New Roman"'>Double-click on the amount text of the
+transaction. In the </span></span><b><span style='font-size:13.5pt'>New Amount</span></b><span
+class=stylenormalweb135ptchar><span style='font-size:13.5pt;font-family:"Times New Roman"'>
+window enter the new amount and press </span></span><b><i><span
+style='font-size:13.5pt'>Enter</span></i></b><span
+class=stylenormalweb135ptchar><span style='font-size:13.5pt;font-family:"Times New Roman"'>.
+Transactions with adjusted amounts have the ' symbol as the suffix. </span></span></p>
+
+<a name="restore"><p class=styleheading4135pt>Restoring a transaction</p></a>
+
+<p><span class=stylenormalweb135ptchar><span style='font-size:13.5pt;
+font-family:"Times New Roman"'>If you deleted a transaction on a particular
+date or moved it to some other day and would like to have it back, right-click
+on the cell heading of the date that held the transaction and click on </span></span><b><span
+style='font-size:13.5pt'>Restore '</span></b><i><span style='font-size:13.5pt'>your
+transaction name here</span></i><b><span style='font-size:13.5pt'>'</span></b><span
+class=stylenormalweb135ptchar><span style='font-size:13.5pt;font-family:"Times New Roman"'>.&nbsp;
+The days that have </span></span><i><span style='font-size:13.5pt'>restorable</span></i><span
+class=stylenormalweb135ptchar><span style='font-size:13.5pt;font-family:"Times New Roman"'>
+transactions have a &#8216; symbol as the day number&#8217;s suffix.</span></span>
+<span style='font-size:13.5pt;color:red'>Important: Please note that if you
+have <b><i>moved</i></b> a transaction to another day the &#8220;<b><i>undo</i></b>&#8221;
+will not be performed, so you may end-up with multiple transactions.</span></p>
+
+<a name="baladj"><p class=styleheading4135pt>Balance adjustments</p></a>
+
+<p><span class=stylenormalweb135ptchar><span style='font-size:13.5pt;
+font-family:"Times New Roman"'>If you need to adjust the balance on a
+particular day, right-click on the balance bar of the required date and click
+on </span></span><b><span style='font-size:13.5pt'>Adjust balance</span></b><span
+class=stylenormalweb135ptchar><span style='font-size:13.5pt;font-family:"Times New Roman"'>.
+In the </span></span><b><span style='font-size:13.5pt'>Balance Adjustment</span></b><span
+class=stylenormalweb135ptchar><span style='font-size:13.5pt;font-family:"Times New Roman"'>
+window enter the required amount and press </span></span><b><i><span
+style='font-size:13.5pt'>Enter</span></i></b><span
+class=stylenormalweb135ptchar><span style='font-size:13.5pt;font-family:"Times New Roman"'>.
+Adjusted balance will have a ' symbol as the suffix. You can enter a simple
+mathematical formula in the adjust balance field. For example, you can enter
+&quot;</span></span><b><span style='font-size:13.5pt'>1234 &#8211; 23/2</span></b><span
+class=stylenormalweb135ptchar><span style='font-size:13.5pt;font-family:"Times New Roman"'>&quot;.
+</span></span></p>
+
+<a name="deladj"><p class=styleheading4135pt>Removing balance adjustment</p></a>
+
+<p><span class=stylenormalweb135ptchar><span style='font-size:13.5pt;
+font-family:"Times New Roman"'>Right-click on the balance bar that has an
+adjustment and select </span></span><b><span style='font-size:13.5pt'>Remove
+Adjustment</span></b><span class=stylenormalweb135ptchar><span
+style='font-size:13.5pt;font-family:"Times New Roman"'>. </span></span></p>
+
+<a name="split"><p class=styleheading4135pt>Altering a payment's regular amount on a date</p></a>
+
+<p><span class=stylenormalweb135ptchar><span style='font-size:13.5pt;
+font-family:"Times New Roman"'>Sometimes there is a need to change the amount
+of <b>all</b> transactions of a payment after a certain date. <b>Right-click</b>
+on a transaction, select </span></span><b><span style='font-size:13.5pt'>alter transactions from...</span></b><b><span
+style='font-size:13.5pt'> </span></b><span style='font-size:13.5pt'>in the menu<span
+class=stylenormalweb135ptchar><span style='font-family:"Times New Roman"'>.
+Confirm your operation in the shown confirmation dialog. The payment will be
+split into two. The original payment will get its end date adjusted to one day
+before the altering date. The payment&#8217;s amount will stay unchanged. The new
+payment transactions start on the date of the split. The payment Editing dialog for the
+new payment will be shown to let you adjust the payment&#8217;s details.</span></span></span></p>
+
+<a name="filter"><p class=styleheading4135pt>Filter expression</p></a>
+
+<p><span class=stylenormalweb135ptchar><span style='font-size:13.5pt;
+font-family:"Times New Roman"'>You can apply filter to Calendar View or All
+payments dialog. &nbsp;Here is what you can put in:</span></span></p>
+
+<p style='margin-left:36.0pt;text-indent:-18.0pt'><span
+class=stylenormalweb135ptchar><span style='font-size:13.5pt;font-family:Symbol'>&middot;<span
+style='font:7.0pt "Times New Roman"'>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+</span></span></span><span class=stylenormalweb135ptchar><span
+style='font-size:13.5pt;font-family:"Times New Roman"'>A whole or a part of a
+transaction name</span></span></p>
+
+<p style='margin-left:36.0pt;text-indent:-18.0pt'><span
+class=stylenormalweb135ptchar><span style='font-size:13.5pt;font-family:Symbol'>&middot;<span
+style='font:7.0pt "Times New Roman"'>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+</span></span></span><span class=stylenormalweb135ptchar><b><span
+style='font-size:13.5pt;font-family:"Times New Roman"'>&gt;</span></b></span><span
+class=stylenormalweb135ptchar><i><span style='font-size:13.5pt;font-family:
+"Times New Roman"'>n</span></i></span><span class=stylenormalweb135ptchar><span
+style='font-size:13.5pt;font-family:"Times New Roman"'>, <b>&lt;</b><i>n</i> or
+<b>=</b><i>n</i> where n is a number, works as amount filter</span></span></p>
+
+<p style='margin-left:36.0pt;text-indent:-18.0pt'><span
+class=stylenormalweb135ptchar><span style='font-size:13.5pt;font-family:Symbol'>&middot;<span
+style='font:7.0pt "Times New Roman"'>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+</span></span></span><span class=stylenormalweb135ptchar><span
+style='font-size:13.5pt;font-family:"Times New Roman"'>Start your filter
+expression with a '|' to set 'OR' search mode</span></span></p>
+
+<p style='margin-left:36.0pt;text-indent:-18.0pt'><span
+class=stylenormalweb135ptchar><span style='font-size:13.5pt;font-family:Symbol'>&middot;<span
+style='font:7.0pt "Times New Roman"'>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+</span></span></span><span class=stylenormalweb135ptchar><span
+style='font-size:13.5pt;font-family:"Times New Roman"'>Use '_' where you need a
+filter for a space</span></span></p>
+
+<p style='margin-left:36.0pt;text-indent:-18.0pt'><span
+class=stylenormalweb135ptchar><span style='font-size:13.5pt;font-family:Symbol'>&middot;<span
+style='font:7.0pt "Times New Roman"'>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+</span></span></span><span class=stylenormalweb135ptchar><span
+style='font-size:13.5pt;font-family:"Times New Roman"'>Use <b>cat</b>:<i>substring</i>
+to filter by categories only, <b>desc</b>:<i>substring </i>&#8211; by description
+only, <b>date</b>:<i>datesubstring</i> &#8211; by date only</span></span></p>
+
+<p><span class=stylenormalweb135ptchar><span style='font-size:13.5pt;
+font-family:"Times New Roman"'>Examples:</span></span></p>
+
+<p><span class=stylenormalweb135ptchar><span style='font-size:13.5pt;
+font-family:"Times New Roman"'>cat:utils &lt;-100</span></span></p>
+
+<p><span class=stylenormalweb135ptchar><span style='font-size:13.5pt;
+font-family:"Times New Roman"'>Will filter all transactions that belong to the <b>utils</b>
+category with the amount less that -100.</span></span></p>
+
+<a name="images"><p class=styleheading4135pt>Adding your own icons</p></a>
+
+<p><span class=stylenormalweb135ptchar><span style='font-size:13.5pt;
+font-family:"Times New Roman"'>Put your images into the </span></span><span
+style='font-family:"Courier \(W1\)"'><b>C:\Program&nbsp;File\MiShellSoft\Budget\app\images\</b></span><span
+class=stylenormalweb135ptchar><span style='font-size:13.5pt;font-family:"Times New Roman"'>
+directory. On the next run the new icons will be available in the icon selection
+window. The default images are GIFs and PNGs with the size of 18x18. It is recommended
+to use images with transparency. </span></span></p>
+
+<a name="excel"><p class=styleheading4135pt>Using Excel Reports</p></a>
+
+<p><span class=stylenormalweb135ptchar><span style='font-size:13.5pt;
+font-family:"Times New Roman"'>When you need to save an open Excel Report for a
+future reference, please make sure that you do the following:</span></span><span
+style='font-size:13.5pt'><br>
+<span class=stylenormalweb135ptchar><span style='font-family:"Times New Roman"'>In
+Excel, open the </span></span><b>File</b><span class=stylenormalweb135ptchar><span
+style='font-family:"Times New Roman"'> menu, click on </span></span><b>Save
+as...</b><span class=stylenormalweb135ptchar><span style='font-family:"Times New Roman"'>
+item. The </span></span><b>Save as</b><span class=stylenormalweb135ptchar><span
+style='font-family:"Times New Roman"'> dialog will pop up. Set the </span></span><b>Save
+as type:</b><span class=stylenormalweb135ptchar><span style='font-family:"Times New Roman"'>
+to </span></span><i>Microsoft Excel Workbook</i><span
+class=stylenormalweb135ptchar><span style='font-family:"Times New Roman"'>.
+Change the file name, if required, from </span></span><b>out</b><span
+class=stylenormalweb135ptchar><span style='font-family:"Times New Roman"'> to
+your preference, for example </span></span><i>April2005Budget</i><span
+class=stylenormalweb135ptchar><span style='font-family:"Times New Roman"'>,
+then click the </span></span><b>Save</b><span class=stylenormalweb135ptchar><span
+style='font-family:"Times New Roman"'> button. </span></span></span></p>
+
+<a name="buy"><p class=styleheading4135pt>Buy/Register</p></a>
+
+<p><span class=stylenormalweb135ptchar><span style='font-size:13.5pt;
+font-family:"Times New Roman"'>Open the </span></span><span style='font-size:
+13.5pt'><a href="http://www.mishell.ca/" target="_top">http://www.mishell.ca/</a><span
+class=stylenormalweb135ptchar><span style='font-family:"Times New Roman"'> and
+click the &quot;Buy Now&quot; button. Once your payment is received, you will
+be emailed with a registration code. </span></span></span></p>
+
+<a name="thanks"><p class=styleheading4135pt>Special Thanks to</p></a>
+
+<p><b><span style='font-size:13.5pt'>Paul Miller</span></b><span
+class=stylenormalweb135ptchar><span style='font-size:13.5pt;font-family:"Times New Roman"'>
+to inspire me to add a preferences dialog and many more forecast graphs. </span></span></p>
+
+<p class=stylenormalweb135pt><b>Chuck Fischer</b> for great suggestions and
+asking me to improve little (but annoying) issues.</p>
+</TABLE>
+</div>
+
+</div>
+
+</body>
+
+</html>

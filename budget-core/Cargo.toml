@@ -1,0 +1,9 @@
+[package]
+name = "budget-core"
+version = "0.1.0"
+edition = "2021"
+description = "Engine of the Budget Calendar port: dates, model, .bgt file format, scheduler, balances"
+
+[dependencies]
+blowfish = "0.9"
+cipher = "0.4"

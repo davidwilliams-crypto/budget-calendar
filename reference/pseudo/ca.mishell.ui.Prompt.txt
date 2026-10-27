@@ -1,0 +1,358 @@
+// ===== Prompt$1 extends KeyAdapter 
+final synthetic Prompt this$0;
+
+ void <init>(Prompt p0) {
+    Objects.requireNonNull(p0);
+    this.this$0 = p0;
+    super.<init>();
+    return;
+}
+
+public void keyPressed(KeyEvent p0) {
+    if ((p0.stateMask & 262144) != 262144) goto L52;
+    if ((p0.stateMask & -262145) != 0) goto L52;
+    if (p0.keyCode == 13) goto L40;
+    if (p0.keyCode != 10) goto L52;
+    L40:
+    this.this$0.verify();
+    p0.doit = 0;
+    L52:
+    return;
+}
+
+// ===== Prompt extends Object implements SelectionListener
+private final Shell shell;
+private Text text;
+private Object return_val;
+private Combo combo;
+private function.Function accept_handler;
+public static int PROMPT_PASSWORD;
+public static int PROMPT_MULTILINE;
+public static int PROMPT_SELECTION;
+public static int PROMPT_MONOSPACED;
+public static int PROMPT_NO_EDIT;
+public static int PROMPT_WRAP;
+public static int PROMPT_NO_CANCEL;
+private final Button ok_b;
+private final Rectangle monitorRect;
+private final Shell parent;
+private Link hintLink;
+
+public Link getHintLink() {
+    return this.hintLink;
+}
+
+public void <init>(Shell p0, Image p1, String p2, String p3, String p4, String p5, int p6) {
+    super.<init>();
+    this.accept_handler = lambda[Prompt::lambda$new$0]();
+    this.parent = p0;
+    this.shell = new Shell(p0, 65568);
+    this.shell.setText(p2);
+    if (p1 == null) goto L52;
+    this.shell.setImage(p1);
+    L52:
+    if (Prompt.PROMPT_NO_EDIT != (p6 & Prompt.PROMPT_NO_EDIT)) goto L68;
+    $s0 = 1;
+    goto L69;
+    L68:
+    $s0 = 0;
+    L69:
+    v8 = $s0;
+    if (Prompt.PROMPT_MULTILINE != (p6 & Prompt.PROMPT_MULTILINE)) goto L87;
+    $s0 = 1;
+    goto L88;
+    L87:
+    $s0 = 0;
+    L88:
+    v9 = $s0;
+    if (Prompt.PROMPT_WRAP != (p6 & Prompt.PROMPT_WRAP)) goto L106;
+    $s0 = 1;
+    goto L107;
+    L106:
+    $s0 = 0;
+    L107:
+    v10 = $s0;
+    if (Prompt.PROMPT_NO_CANCEL != (p6 & Prompt.PROMPT_NO_CANCEL)) goto L125;
+    $s0 = 1;
+    goto L126;
+    L125:
+    $s0 = 0;
+    L126:
+    v11 = $s0;
+    if (v11 == 0) goto L147;
+    this.shell.addListener(31, lambda[Prompt::lambda$new$1]());
+    L147:
+    v12 = new layout.GridLayout();
+    $s0 = v12;
+    $s1 = v12;
+    if (v8 == 0) goto L169;
+    $s0 = v12;
+    $s1 = v12;
+    $s2 = 5;
+    goto L171;
+    L169:
+    $s2 = 10;
+    L171:
+    $s1.marginWidth = $s2;
+    $s0.marginHeight = $s2;
+    $s0 = v12;
+    if (v8 == 0) goto L189;
+    $s0 = v12;
+    $s1 = 5;
+    goto L191;
+    L189:
+    $s1 = 10;
+    L191:
+    $s0.verticalSpacing = $s1;
+    this.shell.setLayout(v12);
+    v13 = (MiSWT.calcWidth(Display.getDefault().getSystemFont(), "This is an example") * 4);
+    if (p3 == null) goto L268;
+    v14 = new Label(this.shell, 64);
+    v14.setText(p3);
+    v15 = new layout.GridData();
+    v15.widthHint = v13;
+    v14.setLayoutData(v15);
+    L268:
+    v14 = new layout.GridData(768);
+    if (Prompt.PROMPT_SELECTION != (p6 & Prompt.PROMPT_SELECTION)) goto L322;
+    this.combo = new Combo(this.shell, 2052);
+    this.combo.setText(p5);
+    goto L476;
+    L322:
+    $s0 = this;
+    $s1 = new Text(?);
+    $s2 = new Text(?);
+    $s3 = this.shell;
+    if (v8 == 0) goto L340;
+    $s0 = this;
+    $s1 = new Text(?);
+    $s2 = new Text(?);
+    $s3 = this.shell;
+    $s4 = 0;
+    goto L343;
+    L340:
+    $s4 = 2048;
+    L343:
+    if (v9 == 0) goto L354;
+    $s5 = 514;
+    goto L355;
+    L354:
+    $s5 = 0;
+    L355:
+    $s4 = ($s4 | $s5);
+    if (v10 == 0) goto L366;
+    $s4 = ($s4 | $s5);
+    $s5 = 64;
+    goto L367;
+    L366:
+    $s5 = 0;
+    L367:
+    $s2.<init>($s3, ($s4 | $s5));
+    $s0.text = $s1;
+    this.text.setText(p5);
+    if ((p6 & Prompt.PROMPT_PASSWORD) != Prompt.PROMPT_PASSWORD) goto L404;
+    this.text.setEchoChar(42);
+    L404:
+    if (v9 == 0) goto L432;
+    v14.heightHint = (6 * MiSWT.stringExtent(this.text.getFont(), "X").y);
+    L432:
+    $s0 = this.text;
+    if (v8 != 0) goto L445;
+    $s0 = this.text;
+    $s1 = 1;
+    goto L446;
+    L445:
+    $s1 = 0;
+    L446:
+    $s0.setEditable($s1);
+    if (v8 == 0) goto L476;
+    if (Prompt.PROMPT_MONOSPACED != (p6 & Prompt.PROMPT_MONOSPACED)) goto L476;
+    this.text.setFont(MiSWT.getMonospacedFont());
+    L476:
+    if (this.combo == null) goto L495;
+    this.combo.setLayoutData(v14);
+    goto L504;
+    L495:
+    this.text.setLayoutData(v14);
+    L504:
+    this.monitorRect = this.shell.getMonitor().getBounds();
+    if (p4 == null) goto L841;
+    v14 = new ScrolledComposite(this.shell, 512);
+    this.hintLink = new Link(v14, 64);
+    v14.setContent(this.hintLink);
+    this.hintLink.setForeground(MiSWT.getDarkerColor(this.shell.getBackground(), 0.4));
+    if (p4.endsWith("\n") != 0) goto L602;
+    p4 = (p4 + "\n ");
+    L602:
+    this.hintLink.setText(p4);
+    if (Prompt.PROMPT_MONOSPACED != (p6 & Prompt.PROMPT_MONOSPACED)) goto L640;
+    this.hintLink.setFont(MiSWT.changeFontSize(MiSWT.getMonospacedFont(), -1));
+    goto L652;
+    L640:
+    this.hintLink.setFont(MiSWT.getBiggerFont(-1, 2));
+    L652:
+    v15 = MiSWT.computeLinkSize(this.hintLink);
+    v16 = (int)((double)this.monitorRect.width * 0.8);
+    if (v15.x > v13) goto L696;
+    if (v15.x <= v16) goto L722;
+    L696:
+    v15 = this.hintLink.computeSize(Math.min(v15.x, ((v16 * 90) / 100)), -1);
+    L722:
+    if (p4.contains("href=\"") == 0) goto L748;
+    this.hintLink.addSelectionListener(SelectionListener.widgetSelectedAdapter(lambda[Prompt::lambda$new$2]()));
+    L748:
+    v17 = new layout.GridData(1792);
+    v17.widthHint = Math.max(v13, Math.min(v16, ((v15.x * 105) / 100)));
+    v17.heightHint = Math.min((int)((double)this.monitorRect.height * 0.8), ((v15.y * 105) / 100));
+    v14.setLayoutData(v17);
+    this.hintLink.setSize(v15);
+    v14.setMinSize(v15);
+    L841:
+    if (this.combo == null) goto L859;
+    this.combo.addSelectionListener(this);
+    goto L867;
+    L859:
+    this.text.addSelectionListener(this);
+    L867:
+    v14 = new Composite(this.shell, 0);
+    v15 = new layout.GridData();
+    v15.horizontalSpan = 2;
+    v15.horizontalAlignment = 3;
+    v14.setLayoutData(v15);
+    v16 = new layout.RowLayout();
+    v16.pack = 0;
+    v16.justify = 1;
+    v16.spacing = 10;
+    v14.setLayout(v16);
+    v17 = MiSWT.getButtonDim(v14, "--Cancel--");
+    this.ok_b = new Button(v14, 16777224);
+    this.ok_b.setText("Ok");
+    this.ok_b.setLayoutData(new layout.RowData(v17.x, v17.y));
+    this.ok_b.addSelectionListener(this);
+    if (v11 != 0) goto L1080;
+    if (v8 != 0) goto L1080;
+    v18 = new Button(v14, 16777224);
+    v18.setText("Cancel");
+    v18.setLayoutData(new layout.RowData(v17.x, v17.y));
+    v18.addSelectionListener(SelectionListener.widgetSelectedAdapter(lambda[Prompt::lambda$new$3](this)));
+    L1080:
+    return;
+}
+
+public Object open() {
+    this.return_val = null;
+    if (this.combo == null) goto L48;
+    this.combo.setFocus();
+    this.combo.setSelection(new Point(0, this.combo.getText().length()));
+    goto L110;
+    L48:
+    if (this.text.getEditable() == 0) goto L87;
+    this.text.setFocus();
+    this.text.setSelection(0, this.text.getText().length());
+    goto L95;
+    L87:
+    this.ok_b.setFocus();
+    L95:
+    this.text.addKeyListener(new Prompt$1(this));
+    L110:
+    v1 = this.shell.getDisplay();
+    v2 = this.shell.computeSize(-1, -1);
+    v2.x = Math.min((int)((double)this.monitorRect.width * 0.95), v2.x);
+    v2.y = Math.min((int)((double)this.monitorRect.height * 0.95), v2.y);
+    this.shell.setLocation(MiSWT.centerLoc(this.parent, v2));
+    this.shell.setSize(v2);
+    this.shell.setVisible(1);
+    this.shell.setFocus();
+    L215:
+    if (this.shell.isDisposed() != 0) goto L240;
+    if (v1.readAndDispatch() != 0) goto L215;
+    v1.sleep();
+    goto L215;
+    L240:
+    return this.return_val;
+}
+
+public Text getText() {
+    return this.text;
+}
+
+public Prompt setAcceptHandler(function.Function p0) {
+    this.accept_handler = p0;
+    return this;
+}
+
+public Prompt setSelectionList(List p0) {
+    v2 = p0.iterator();
+    L7:
+    if (v2.hasNext() == 0) goto L37;
+    v3 = (String)v2.next();
+    this.combo.add(v3);
+    goto L7;
+    L37:
+    return this;
+}
+
+public void widgetSelected(SelectionEvent p0) {
+    if (p0.widget == this.combo) goto L15;
+    this.verify();
+    L15:
+    return;
+}
+
+public void widgetDefaultSelected(SelectionEvent p0) {
+    this.verify();
+    return;
+}
+
+private void verify() {
+    if (this.combo == null) goto L17;
+    $s0 = this.combo.getText();
+    goto L24;
+    L17:
+    $s0 = this.text.getText();
+    L24:
+    v1 = $s0;
+    this.return_val = this.accept_handler.apply(v1);
+    if (this.return_val != null) goto L55;
+    this.shell.setFocus();
+    return;
+    L55:
+    this.shell.dispose();
+    return;
+}
+
+public Shell getShell() {
+    return this.shell;
+}
+
+private synthetic void lambda$new$3(SelectionEvent p0) {
+    this.shell.dispose();
+    return;
+}
+
+private static synthetic void lambda$new$2(SelectionEvent p0) {
+    program.Program.launch(p0.text);
+    return;
+}
+
+private static synthetic void lambda$new$1(Event p0) {
+    if (p0.detail != 2) goto L13;
+    p0.doit = 0;
+    L13:
+    return;
+}
+
+private static synthetic Object lambda$new$0(String p0) {
+    return p0;
+}
+
+static void <clinit>() {
+    Prompt.PROMPT_PASSWORD = 1;
+    Prompt.PROMPT_MULTILINE = 2;
+    Prompt.PROMPT_SELECTION = 4;
+    Prompt.PROMPT_MONOSPACED = 8;
+    Prompt.PROMPT_NO_EDIT = 16;
+    Prompt.PROMPT_WRAP = 32;
+    Prompt.PROMPT_NO_CANCEL = 64;
+    return;
+}

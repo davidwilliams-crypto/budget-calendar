@@ -1,0 +1,22 @@
+// ===== PaymentOption extends Object 
+public int date;
+public double amount;
+public boolean deleted;
+
+public void <init>() {
+    super.<init>();
+    return;
+}
+
+public String toString() {
+    if (this.deleted == 0) goto L37;
+    $a1 = new Object[2];
+    $a1[0] = Integer.valueOf(this.date);
+    $a1[1] = Double.valueOf(this.amount);
+    return String.format("[%d: DELETED(%.2f)]", $a1);
+    L37:
+    $a2 = new Object[2];
+    $a2[0] = Integer.valueOf(this.date);
+    $a2[1] = Double.valueOf(this.amount);
+    return String.format("[%d: %.2f]", $a2);
+}

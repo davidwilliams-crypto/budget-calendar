@@ -1,0 +1,79 @@
+// ===== TableKeyNavigation extends Object implements KeyListener
+private Table table;
+private final int reset_msec = 1000;
+private String text;
+private long reset_after_msec;
+
+ void <init>(Table p0) {
+    super.<init>();
+    this.reset_msec = 1000;
+    this.text = "";
+    this.reset_after_msec = 0L;
+    this.table = p0;
+    p0.addKeyListener(this);
+    return;
+}
+
+public void dispose() {
+    this.table.removeKeyListener(this);
+    this.table = null;
+    return;
+}
+
+private boolean navigate(String p0) {
+    v2 = this.table.getColumnCount();
+    v3 = Math.max(0, this.table.getSelectionIndex());
+    p0 = p0.toLowerCase();
+    if (p0.length() != 1) goto L36;
+    v3 += 1;
+    L36:
+    v4 = v3;
+    L39:
+    if (v4 >= this.table.getItemCount()) goto L124;
+    v5 = this.table.getItem(v4);
+    v6 = 0;
+    L65:
+    if (v6 >= v2) goto L118;
+    v7 = v5.getText(v6).toLowerCase();
+    if (v7.contains(p0) == 0) goto L112;
+    this.table.select(v4);
+    this.table.showItem(v5);
+    return 1;
+    L112:
+    v6 += 1;
+    goto L65;
+    L118:
+    v4 += 1;
+    goto L39;
+    L124:
+    return 0;
+}
+
+public void keyPressed(KeyEvent p0) {
+    if ((p0.stateMask & SWT.MODIFIER_MASK) != 0) goto L129;
+    v2 = (System.nanoTime() / 1000000L);
+    if (v2 <= this.reset_after_msec) goto L34;
+    this.text = "";
+    L34:
+    if (p0.character != 27) goto L54;
+    this.reset_after_msec = 0L;
+    p0.doit = 0;
+    return;
+    L54:
+    if (Character.isAlphabetic(p0.character) != 0) goto L65;
+    return;
+    L65:
+    p0.doit = 0;
+    this.reset_after_msec = (v2 + 1000L);
+    if (this.navigate((this.text + p0.character)) == 0) goto L119;
+    this.text = (this.text + p0.character);
+    goto L129;
+    L119:
+    this.table.getDisplay().beep();
+    L129:
+    return;
+}
+
+public void keyReleased(KeyEvent p0) {
+    return;
+}

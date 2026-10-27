@@ -1,0 +1,138 @@
+// ===== JarVerifier extends Object 
+
+public void <init>() {
+    super.<init>();
+    return;
+}
+
+public static java.security.cert.X509Certificate getX509Certificate(byte[] p0) {
+    v1 = java.security.cert.CertificateFactory.getInstance("X.509");
+    v2 = new ByteArrayInputStream(p0);
+    v3 = (java.security.cert.X509Certificate)v1.generateCertificate(v2);
+    v4 = v3;
+    v2.close();
+    return v4;
+    // handler for [15,27) catch Throwable
+    L34:
+    v3 = $ex;
+    v2.close();
+    goto L50;
+    // handler for [35,39) catch Throwable
+    L42:
+    v4 = $ex;
+    v3.addSuppressed(v4);
+    L50:
+    throw v3;
+}
+
+public static void verify(File p0, java.security.cert.X509Certificate p1) {
+    v2 = new jar.JarFile(p0);
+    v3 = new ArrayList();
+    v4 = v2.getManifest();
+    if (v4 != null) goto L38;
+    throw new SecurityException("The provider is not signed");
+    L38:
+    $a4 = new byte[16384];
+    v5 = $a4;
+    v6 = v2.entries();
+    L51:
+    if (v6.hasMoreElements() == 0) goto L160;
+    v7 = (jar.JarEntry)v6.nextElement();
+    if (v7.isDirectory() == 0) goto L84;
+    goto L51;
+    L84:
+    v8 = v2.getInputStream(v7);
+    L92:
+    if (v8.read(v5, 0, v5.length) == -1) goto L110;
+    goto L92;
+    L110:
+    if (v8 == null) goto L150;
+    v8.close();
+    goto L150;
+    // handler for [92,110) catch Throwable
+    L123:
+    v9 = $ex;
+    if (v8 == null) goto L147;
+    v8.close();
+    goto L147;
+    // handler for [130,135) catch Throwable
+    L138:
+    v10 = $ex;
+    v9.addSuppressed(v10);
+    L147:
+    throw v9;
+    L150:
+    v3.add(v7);
+    goto L51;
+    L160:
+    v7 = v3.iterator();
+    L166:
+    if (v7.hasNext() == 0) goto L310;
+    v8 = (jar.JarEntry)v7.next();
+    v9 = v8.getCertificates();
+    if (v9 == null) goto L206;
+    if (v9.length != 0) goto L237;
+    L206:
+    if (v8.getName().startsWith("META-INF/") != 0) goto L307;
+    throw new SecurityException(("The provider contains unsigned file:" + v8.getName()));
+    L237:
+    v10 = 0;
+    v12 = 0;
+    L243:
+    $t6 = JarVerifier.getAChain(v9, v10);
+    v11 = $t6;
+    if ($t6 == null) goto L284;
+    if (v11[0].equals(p1) == 0) goto L273;
+    v12 = 1;
+    goto L284;
+    L273:
+    v10 = (v10 + v11.length);
+    goto L243;
+    L284:
+    if (v12 != 0) goto L307;
+    throw new SecurityException(("The provider is not signed by a trusted signer:" + v8.getName()));
+    L307:
+    goto L166;
+    L310:
+    v2.close();
+    goto L335;
+    // handler for [9,310) catch Throwable
+    L317:
+    v3 = $ex;
+    v2.close();
+    goto L333;
+    // handler for [318,322) catch Throwable
+    L325:
+    v4 = $ex;
+    v3.addSuppressed(v4);
+    L333:
+    throw v3;
+    L335:
+    return;
+}
+
+private static java.security.cert.X509Certificate[] getAChain(java.security.cert.Certificate[] p0, int p1) {
+    if (p1 <= (p0.length - 1)) goto L10;
+    return null;
+    L10:
+    v2 = p1;
+    L12:
+    if (v2 >= (p0.length - 1)) goto L55;
+    if ((java.security.cert.X509Certificate)p0[(v2 + 1)].getSubjectX500Principal().equals((java.security.cert.X509Certificate)p0[v2].getIssuerX500Principal()) != 0) goto L49;
+    goto L55;
+    L49:
+    v2 += 1;
+    goto L12;
+    L55:
+    v3 = ((v2 - p1) + 1);
+    $a1 = new java.security.cert.X509Certificate[v3];
+    v4 = $a1;
+    v5 = 0;
+    L70:
+    if (v5 >= v3) goto L96;
+    v4[v5] = (java.security.cert.X509Certificate)p0[(p1 + v5)];
+    v5 += 1;
+    goto L70;
+    L96:
+    return v4;
+}
