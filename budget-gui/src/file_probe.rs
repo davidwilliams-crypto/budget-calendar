@@ -116,6 +116,10 @@ impl FileProbes {
         self.cache[path]
     }
 
+    /// Forgets the answer for `path`, so the next [`Self::status`] checks again: a file may have
+    /// appeared or vanished since.
+    pub fn forget(&mut self, path: &Path) { self.cache.remove(path); }
+
     /// Like [`Self::status`], but waits up to `timeout` for the answer (startup only).
     pub fn wait(&mut self, path: &Path, timeout: Duration) -> FileStatus {
         let deadline = Instant::now() + timeout;
