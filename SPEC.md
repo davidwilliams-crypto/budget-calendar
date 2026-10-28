@@ -168,6 +168,11 @@ Deliberate deviations already taken by the port:
 - Statistics reconciliation: a description present on both uncategorised sides keeps its planned amount on its own row, and a row with no actual amount is listed by its planned sign. The original dropped the planned amount of the side it netted away and listed an expense planned but not paid as income.
 - Reports: descriptions, categories and notes are HTML-escaped in every report (the original wrote them raw, so a note containing `<b>` formatted the file). Comparative-report cents are no longer held in a 32-bit integer, which printed values above 21,474,836.47 wrong.
 - Calculator: text after a percentage (`%5k`, `%5abc`) is a syntax error, where the original ignored it. A number beyond a double (`1e999`) reports "Number too large" instead of a syntax error.
+- A loan's saved payments (custom amounts included) may not total more than its principal. Every edit path refuses a change that would do so and names the principal; the original's scheduler paid the excess silently, overpaying the loan. A loaded file that already exceeds its principal still loads and saves unchanged, but edits to that payment are refused until the principal or the saved amounts are corrected.
+- "This and all future occurrences" with an amount that every occurrence from the date on already shows does not split the payment: only the selected occurrence's note and status change, so the record count stays the same. A split is made only when a later amount really changes.
+- A sign that contradicts the Expense/Income control is refused, with a message naming the choice already selected: a leading `+` under Expense, and a minus sign or parentheses under either choice. The original switched the choice to match a leading `+` (Income) or `-` (Expense) (04 §1.2 item 4, §1.3 step 3); the port keeps the choice the user made with the control.
+- Repeat intervals above 100,000 are refused by the payment editors. The loader clamps a larger stored interval to 100,000 on reopen, which would change the schedule silently.
+- Saving a payment raises an end date that lies before its start to the start, for indefinite, count and loan ends, as the loader does on reopen, so the in-memory and reopened end dates agree. A date end is never moved; the editor refuses it instead.
 
 ## 7. Consolidated unknowns
 

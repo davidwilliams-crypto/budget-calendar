@@ -46,11 +46,13 @@ fn check_payment_input(db: &BudgetDb, payment: &Payment, id: Option<i32>) -> Res
     if payment.category.as_deref() == Some(payment.description.as_str()) {
         return Err(crate::editor::SAME_CATEGORY_ERROR.into());
     }
+    validate_loan(payment)?;
     Ok(())
 }
 
 pub fn put_payment(db: &mut BudgetDb, payment: Payment, id: Option<i32>) -> Result<i32, String> {
     let mut payment = payment;
+    crate::editor::align_end_date(&mut payment);
     check_payment_input(db, &payment, id)?;
     if let Some(id) = id {
         let i = db.get_by_id(id).ok_or("This payment no longer exists.")?;
@@ -97,19 +99,14 @@ pub fn change_future_transactions(db: &mut BudgetDb, id: i32, date: i32, amount:
     valid_date(date)?;
     if !crate::editor::amount_in_range(amount) { return Err("Enter an amount within +/-1,000,000,000,000.".into()); }
     let i = db.get_by_id(id).ok_or("This payment no longer exists.")?;
-    let original = &db.payments[i];
-    validate_future_payment(original)?;
+    let original = db.payments[i].clone();
+    validate_future_payment(&original)?;
     if note.chars().any(|c| c as u32 > 0xffff) {
         return Err("This note contains a character the budget format cannot save.".into());
     }
     if !matches!(flag, budget_core::FLAG_NONE | budget_core::FLAG_PAID | budget_core::FLAG_IMPORTANT) {
         return Err("Choose a valid transaction status.".into());
     }
-    let loan = original.end_mode() == budget_core::END_MODE_LOAN_PAID;
-    if loan && (original.is_sticky() || original.is_tentative() || amount == 0.0 || amount.is_sign_negative() != original.amount.is_sign_negative()) {
-        return Err("Future amount changes require a nonzero loan payment in its existing direction, without sticky or tentative scheduling. Change only this occurrence instead.".into());
-    }
-    let original = original.clone();
     let today = db.today;
     let cut = cut(&original, date);
     let from = history_start(&original)?.min(cut.boundary);
@@ -119,6 +116,15 @@ pub fn change_future_transactions(db: &mut BudgetDb, id: i32, date: i32, amount:
     let horizon = if horizon.year() > YEAR_MAX { DATE_MAX } else { horizon.get() };
     let before = schedule_snapshot(today, std::slice::from_ref(&original), from, horizon)?;
     if !before.contains_key(&date) { return Err("This transaction no longer exists.".into()); }
+    // Occurrences from the date on already show this amount, so nothing needs a new record: only the
+    // selected occurrence's note and status change, as with "Only this occurrence".
+    if future_shows_amount(&original, &before, date, amount) {
+        return change_transaction(db, id, date, amount, note, flag);
+    }
+    let loan = original.end_mode() == budget_core::END_MODE_LOAN_PAID;
+    if loan && (original.is_sticky() || original.is_tentative() || amount == 0.0 || amount.is_sign_negative() != original.amount.is_sign_negative()) {
+        return Err("Future amount changes require a nonzero loan payment in its existing direction, without sticky or tentative scheduling. Change only this occurrence instead.".into());
+    }
     let regular = regular_dates(&original, cut.boundary, last_option_date(&original, cut.boundary));
     let (earlier, mut later) = match cut.first {
         Some((k, nominal)) if k > 0 => {
@@ -144,7 +150,6 @@ pub fn change_future_transactions(db: &mut BudgetDb, id: i32, date: i32, amount:
     let pin = later.is_tentative() && flag == budget_core::FLAG_PAID;
     let shown = schedule_snapshot(today, std::slice::from_ref(&later), cut.boundary, date)?;
     if pin || shown.get(&date).map(|v| v.1) != Some(amount) { later.set_custom_amount(date, amount); }
-    if loan { check_loan_principal(&later)?; }
     validate_future_payment(&later)?;
     // The original's self-check (splitPayment compares the balance before the split date):
     // every earlier transaction must be unchanged, and no later one may move or appear.
@@ -206,7 +211,6 @@ fn put_payment_from(db: &mut BudgetDb, edited: Payment, id: i32, date: i32) -> R
             later.set_custom_amount(first_shown, carried);
         }
     }
-    if later.end_mode() == END_MODE_LOAN_PAID { check_loan_principal(&later)?; }
     validate_future_payment(&later)?;
     let after = schedule_snapshot(today, &[earlier.clone(), later.clone()], from, last.get())?;
     if before != after {
@@ -252,6 +256,9 @@ struct Cut {
 fn cut(p: &Payment, date: i32) -> Cut {
     let mut first = None;
     if p.is_tentative() {
+        // Before the first pay period no period holds the date, so the whole payment continues from it,
+        // as a regular payment does when its first occurrence lies after the date.
+        if date < p.start_date { return Cut { boundary: date, first: Some((0, p.start_date)) }; }
         // A tentative occurrence slides within its pay period, so the period holding the date splits.
         nominal_slots(p, |n, nominal| { if nominal <= date { first = Some((n, nominal)); true } else { false } });
         first = first.filter(|&(n, nominal)| {
@@ -364,6 +371,7 @@ fn later_part(edited: &Payment, cut: &Cut, (k, _): (i32, i32), made: i32, loan_p
         let amount = later.amount;
         normalize_future(&mut later, from, amount, &regular);
     }
+    crate::editor::align_end_date(&mut later);
     let direction = if later.amount < 0.0 { -1.0 } else { 1.0 };
     let mut principal = later.loan_amount - direction * later.opt.iter().filter(|o| !o.deleted).map(|o| o.amount).sum::<f64>();
     for nominal in extras {
@@ -432,16 +440,13 @@ fn loan_paid(p: &Payment, snapshot: &BTreeMap<i32, (usize, f64)>, boundary: i32)
     if p.amount < 0.0 { -total } else { total }
 }
 
-/// The native loan scheduler subtracts every dated amount up front. If these already exceed the
-/// principal it emits all of them anyway, silently overpaying the loan instead of producing a
-/// smaller final payment.
-fn check_loan_principal(p: &Payment) -> Result<(), String> {
-    let saved: f64 = p.opt.iter().filter(|o| !o.deleted).map(|o| o.amount).sum();
-    let paid = if p.amount < 0.0 { -saved } else { saved };
-    if !paid.is_finite() || paid > p.loan_amount + 0.005 {
-        return Err("This amount would exceed the loan principal still to pay, including custom payments. Use a smaller amount or change only this occurrence.".into());
-    }
-    Ok(())
+/// Whether every occurrence from `date` on already shows `amount` and no saved amount from `date` on
+/// differs from it (`shown` is the snapshot from `date`), so changing the future amounts changes
+/// nothing. Several occurrences on one day (a weekend group) do not count as showing `amount`.
+fn future_shows_amount(p: &Payment, shown: &BTreeMap<i32, (usize, f64)>, date: i32, amount: f64) -> bool {
+    let same = |value: f64| value.to_bits() == amount.to_bits();
+    shown.range(date..).all(|(_, &(count, total))| count == 1 && same(total))
+        && p.opt.iter().all(|o| o.deleted || o.date < date || same(o.amount))
 }
 
 /// The first date on which `p` can show a transaction.
@@ -542,11 +547,8 @@ pub fn move_transaction(db: &mut BudgetDb, id: i32, from: i32, to: i32, amount: 
     }
     let source_flag = original.flag.iter().find(|f| f.date == from).map(|f| f.value);
     let mut proposed = original;
-    // A skipped date can retain its old metadata. The moved occurrence owns
-    // these fields, including absence/inheritance of a per-date override.
-    proposed.flag.retain(|f| f.date != to);
-    proposed.note.retain(|n| n.date != to);
-    proposed.hilighting.retain(|h| h.date != to);
+    // The moved occurrence's status, note and highlighting replace the destination's where it sets
+    // them; a value it does not set leaves the destination's in place (the original's moveTransaction).
     proposed.move_transaction(to, from, current);
     // Native move omits explicit FLAG_NONE, which can override a paid default.
     if let Some(flag) = source_flag { proposed.set_flag(to, flag); }
@@ -1573,8 +1575,10 @@ mod tests {
         assert_eq!(amount(&mut db, 20261101), None);
     }
 
+    /// Moving onto a skipped date keeps the status, note and highlighting that date already holds
+    /// unless the moved occurrence sets its own (the original's moveTransaction, analysis/07).
     #[test]
-    fn move_to_skipped_date_discards_stale_target_metadata_and_inherits_source_defaults() {
+    fn move_onto_a_skipped_date_keeps_the_destination_values_the_occurrence_does_not_set() {
         for default_flag in [FLAG_NONE, budget_core::FLAG_IMPORTANT] {
             let mut db = db(false); let id = db.payments[0].id;
             let p = &mut db.payments[0];
@@ -1590,19 +1594,58 @@ mod tests {
             assert_eq!(amount(&mut db, 20261001), None);
             assert_eq!(amount(&mut db, 20261101), Some(-100.0));
             let moved = &db.payments[0];
-            assert_eq!(moved.get_flag(20261101), default_flag);
-            assert!(!moved.flag.iter().any(|f| f.date == 20261101));
-            assert_eq!(moved.get_note(20261101), None);
-            assert_eq!(moved.get_hilighting(20261101), -1);
+            assert_eq!(moved.get_flag(20261101), FLAG_PAID);
+            assert_eq!(moved.get_note(20261101).as_deref(), Some("Old skipped transaction"));
+            assert_eq!(moved.get_hilighting(20261101), 0x654321);
             assert_eq!(moved.default_hilighting(), 0x123456);
             assert_eq!(moved.get_note(20261201).as_deref(), Some("Unrelated note"));
             let loaded = bgt::load_str(&db.to_text(None).unwrap(), 20261027, None).unwrap();
             let reopened = BudgetDb::from_loaded(loaded, &Cal::from_int(20261001), 12, false);
-            assert_eq!(reopened.payments[0].get_flag(20261101), default_flag);
-            assert_eq!(reopened.payments[0].get_note(20261101), None);
-            assert_eq!(reopened.payments[0].get_hilighting(20261101), -1);
+            assert_eq!(reopened.payments[0].get_flag(20261101), FLAG_PAID);
+            assert_eq!(reopened.payments[0].get_note(20261101).as_deref(), Some("Old skipped transaction"));
+            assert_eq!(reopened.payments[0].get_hilighting(20261101), 0x654321);
             assert_eq!(reopened.payments[0].default_hilighting(), 0x123456);
         }
+    }
+
+    /// The repro: Nov 1 was marked Paid with a note and then deleted; moving Dec 1 onto it must not
+    /// erase the note or status the Dec 1 occurrence does not carry.
+    #[test]
+    fn move_onto_a_deleted_date_keeps_its_note_and_status_when_the_occurrence_has_none() {
+        let mut db = db(false); let id = db.payments[0].id;
+        let p = &mut db.payments[0];
+        p.start_date = 20260101;
+        p.set_no_transaction(20261101);
+        p.set_flag(20261101, FLAG_PAID);
+        p.set_note(20261101, Some("Cancelled, gym closed"));
+        db.update_payment(0);
+        assert!(move_transaction(&mut db, id, 20261201, 20261101, -100.0).unwrap());
+        assert_eq!(amount(&mut db, 20261201), None);
+        assert_eq!(amount(&mut db, 20261101), Some(-100.0));
+        assert_eq!(db.payments[0].get_note(20261101).as_deref(), Some("Cancelled, gym closed"));
+        assert_eq!(db.payments[0].get_flag(20261101), FLAG_PAID);
+    }
+
+    /// The values the moved occurrence does set replace the destination's, and leave the source.
+    #[test]
+    fn move_onto_a_deleted_date_takes_the_status_note_and_highlight_the_occurrence_sets() {
+        let mut db = db(false); let id = db.payments[0].id;
+        let p = &mut db.payments[0];
+        p.start_date = 20260101;
+        p.set_no_transaction(20261101);
+        p.set_flag(20261101, FLAG_PAID);
+        p.set_note(20261101, Some("Cancelled, gym closed"));
+        p.set_flag(20261201, budget_core::FLAG_IMPORTANT);
+        p.set_note(20261201, Some("Moved here"));
+        p.set_hilighting(20261201, 0x112233);
+        db.update_payment(0);
+        assert!(move_transaction(&mut db, id, 20261201, 20261101, -100.0).unwrap());
+        let moved = &db.payments[0];
+        assert_eq!(moved.get_flag(20261101), budget_core::FLAG_IMPORTANT);
+        assert_eq!(moved.get_note(20261101).as_deref(), Some("Moved here"));
+        assert_eq!(moved.get_hilighting(20261101), 0x112233);
+        assert_eq!(moved.get_note(20261201), None);
+        assert_eq!(moved.get_hilighting(20261201), -1);
     }
 
     #[test]
@@ -2047,5 +2090,83 @@ mod tests {
             assert_eq!(amount(&mut reopened, 20261029), None);
             assert_eq!(reopened.payments[0].get_flag(20261027), FLAG_PAID);
         }
+    }
+
+    /// A 300 loan paid 100 a month from January 2026, with a window that covers it.
+    fn loan_300() -> (BudgetDb, i32) {
+        let mut db = db(false); db.today = 20260201;
+        let id = db.payments[0].id;
+        let p = &mut db.payments[0]; p.start_date = 20260101;
+        p.set_end_mode(budget_core::END_MODE_LOAN_PAID); p.loan_amount = 300.0;
+        db.rebuild_db(&Cal::from_int(20260601), 12, false);
+        (db, id)
+    }
+
+    #[test]
+    fn loan_principal_refuses_a_single_occurrence_amount_that_overpays() {
+        let (mut db, id) = loan_300();
+        let before = db.to_text(None).unwrap(); let updates = db.update_count;
+        let err = change_transaction(&mut db, id, 20260101, -400.0, "", FLAG_NONE).unwrap_err();
+        assert!(err.contains("principal"), "{err}");
+        assert_eq!(db.to_text(None).unwrap(), before);
+        assert_eq!(db.update_count, updates);
+        change_transaction(&mut db, id, 20260101, -200.0, "", FLAG_NONE).unwrap();
+        assert_eq!(amount(&mut db, 20260101), Some(-200.0));
+    }
+
+    #[test]
+    fn loan_principal_refuses_apply_to_all_below_the_amounts_already_paid() {
+        let (mut db, id) = loan_300();
+        change_transaction(&mut db, id, 20260101, -50.0, "", FLAG_NONE).unwrap();
+        change_transaction(&mut db, id, 20260201, -250.0, "", FLAG_NONE).unwrap();
+        let before = db.to_text(None).unwrap(); let updates = db.update_count;
+        let mut edited = db.payments[0].clone(); edited.loan_amount = 200.0;
+        let err = apply_payment(&mut db, edited, Some(id), None).unwrap_err();
+        assert!(err.contains("principal"), "{err}");
+        assert_eq!(db.to_text(None).unwrap(), before);
+        assert_eq!(db.update_count, updates);
+        assert_eq!(db.payments[0].loan_amount, 300.0);
+    }
+
+    #[test]
+    fn future_change_from_a_date_before_a_tentative_payment_starts_applies_to_every_occurrence() {
+        // An occurrence dragged to 2026-10-06, before the first pay period, is the selected one.
+        let mut db = db(false); db.today = 20261027;
+        let id = db.payments[0].id;
+        let p = &mut db.payments[0];
+        p.start_date = 20270510; p.freq_type = 'm'; p.frequency = 2; p.amount = -271.0; p.set_tentative(true);
+        assert!(move_transaction(&mut db, id, 20270710, 20261006, -271.0).unwrap());
+        change_future_transactions(&mut db, id, 20261006, -300.0, "", FLAG_NONE).unwrap();
+        db.rebuild_db(&Cal::from_int(20280101), 12, true);
+        for (date, expected) in [(20261006, Some(-300.0)), (20270510, Some(-300.0)), (20270710, None),
+            (20270910, Some(-300.0)), (20271110, Some(-300.0))] {
+            assert_eq!(amount(&mut db, date), expected, "{date}");
+        }
+    }
+
+    #[test]
+    fn future_change_with_an_unchanged_amount_keeps_one_record() {
+        let mut db = db(false); db.today = 20261027;
+        let id = db.payments[0].id;
+        db.payments[0].start_date = 20260115;
+        db.rebuild_db(&Cal::from_int(20261001), 12, false);
+        change_future_transactions(&mut db, id, 20261015, -100.0, "Same amount", FLAG_PAID).unwrap();
+        assert_eq!(db.payments.len(), 1, "an unchanged amount does not split the payment");
+        assert_eq!(note_on(&db, 20261015).as_deref(), Some("Same amount"));
+        assert_eq!(db.payments[0].get_flag(20261015), FLAG_PAID);
+        assert_eq!(amount(&mut db, 20261015), Some(-100.0));
+        assert_eq!(amount(&mut db, 20261115), Some(-100.0));
+    }
+
+    #[test]
+    fn future_change_with_an_unchanged_amount_still_splits_for_a_later_amount_that_differs() {
+        let mut db = db(false); db.today = 20261027;
+        let id = db.payments[0].id;
+        db.payments[0].start_date = 20260115;
+        db.payments[0].set_custom_amount(20261215, -50.0);
+        db.rebuild_db(&Cal::from_int(20261001), 12, false);
+        change_future_transactions(&mut db, id, 20261015, -100.0, "", FLAG_NONE).unwrap();
+        assert_eq!(db.payments.len(), 2);
+        assert_eq!(amount(&mut db, 20261215), Some(-100.0));
     }
 }
