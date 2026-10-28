@@ -468,7 +468,8 @@ pub(crate) fn replace_file(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     result
 }
 
-/// Skip byte-identical saves; otherwise stage a complete file and retain the prior `.bak[.N]`.
+/// Skip byte-identical saves; otherwise stage a complete file and retain the prior `.bak[.N]`, which
+/// is logged in `<name>.baklog` so that only backups this app made are ever pruned.
 pub fn save_file(path: &Path, content: &str) -> Result<(), String> {
     use std::fs::{self, OpenOptions};
     use std::io::{ErrorKind, Write};
@@ -492,7 +493,10 @@ pub fn save_file(path: &Path, content: &str) -> Result<(), String> {
 
         if let Some(old) = original {
             // Continue after the newest backup so index order is age order even after pruning.
-            let mut index = existing_backups(path).last().map_or(0, |(newest, _)| newest + 1);
+            let mut index = match existing_backups(path).last() {
+                Some((newest, _)) => newest.checked_add(1).ok_or("File Save: too many backup files")?,
+                None => 0,
+            };
             let mut backup = loop {
                 let suffix = if index == 0 { ".bak".to_string() } else { format!(".bak.{index}") };
                 let candidate = sibling(path, &suffix);
@@ -518,8 +522,8 @@ pub fn save_file(path: &Path, content: &str) -> Result<(), String> {
         // original is untouched, so a backup of it would only pile up on every retry.
         let _ = fs::remove_file(&temp_path);
         if let Some(b) = &backup_path { let _ = fs::remove_file(b); }
-    } else if backup_path.is_some() {
-        prune_backups(path);
+    } else if let Some(name) = backup_path.as_deref().and_then(Path::file_name).and_then(|n| n.to_str()) {
+        record_backup(path, name);
     }
     result
 }
@@ -528,24 +532,27 @@ pub fn save_file(path: &Path, content: &str) -> Result<(), String> {
 pub const MAX_BACKUPS: usize = 10;
 
 /// `(index, path)` of every `.bak` (index 0) and `.bak.N` entry beside `path`, oldest first.
-/// Entries of any kind count so a stray directory still reserves its index.
+/// Entries of any kind count, and so does a file the app did not make: a new backup never takes
+/// an index that is in use.
 fn existing_backups(path: &Path) -> Vec<(u64, std::path::PathBuf)> {
     let (Some(dir), Some(name)) = (path.parent(), path.file_name().and_then(|n| n.to_str())) else { return Vec::new() };
     let dir = if dir.as_os_str().is_empty() { Path::new(".") } else { dir };
-    let prefix = format!("{name}.bak");
     let Ok(entries) = std::fs::read_dir(dir) else { return Vec::new() };
     let mut found: Vec<(u64, std::path::PathBuf)> = entries.flatten().filter_map(|entry| {
-        let file_name = entry.file_name();
-        let rest = strip_file_name_prefix(file_name.to_str()?, &prefix)?;
-        let index = if rest.is_empty() { 0 } else {
-            let digits = rest.strip_prefix('.')?;
-            if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) { return None }
-            digits.parse().ok()?
-        };
+        let index = backup_index(name, entry.file_name().to_str()?)?;
         Some((index, entry.path()))
     }).collect();
     found.sort();
     found
+}
+
+/// The index of `file` when it is a backup of the budget file `budget`: `.bak` is 0, `.bak.N` is N.
+fn backup_index(budget: &str, file: &str) -> Option<u64> {
+    let rest = strip_file_name_prefix(file, &format!("{budget}.bak"))?;
+    if rest.is_empty() { return Some(0); }
+    let digits = rest.strip_prefix('.')?;
+    if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) { return None; }
+    digits.parse().ok()
 }
 
 /// `name` without `prefix`, matched the way the file system matches names: ignoring case on
@@ -559,15 +566,58 @@ fn strip_file_name_prefix<'a>(name: &'a str, prefix: &str) -> Option<&'a str> {
     Some(rest.as_str())
 }
 
-/// Delete all but the newest `MAX_BACKUPS` backup files. Failures are ignored: the save
-/// itself already succeeded, and anything that is not a regular file is left alone.
-fn prune_backups(path: &Path) {
-    let files: Vec<_> = existing_backups(path).into_iter()
-        .filter(|(_, p)| std::fs::symlink_metadata(p).is_ok_and(|m| m.is_file()))
+/// `<budget file name>.baklog`: the backups this app made beside a budget, one file name per line,
+/// oldest first. Only logged names are ever removed, so a backup made by hand is never touched.
+fn backup_log_path(path: &Path) -> std::path::PathBuf {
+    sibling(path, ".baklog")
+}
+
+/// The backup names in the log, oldest first. A missing log lists nothing. `None` means the log file
+/// exists but is not a log of this budget (or is empty), so it belongs to the user: it is then
+/// neither trusted nor overwritten.
+fn logged_backups(path: &Path) -> Option<Vec<String>> {
+    let text = match std::fs::read_to_string(backup_log_path(path)) {
+        Ok(text) => text,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Some(Vec::new()),
+        Err(_) => return None,
+    };
+    let budget = path.file_name()?.to_str()?;
+    let names: Option<Vec<String>> = text.lines().filter(|line| !line.is_empty())
+        .map(|line| backup_index(budget, line).map(|_| line.to_string()))
         .collect();
-    for (_, old) in &files[..files.len().saturating_sub(MAX_BACKUPS)] {
-        let _ = std::fs::remove_file(old);
+    names.filter(|names| !names.is_empty())
+}
+
+/// File names compare as the file system does: ignoring case on Windows.
+fn same_name(a: &str, b: &str) -> bool {
+    if cfg!(windows) { a.to_lowercase() == b.to_lowercase() } else { a == b }
+}
+
+fn is_regular_file(path: &Path) -> bool {
+    std::fs::symlink_metadata(path).is_ok_and(|m| m.is_file())
+}
+
+/// Log `backup`, a file name just created beside `path`, then delete the oldest logged backups that
+/// go beyond `MAX_BACKUPS`. Only names in the log are removed, and only while they are regular files.
+/// Failures are ignored: the save itself succeeded, and a backup that cannot be removed stays logged
+/// for the next save.
+fn record_backup(path: &Path, backup: &str) {
+    let Some(mut names) = logged_backups(path) else { return };
+    names.retain(|name| !same_name(name, backup) && is_regular_file(&path.with_file_name(name)));
+    names.push(backup.to_string());
+    let excess = names.len().saturating_sub(MAX_BACKUPS);
+    let mut kept = Vec::with_capacity(names.len());
+    for (i, name) in names.into_iter().enumerate() {
+        if i < excess {
+            match std::fs::remove_file(path.with_file_name(&name)) {
+                Ok(()) => continue,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(_) => {}
+            }
+        }
+        kept.push(name);
     }
+    let _ = replace_file(&backup_log_path(path), format!("{}\n", kept.join("\n")).as_bytes());
 }
 
 #[cfg(test)]
