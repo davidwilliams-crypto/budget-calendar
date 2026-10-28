@@ -70,8 +70,9 @@ fn huge_or_tiny_loans_terminate() {
     let db = build("-1.0%1.0E15, L, 20261001, 1d, 5, 20270901, 64, ", 20261001, 12);
     assert!(db.payments[0].n_pays > 0);
     // non-finite loan principal is refused by the loader
-    let text = "v,2\n:\n=,\n-10.0%Infinity, L, 20261001, 1m, 5, 20270901, 64, \n## END-OF-DATE ##";
-    assert!(bgt::load_str(text, 20261001, None).is_err());
+    let text = "v,2\n:\n=,\n-10.0%Infinity, L, 20261001, 1m, 5, 20270901, 64, \n## END-OF-DATA; line_no=5 ##";
+    let l = bgt::load_str(text, 20261001, None).unwrap_err();
+    assert!(l.log.contains("Invalid data for 'loan amount'"), "{}", l.log);
 }
 
 // ---------- review round 3 ----------
