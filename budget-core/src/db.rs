@@ -4,7 +4,6 @@
 use crate::bgt;
 use crate::date::{Cal, Field};
 use crate::model::*;
-use std::cmp::Ordering;
 use std::path::Path;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -65,16 +64,12 @@ impl BudgetDay {
 }
 
 /// Put a day's transactions in display order once after they change (`disabled` tells whether a
-/// payment is disabled): enabled payments first, then by amount.
+/// payment is disabled): enabled payments first, each group in `amount_order`.
 fn sort_transactions(day: &mut BudgetDay, disabled: impl Fn(usize) -> bool) {
     if day.sorted { return; }
     if day.transactions.len() > 1 {
         day.transactions.sort_by(|a, b| {
-            let (da, db) = (disabled(a.pmt), disabled(b.pmt));
-            if da == db {
-                if a.amount < 0.0 && b.amount < 0.0 { b.amount.partial_cmp(&a.amount).unwrap_or(Ordering::Equal).reverse() }
-                else { a.amount.partial_cmp(&b.amount).unwrap_or(Ordering::Equal).reverse() }
-            } else if da && !db { Ordering::Greater } else { Ordering::Less }
+            disabled(a.pmt).cmp(&disabled(b.pmt)).then_with(|| amount_order(a.amount, b.amount))
         });
     }
     day.sorted = true;

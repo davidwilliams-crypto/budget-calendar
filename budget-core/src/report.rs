@@ -9,7 +9,7 @@
 use crate::date::{Cal, Field};
 use crate::db::BudgetDb;
 use crate::model::*;
-use crate::numfmt::{format_frac2, sdate_dmy};
+use crate::numfmt::{format_frac2, group_digits, sdate_dmy};
 use crate::stats::{calc_statistics, Row, Stats, INDENT, UNCATEGORIZED_EXPENSES, UNCATEGORIZED_INCOME};
 use std::collections::HashMap;
 
@@ -73,15 +73,13 @@ const REPORT_CSS: &str = "<style type=\"text/css\">\nBODY { font: 10px Arial, He
 // §1 shared helpers
 // ---------------------------------------------------------------------------------------------
 
-/// `DecimalFormat` with grouping on and exactly `n` fraction digits (`-1,234.5`).
+/// `DecimalFormat` with grouping on and exactly `n` fraction digits (`-1,234.5`). Unlike
+/// `numfmt::format_frac0`, a negative value that rounds to zero keeps its sign (`-0`), as Java's
+/// `DecimalFormat` prints it in the reports.
 fn frac(x: f64, n: usize) -> String {
     let s = format!("{:.*}", n, x.abs());
     let (int_part, fr) = s.split_once('.').unwrap_or((s.as_str(), ""));
-    let mut grouped = String::new();
-    for (i, c) in int_part.chars().enumerate() {
-        if i > 0 && (int_part.len() - i) % 3 == 0 { grouped.push(','); }
-        grouped.push(c);
-    }
+    let grouped = group_digits(int_part);
     let sign = if x < 0.0 { "-" } else { "" };
     if n == 0 { format!("{sign}{grouped}") } else { format!("{sign}{grouped}.{fr}") }
 }

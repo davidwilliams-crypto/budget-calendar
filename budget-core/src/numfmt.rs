@@ -8,7 +8,8 @@ pub fn sdate_dmy(v: i32) -> String {
     format!("{:02}-{}-{:04}", v % 100, MONTHS[m - 1], v / 10000)
 }
 
-fn group_digits(int_part: &str) -> String {
+/// `1234567` -> `1,234,567` (the integer digits of a formatted magnitude).
+pub(crate) fn group_digits(int_part: &str) -> String {
     let mut grouped = String::new();
     for (i, c) in int_part.chars().enumerate() {
         if i > 0 && (int_part.len() - i).is_multiple_of(3) { grouped.push(','); }

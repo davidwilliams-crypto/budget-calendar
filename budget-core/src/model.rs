@@ -33,6 +33,13 @@ pub fn eq_ignore_case(a: &str, b: &str) -> bool {
     a.chars().flat_map(char::to_lowercase).eq(b.chars().flat_map(char::to_lowercase))
 }
 
+/// The original's order of amounts in a list (`stat_comparator`; a day's transactions): two
+/// expenses ascending, so the largest expense comes first; otherwise descending.
+pub(crate) fn amount_order(a: f64, b: f64) -> std::cmp::Ordering {
+    let order = if a < 0.0 && b < 0.0 { a.partial_cmp(&b) } else { b.partial_cmp(&a) };
+    order.unwrap_or(std::cmp::Ordering::Equal)
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct PaymentOption {
     pub date: i32,
