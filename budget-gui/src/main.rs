@@ -10,6 +10,7 @@ mod balance_editor;
 mod document;
 mod editor;
 mod payment_list;
+mod reports;
 mod theme;
 mod view;
 mod version;
@@ -466,6 +467,9 @@ impl App {
                     ui.separator();
                     if menu_item(ui, "Keyboard shortcuts", "F1").clicked() { self.show_shortcuts = true; ui.close_menu(); }
                 });
+                if let Some(result) = reports::menu(ui, &t, self.db.as_mut(), &self.cur, &self.cfg) {
+                    match result { Ok(done) => self.notify(done), Err(e) => self.fail(e) }
+                }
             });
         });
         ui.add_space(6.0);
@@ -1248,6 +1252,7 @@ impl App {
     }
 
     fn keys(&mut self, ctx: &egui::Context) {
+        if reports::is_open(ctx) { return; }
         // F1 toggles the shortcuts sheet; "?" opens it when no text box has focus.
         let dragging = egui::DragAndDrop::payload::<calendar::DraggedTransaction>(ctx).is_some();
         let help = ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::F1))
@@ -1508,6 +1513,12 @@ impl App {
             self.editors(ctx);
             self.confirmations(ctx);
             self.password_prompt(ctx);
+        }
+        // The report range dialog waits behind a save/close prompt (Reports is unreachable under other dialogs).
+        if !self.has_modal() {
+            if let Some(result) = reports::dialog(ctx, &t, self.db.as_mut(), &self.cfg) {
+                match result { Ok(done) => self.notify(done), Err(e) => self.fail(e) }
+            }
         }
         // drag-over hint
         if ctx.input(|i| !i.raw.hovered_files.is_empty()) {
