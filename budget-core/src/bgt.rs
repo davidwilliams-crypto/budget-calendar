@@ -143,72 +143,84 @@ fn parse_options(p: &mut Payment, toks: &[&str]) -> Result<(), String> {
     Ok(())
 }
 
+/// Why a line did not parse: the field being read (named in the load log) and the error.
+struct FieldError {
+    field: &'static str,
+    message: String,
+}
+
+/// `map_err` adapter naming the field an error belongs to.
+fn in_field(field: &'static str) -> impl Fn(String) -> FieldError + Copy {
+    move |message| FieldError { field, message }
+}
+
+/// The comma-separated fields of a payment line after the amount, read in order.
+struct Fields<'a>(std::slice::Iter<'a, &'a str>);
+
+impl<'a> Fields<'a> {
+    fn text(&mut self, field: &'static str) -> Result<&'a str, FieldError> {
+        self.0.next().copied().ok_or_else(|| FieldError { field, message: "NoSuchElementException".into() })
+    }
+    fn int(&mut self, field: &'static str) -> Result<i32, FieldError> {
+        parse_int(self.text(field)?).map_err(in_field(field))
+    }
+}
+
 /// Parse one payment line (everything after the first token has been checked not to be `:`, `=`, `v`).
-fn parse_payment(mut first: &str, toks: &[&str], id: i32, today: i32, field: &mut &'static str, log: &mut String, line_no: i32) -> Result<Payment, String> {
+fn parse_payment(mut first: &str, toks: &[&str], id: i32, today: i32, log: &mut String, line_no: i32) -> Result<Payment, FieldError> {
     let mut p = Payment::new(today);
     p.id = id;
     p.flag_value = FLAG_NONE;
-    for (ch, action) in [('^', 0), (';', 1), ('#', 2), ('!', 3)] {
+    // Markers after the amount: the default transaction status, and `!` for a disabled payment.
+    for (ch, status) in [('^', Some(FLAG_NONE)), (';', Some(FLAG_PAID)), ('#', Some(FLAG_IMPORTANT)), ('!', None)] {
         if let Some(i) = first.find(ch) {
-            match action {
-                0 => p.flag_value = FLAG_NONE,
-                1 => p.flag_value = FLAG_PAID,
-                2 => p.flag_value = FLAG_IMPORTANT,
-                _ => p.disabled = true,
+            match status {
+                Some(status) => p.flag_value = status,
+                None => p.disabled = true,
             }
             first = &first[..i];
         }
     }
     if let Some(i) = first.find('%') {
-        *field = "loan amount";
-        p.loan_amount = parse_double(&first[i + 1..])?;
+        p.loan_amount = parse_double(&first[i + 1..]).map_err(in_field("loan amount"))?;
         first = &first[..i];
     }
-    *field = "amount";
-    p.amount = parse_double(first)?;
-    let mut k = 0usize;
-    macro_rules! next {
-        ($f:expr) => {{
-            *field = $f;
-            let t: &str = toks.get(k).copied().ok_or_else(|| "NoSuchElementException".to_string())?;
-            k += 1;
-            t
-        }};
-    }
-    p.description = decode_description(next!("description"));
-    p.start_date = clamp_date(parse_int(next!("start_date"))?, "start_date", log, line_no);
-    let mut freq = next!("frequency").to_string();
+    p.amount = parse_double(first).map_err(in_field("amount"))?;
+    let mut fields = Fields(toks.iter());
+    p.description = decode_description(fields.text("description")?);
+    p.start_date = clamp_date(fields.int("start_date")?, "start_date", log, line_no);
+    let in_frequency = in_field("frequency");
+    let mut freq = fields.text("frequency")?.to_string();
     if let Some(i) = freq.find(';') {
-        p.grace_period_days = parse_int(&freq[i + 1..])?;
+        p.grace_period_days = parse_int(&freq[i + 1..]).map_err(in_frequency)?;
         freq.truncate(i);
     }
-    let ft = freq.chars().last().ok_or("empty frequency")?;
-    p.frequency = parse_int(&freq[..freq.len() - ft.len_utf8()])?;
+    let ft = freq.chars().last().ok_or_else(|| in_frequency("empty frequency".into()))?;
+    p.frequency = parse_int(&freq[..freq.len() - ft.len_utf8()]).map_err(in_frequency)?;
     p.freq_type = ft;
     if !"dwmyWL".contains(ft) {
-        return Err(format!("Invalid frequency type '{ft}'"));
+        return Err(in_frequency(format!("Invalid frequency type '{ft}'")));
     }
     // Deliberate deviation: clamp so corrupt files cannot hang or overflow the engine.
     if ft == 'W' { p.frequency = 1; }
     let freq_in = p.frequency;
     p.frequency = p.frequency.clamp(1, 100_000);
     if p.frequency != freq_in { log.push_str(&format!("({line_no}): frequency {freq_in} out of range, using {}\n", p.frequency)); }
-    p.n_pays = parse_int(next!("n_pays"))?;
+    p.n_pays = fields.int("n_pays")?;
     let n_in = p.n_pays;
     // A negative count is corrupt: use the default of 1 (not 0, which could read as "indefinite").
     p.n_pays = if n_in < 0 { 1 } else { n_in.min(MAX_N_PAYS) };
     if p.n_pays != n_in { log.push_str(&format!("({line_no}): n_pays {n_in} out of range, using {}\n", p.n_pays)); }
-    p.end_date = clamp_date(parse_int(next!("end_date"))?, "end_date", log, line_no);
+    p.end_date = clamp_date(fields.int("end_date")?, "end_date", log, line_no);
     p.end_date = p.end_date.max(p.start_date);
-    p.flags = parse_int(next!("flags"))?;
+    p.flags = fields.int("flags")?;
     if p.end_mode() == END_MODE_UNDEFINED {
         if p.n_pays == 0 && p.start_date == p.end_date { p.set_end_mode(END_MODE_INDEFINITE); }
         else if p.n_pays != 0 { p.set_end_mode(END_MODE_N_PAYS); }
         else { p.set_end_mode(END_MODE_DATE); }
     }
-    p.image_path = Some(decode_description(next!("image_path")));
-    *field = "opts";
-    parse_options(&mut p, &toks[k..])?;
+    p.image_path = Some(decode_description(fields.text("image_path")?));
+    parse_options(&mut p, fields.0.as_slice()).map_err(in_field("opts"))?;
     Ok(p)
 }
 
@@ -291,24 +303,19 @@ fn load_with(text: &str, today: i32, password: Option<&str>, legacy_key: bool) -
         }
         let toks = tokens(line);
         let Some(&first) = toks.first() else { continue };
-        let mut field: &'static str = "";
-        let res: Result<(), String> = (|| {
-            match first {
-                ":" => { field = "opts"; parse_options(&mut adjustments, &toks[1..]) }
-                "=" => { field = "file notes"; if let Some(t) = toks.get(1) { r.notes = decode_description(t); } Ok(()) }
-                "v" => { field = "version"; if let Some(t) = toks.get(1) { r.version = decode_description(t); } Ok(()) }
-                _ => {
-                    let id = next_id;
-                    let p = parse_payment(first, &toks[1..], id, today, &mut field, &mut r.log, line_no);
-                    // the original increments the id right after the amount parses
-                    if field != "amount" && field != "loan amount" { next_id += 1; }
-                    r.payments.push(p?);
-                    Ok(())
-                }
+        let res = match first {
+            ":" => parse_options(&mut adjustments, &toks[1..]).map_err(in_field("opts")),
+            "=" => { if let Some(t) = toks.get(1) { r.notes = decode_description(t); } Ok(()) }
+            "v" => { if let Some(t) = toks.get(1) { r.version = decode_description(t); } Ok(()) }
+            _ => {
+                let p = parse_payment(first, &toks[1..], next_id, today, &mut r.log, line_no);
+                // the original increments the id right after the amount parses
+                if !matches!(&p, Err(e) if e.field == "amount" || e.field == "loan amount") { next_id += 1; }
+                p.map(|p| r.payments.push(p))
             }
-        })();
-        if let Err(e) = res {
-            r.log.push_str(&format!("({line_no}): Invalid data for '{field}'\nException: {e}\n"));
+        };
+        if let Err(FieldError { field, message }) = res {
+            r.log.push_str(&format!("({line_no}): Invalid data for '{field}'\nException: {message}\n"));
             errors += 1;
         }
     }

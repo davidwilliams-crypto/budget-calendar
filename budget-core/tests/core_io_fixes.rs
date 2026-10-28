@@ -149,3 +149,42 @@ fn config_cr_only_lines_and_malformed_unicode_escapes() {
     assert_eq!(c.port, 1);
     assert_eq!(parse_properties("k=\\u0041"), vec![("k".to_string(), "A".to_string())]);
 }
+
+#[test]
+fn malformed_payment_lines_name_the_field_and_keep_the_id_numbering() {
+    let lines = [
+        "abc, A, 20260101, 1m, 1, 20260101, 48, img",
+        "-1.0, Valid1, 20260101, 1m, 1, 20260101, 48, img",
+        "-1.0%x, B, 20260101, 1m, 1, 20260101, 48, img",
+        "-1.0, C",
+        "-1.0, D, 2026x, 1m, 1, 20260101, 48, img",
+        "-1.0, Valid2, 20260101, 1m, 1, 20260101, 48, img",
+        "-1.0, E, 20260101, 1q, 1, 20260101, 48, img",
+        "-1.0, F, 20260101, ;3, 1, 20260101, 48, img",
+        "-1.0, G, 20260101, 1m;x, 1, 20260101, 48, img",
+        "-1.0, H, 20260101, xm, 1, 20260101, 48, img",
+        "-1.0, I, 20260101, 1m, x, 20260101, 48, img",
+        "-1.0, J, 20260101, 1m, 1, x, 48, img",
+        "-1.0, K, 20260101, 1m, 1, 20260101, x, img",
+        "-1.0, L, 20260101, 1m, 1, 20260101, 48",
+        "-1.0, M, 20260101, 1m, 1, 20260101, 48, img, 2026",
+        ":, 2026",
+        "-1.0!;, Valid3, 20260101, 1m, 1, 20260101, 48, img",
+    ];
+    let text = format!("v,2\n:\n=,\n{}\n## END-OF-DATA; line_no={} ##", lines.join("\n"), lines.len() + 4);
+    let l = bgt::load_str(&text, 20260101, None).unwrap_err();
+    let ids: Vec<(&str, i32, bool, char)> = l.payments.iter().map(|p| (p.description.as_str(), p.id, p.disabled, p.flag_value)).collect();
+    assert_eq!(ids, [("Valid1", 1, false, '^'), ("Valid2", 4, false, '^'), ("Valid3", 14, true, ';')]);
+    let errors: Vec<&str> = l.log.lines().filter(|s| s.starts_with('(')).collect();
+    assert_eq!(errors, [
+        "(4): Invalid data for 'amount'", "(6): Invalid data for 'loan amount'", "(7): Invalid data for 'start_date'",
+        "(8): Invalid data for 'start_date'", "(10): Invalid data for 'frequency'", "(11): Invalid data for 'frequency'",
+        "(12): Invalid data for 'frequency'", "(13): Invalid data for 'frequency'", "(14): Invalid data for 'n_pays'",
+        "(15): Invalid data for 'end_date'", "(16): Invalid data for 'flags'", "(17): Invalid data for 'image_path'",
+        "(18): Invalid data for 'opts'", "(19): Invalid data for 'opts'",
+    ]);
+    for (line, field, message) in [(7, "start_date", "NoSuchElementException"), (10, "frequency", "Invalid frequency type 'q'"),
+        (11, "frequency", "empty frequency"), (17, "image_path", "NoSuchElementException")] {
+        assert!(l.log.contains(&format!("({line}): Invalid data for '{field}'\nException: {message}\n")), "{line}: {}", l.log);
+    }
+}
