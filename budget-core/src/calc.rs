@@ -65,7 +65,11 @@ fn apply(values: &mut Vec<f64>, op: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn process(tokens: &[String], pos: &mut usize, values: &mut Vec<f64>, week: f64, month: f64) -> Result<(), String> {
+/// Deliberate deviation: the original recurses until StackOverflowError; in Rust a stack overflow
+/// aborts the process (losing unsaved work), so nesting is bounded.
+const MAX_PAREN_DEPTH: usize = 64;
+
+fn process(tokens: &[String], pos: &mut usize, values: &mut Vec<f64>, week: f64, month: f64, depth: usize) -> Result<(), String> {
     let mut ops: Vec<String> = Vec::new();
     let mut expect_operand = true;
     loop {
@@ -82,7 +86,8 @@ fn process(tokens: &[String], pos: &mut usize, values: &mut Vec<f64>, week: f64,
                 tok = next;
             }
             if tok == "(" {
-                process(tokens, pos, values, week, month)?;
+                if depth >= MAX_PAREN_DEPTH { return Err("Expression too deeply nested".into()); }
+                process(tokens, pos, values, week, month, depth + 1)?;
                 if sign < 0.0 { values.push(-1.0); apply(values, "*")?; }
             } else if let Some(rest) = tok.strip_prefix("%%") {
                 let (n, _) = parse_prefix(rest).ok_or_else(|| format!("Unparseable number: \"{rest}\""))?;
@@ -102,7 +107,7 @@ fn process(tokens: &[String], pos: &mut usize, values: &mut Vec<f64>, week: f64,
             }
             let w = weight(&tok);
             if w == -1 { return Err(syntax_error(&tok)); }
-            while ops.last().map_or(false, |t| weight(t) >= w) {
+            while ops.last().is_some_and(|t| weight(t) >= w) {
                 let op = ops.pop().unwrap();
                 apply(values, &op)?;
             }
@@ -118,8 +123,10 @@ pub fn calculate_with_income(expr: &str, week_income: f64, month_income: f64) ->
     let tokens = tokenize(expr);
     let mut pos = 0;
     let mut values = Vec::new();
-    process(&tokens, &mut pos, &mut values, week_income, month_income)?;
+    process(&tokens, &mut pos, &mut values, week_income, month_income, 0)?;
     if values.len() != 1 || pos != tokens.len() { return Err("Unexpected end of expression".into()); }
+    // Overflow (e.g. "1e308*10") must not reach a balance as infinity or NaN.
+    if !values[0].is_finite() { return Err("Result is too large".into()); }
     Ok(values[0])
 }
 
@@ -148,5 +155,24 @@ mod tests {
         assert_eq!(c("--5").unwrap_err(), "Syntax error near '-'");
         assert_eq!(c("(1+2").unwrap_err(), "Unexpected end of expression");
         assert_eq!(c("1+2)").unwrap_err(), "Unexpected end of expression");
+    }
+
+    #[test]
+    fn deep_nesting_is_an_error_not_a_stack_overflow() {
+        // 1 MiB: the Windows main-thread stack, where the unbounded recursion aborted.
+        std::thread::Builder::new().stack_size(1024 * 1024).spawn(|| {
+            let nest = |n: usize| "(".repeat(n) + "1" + &")".repeat(n);
+            assert_eq!(calculate(&nest(10_000)).unwrap_err(), "Expression too deeply nested");
+            assert_eq!(calculate(&nest(64)).unwrap(), 1.0);
+            assert_eq!(calculate(&nest(65)).unwrap_err(), "Expression too deeply nested");
+            assert_eq!(calculate(&format!("-{}", nest(32))).unwrap(), -1.0);
+        }).unwrap().join().unwrap();
+    }
+
+    #[test]
+    fn overflowing_results_are_errors_not_infinity() {
+        assert_eq!(calculate("1e308*10").unwrap_err(), "Result is too large");
+        assert_eq!(calculate("-1e308*10").unwrap_err(), "Result is too large");
+        assert_eq!(calculate("1t*1t*1t").unwrap(), 1e36); // finite: range limits belong to callers
     }
 }

@@ -48,9 +48,11 @@ fn doy_table(y: i32) -> &'static [i32; 12] {
 impl Cal {
     /// `SimpleCalendar(int)`: `yyyy` -> 1 January, `yyyymm` -> day 1, else `yyyymmdd`, all normalised.
     pub fn from_int(v: i32) -> Cal {
+        // i64 + saturation like `get()`: an absurd value must not overflow the short-form scaling.
+        let v = v as i64;
         let v = if v < 10000 { v * 10000 + 101 } else if v < 1000000 { v * 100 + 1 } else { v };
         let mut c = Cal { y: 0, m: 0, d: 1 };
-        c.set_int(v);
+        c.set_int(v.clamp(i32::MIN as i64, i32::MAX as i64) as i32);
         c
     }
 
@@ -113,6 +115,13 @@ impl Cal {
         match f {
             Field::Year => { self.y = v; self.adjust_day(); }
             Field::Month => { self.m = v; self.adjust_month(); }
+            Field::Day if !(-400..=400).contains(&v) => {
+                // Large steps go through a day number so they cost O(1) instead of a month-by-month walk.
+                let (y, m, d) = civil_from_days(days_from_civil(self.y as i64, self.m as i64 + 1, 1) + v as i64 - 1);
+                self.y = y.clamp(i32::MIN as i64, i32::MAX as i64) as i32;
+                self.m = m as i32 - 1;
+                self.d = d as i32;
+            }
             Field::Day => {
                 self.d = v;
                 if self.d < 1 {
@@ -205,7 +214,7 @@ impl Cal {
     pub fn diff_int(a: i32, b: i32) -> i32 { Cal::diff(&Cal::from_int(a), &Cal::from_int(b)) }
     pub fn months_diff(a: &Cal, b: &Cal) -> i32 { (b.y * 12 + b.m) - (a.y * 12 + a.m) }
 
-    fn order_key(&self) -> i32 { self.y * 10000 + self.m * 100 + self.d }
+    fn order_key(&self) -> i64 { self.y as i64 * 10000 + self.m as i64 * 100 + self.d as i64 }
     pub fn lt(&self, o: &Cal) -> bool { self.order_key() < o.order_key() }
     pub fn gt(&self, o: &Cal) -> bool { self.order_key() > o.order_key() }
     pub fn le(&self, o: &Cal) -> bool { !self.gt(o) }
@@ -242,20 +251,34 @@ impl Cal {
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs() as i64)
             .unwrap_or(0);
-        let days = secs.div_euclid(86400);
-        // civil_from_days (H. Hinnant)
-        let z = days + 719468;
-        let era = z.div_euclid(146097);
-        let doe = z - era * 146097;
-        let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
-        let y = yoe + era * 400;
-        let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-        let mp = (5 * doy + 2) / 153;
-        let d = (doy - (153 * mp + 2) / 5 + 1) as i32;
-        let m = (if mp < 10 { mp + 3 } else { mp - 9 }) as i32;
-        let y = (if m <= 2 { y + 1 } else { y }) as i32;
-        Cal::ymd(y, m - 1, d)
+        let (y, m, d) = civil_from_days(secs.div_euclid(86400));
+        Cal::ymd(y as i32, m as i32 - 1, d as i32)
     }
+}
+
+/// Days since 1970-01-01 of a proleptic Gregorian date (`m` 1-based; H. Hinnant).
+fn days_from_civil(y: i64, m: i64, d: i64) -> i64 {
+    let y = if m <= 2 { y - 1 } else { y };
+    let era = y.div_euclid(400);
+    let yoe = y - era * 400;
+    let mp = if m > 2 { m - 3 } else { m + 9 };
+    let doy = (153 * mp + 2) / 5 + d - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    era * 146097 + doe - 719468
+}
+
+/// Inverse of `days_from_civil`: `(year, 1-based month, day)`.
+fn civil_from_days(days: i64) -> (i64, i64, i64) {
+    let z = days + 719468;
+    let era = z.div_euclid(146097);
+    let doe = z - era * 146097;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    (if m <= 2 { y + 1 } else { y }, m, d)
 }
 
 impl Default for Cal {
@@ -323,6 +346,22 @@ mod tests {
         c.add(Field::NthWeekday, 4);
         assert_eq!(c.get(), 20240527);
         assert_eq!(c.day_of_week(), 1);
+    }
+
+    #[test]
+    fn large_day_steps_match_the_month_walk() {
+        for start in [20240131, 20000229, 19991231, 20260315] {
+            for n in [-100_000, -36_525, -401, 401, 1_000, 36_525, 100_000] {
+                let mut fast = Cal::from_int(start);
+                fast.add(Field::Day, n);
+                let mut slow = Cal::from_int(start);
+                let step = if n > 0 { 300 } else { -300 };
+                let mut left = n;
+                while left != 0 { let s = if left.abs() < 300 { left } else { step }; slow.add(Field::Day, s); left -= s; }
+                assert_eq!(fast.get(), slow.get(), "{start} {n}");
+                assert_eq!(Cal::diff(&Cal::from_int(start), &fast), n);
+            }
+        }
     }
 
     #[test]

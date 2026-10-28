@@ -5,6 +5,10 @@ use crate::date::{Cal, Field, SATURDAY, SUNDAY};
 use crate::db::BudgetDb;
 use crate::model::*;
 
+/// Last representable date: every schedule enumeration stops here, so absurd frequency × count
+/// combinations cannot hang a load (or overflow the year).
+const LAST_DATE: i32 = 99_991_231;
+
 pub fn calendar_field(freq_type: char) -> Field {
     match freq_type {
         'd' => Field::Day,
@@ -69,10 +73,39 @@ impl BudgetDb {
             if mode == END_MODE_INDEFINITE && c.gt(&self.end_date) { return false; }
             let v = c.get();
             if v == date { return true; }
-            if v > date { return false; }
+            if v > date || v > LAST_DATE { return false; }
             n += 1;
             add_period(&mut c, field, p.frequency, p.start_date, n);
         }
+    }
+
+    /// `get_valid_payment_days(p, cal)` (01 §3.12): the days on which the occurrence of `cal`'s month
+    /// may be paid, `{d, …, d+grace−1}`, where `grace` is the period length for a tentative payment
+    /// and `grace_period_days` otherwise. Empty when there is no grace or no matching occurrence.
+    pub fn valid_payment_days(&self, i: usize, cal: i32) -> Vec<i32> {
+        let p = &self.payments[i];
+        let tentative = p.is_tentative();
+        // Capped at a year: the set only drives hover highlighting, and an absurd value from a file
+        // must not allocate millions of dates.
+        let grace = if tentative { self.period_days(i) } else { p.grace_period_days }.min(366);
+        if grace <= 0 { return Vec::new(); }
+        let mut d = Cal::from_int(cal);
+        d.set_day_one();
+        let month = d.ym();
+        while d.ym() == month {
+            let dv = d.get();
+            if self.is_regular_payment_on(i, dv) {
+                let mut last = d;
+                last.add(Field::Day, grace - 1);
+                let inside = dv <= cal && cal <= last.get();
+                if !(tentative && !inside) && !(cal > dv && !inside) {
+                    let mut c = d;
+                    return (0..grace).map(|_| { let v = c.get(); c.add(Field::Day, 1); v }).collect();
+                }
+            }
+            d.add(Field::Day, 1);
+        }
+        Vec::new()
     }
 
     /// First scheduled date strictly after `date`, or -1 when the `n_pays` limit is hit.
@@ -85,6 +118,7 @@ impl BudgetDb {
         loop {
             if mode != END_MODE_INDEFINITE && n >= p.n_pays { return -1; }
             if c.get() > date { return c.get(); }
+            if c.get() > LAST_DATE { return -1; }
             n += 1;
             add_period(&mut c, field, p.frequency, p.start_date, n);
         }
@@ -93,7 +127,7 @@ impl BudgetDb {
     pub fn number_of_planned_transactions(&self, desc: &str, from: &Cal, to: &Cal) -> i32 {
         let mut count = 0;
         for p in &self.payments {
-            if !p.description.eq_ignore_ascii_case(desc) { continue; }
+            if !eq_ignore_case(&p.description, desc) { continue; }
             let field = calendar_field(p.freq_type);
             let mode = p.end_mode();
             let mut c = Cal::from_int(p.start_date);
@@ -101,7 +135,7 @@ impl BudgetDb {
             loop {
                 if mode != END_MODE_INDEFINITE && n >= p.n_pays { break; }
                 if mode == END_MODE_INDEFINITE && c.gt(&self.end_date) { break; }
-                if c.gt(to) { break; }
+                if c.gt(to) || c.get() > LAST_DATE { break; }
                 if c.ge(from) { count += 1; }
                 n += 1;
                 add_period(&mut c, field, p.frequency, p.start_date, n);
@@ -110,19 +144,20 @@ impl BudgetDb {
         count
     }
 
-    /// A slot is modified when an option sits on its scheduled date or on the weekend-shifted date
-    /// where the transaction is actually displayed (and where the GUI writes the option).
+    /// A slot is modified only when an option sits on the date where its transaction is actually
+    /// displayed (the weekend-shifted date for business-days payments). An option on an undisplayed
+    /// nominal weekend day is an extra transaction (already counted in the loan `sum`), and a deletion
+    /// marker there is stale and dropped by the options pass, so it must not skip the installment.
     fn is_modified_on(&self, i: usize, c: &Cal) -> bool {
         let p = &self.payments[i];
-        let v = c.get();
-        let shifted = if p.is_no_weekends() && !p.is_tentative() && matches!(c.day_of_week(), SATURDAY | SUNDAY) {
+        let shown = if p.is_no_weekends() && !p.is_tentative() && matches!(c.day_of_week(), SATURDAY | SUNDAY) {
             let mut d = *c;
             let w = c.day_of_week();
             if p.is_early_pay() { d.add(Field::Day, if w == SUNDAY { -2 } else { -1 }); }
             else { d.add(Field::Day, if w == SUNDAY { 1 } else { 2 }); }
             d.get()
-        } else { v };
-        p.opt.iter().any(|o| o.date == v || o.date == shifted)
+        } else { c.get() };
+        p.opt.iter().any(|o| o.date == shown)
     }
 
     /// `calcLoanSchedule(p, asOf)`; exact double arithmetic, no rounding.
@@ -140,7 +175,7 @@ impl BudgetDb {
             if as_of.is_some() { trans.push((o.date, o.amount)); }
         }
         let mut ls = LoanSchedule {
-            end: Cal::from_int(max_opt),
+            end: Cal::from_int(p.start_date), // set after the loop
             actual_start: Cal::from_int(p.start_date.min(min_opt)),
             actual_end: Cal::from_int(max_opt),
             n_pays: 0,
@@ -156,10 +191,9 @@ impl BudgetDb {
         // Half-a-cent tolerance absorbs floating-point residue when the principal is an exact multiple.
         while remaining >= 0.005 {
             // Bound the schedule at the last representable year so absurd loans cannot hang the app.
-            if c.get() > 99_991_231 { break; }
+            if c.get() > LAST_DATE { break; }
             ls.n_pays += 1;
             if !self.is_modified_on(i, &c) {
-                if c.gt(&ls.end) { ls.end.set_int(c.get()); }
                 if remaining <= abs_amt + 0.005 {
                     ls.last_payment_amount = if is_expense { -remaining } else { remaining };
                     if as_of.is_some() { trans.push((c.get(), ls.last_payment_amount)); }
@@ -169,8 +203,9 @@ impl BudgetDb {
                 if as_of.is_some() { trans.push((c.get(), p.amount)); }
             }
             add_period(&mut c, field, p.frequency, p.start_date, ls.n_pays);
-            if abs_amt == 0.0 { break; } // ponytail: guard against the original's infinite loop
+            if abs_amt == 0.0 { break; } // zero-amount guard: the original loops forever here
         }
+        // Spec 3.5: `endCal` is the last slot date (the start date when the loop never runs).
         ls.end = c;
         if ls.end.gt(&ls.actual_end) { ls.actual_end.set_int(ls.end.get()); }
         if let Some(a) = as_of {
@@ -192,7 +227,7 @@ impl BudgetDb {
         let mut n = 1;
         loop {
             add_period(&mut c, field, p.frequency, p.start_date, n);
-            if c.gt(&end) { break; }
+            if c.gt(&end) || c.get() > LAST_DATE { break; }
             n += 1;
         }
         self.payments[i].n_pays = n;
@@ -208,6 +243,7 @@ impl BudgetDb {
                 let mut c = Cal::from_int(p.start_date);
                 let mut n = 0;
                 for k in 0..p.n_pays.max(1) {
+                    if c.get() > LAST_DATE { break; }
                     if c.get() >= v { n += 1; }
                     add_period(&mut c, field, p.frequency, p.start_date, k + 1);
                 }
@@ -218,7 +254,7 @@ impl BudgetDb {
                 let mut c = Cal::from_int(p.start_date);
                 let mut n = 0;
                 let mut k = 0;
-                while !c.gt(&end) {
+                while !c.gt(&end) && c.get() <= LAST_DATE {
                     if c.get() >= v { n += 1; }
                     k += 1;
                     add_period(&mut c, field, p.frequency, p.start_date, k);
@@ -248,7 +284,10 @@ impl BudgetDb {
                 let mut c = Cal::from_int(p.start_date);
                 let mut n = 0;
                 while n + 1 < p.n_pays {
-                    add_period(&mut c, field, frequency, start_date, n + 1);
+                    let mut next = c;
+                    add_period(&mut next, field, frequency, start_date, n + 1);
+                    if next.get() > LAST_DATE { break; }
+                    c = next;
                     n += 1;
                 }
                 p.end_date = c.get();
@@ -282,6 +321,7 @@ impl BudgetDb {
             if mode != END_MODE_INDEFINITE && n >= n_pays { break; }
             if mode == END_MODE_INDEFINITE && c.gt(&self.end_date) { break; }
             let cv = c.get();
+            if cv > LAST_DATE { break; }
             let mut amt = amount;
             if mode == END_MODE_LOAN_PAID && n + 1 == n_pays {
                 amt = last_payment_amount;
@@ -337,10 +377,10 @@ impl BudgetDb {
                 if early_pay { d.add(Field::Day, if w == SUNDAY { -2 } else { -1 }); }
                 else { d.add(Field::Day, if w == SUNDAY { 1 } else { 2 }); }
                 if let Some(di) = self.cal_index(&d) {
-                    self.day_add_regular(di, i, amt, if is_last { SUFFIX_LAST } else { SUFFIX_ADJUSTED });
+                    self.day_place_regular(di, i, amt, if is_last { SUFFIX_LAST } else { SUFFIX_ADJUSTED });
                 }
             } else if let Some(di) = self.cal_index(&c) {
-                self.day_add_regular(di, i, amt, if is_last { SUFFIX_LAST } else { SUFFIX_NONE });
+                self.day_place_regular(di, i, amt, if is_last { SUFFIX_LAST } else { SUFFIX_NONE });
             }
             n += 1;
             add_period(&mut c, field, frequency, start_date, n);

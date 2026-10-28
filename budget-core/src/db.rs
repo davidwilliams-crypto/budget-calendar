@@ -62,9 +62,7 @@ impl BudgetDay {
     }
     /// Display rounding of the original: truncate toward zero after nudging by `0.05f`.
     pub fn closing_balance_display(&self, exact: bool) -> f64 {
-        if exact { return self.closing_balance; }
-        let nudge = 0.05f32 as f64;
-        if self.closing_balance > 0.0 { ((self.closing_balance + nudge) as i64) as f64 } else { ((self.closing_balance - nudge) as i64) as f64 }
+        crate::numfmt::balance_display(self.closing_balance, exact)
     }
 }
 
@@ -247,6 +245,22 @@ impl BudgetDb {
         self.day_add(day, pmt, amount, suffix);
         self.days[day].regulars.push(pmt);
     }
+    /// Place one scheduled slot. When this payment's regular transaction from the same scheduling
+    /// run already sits on the day (daily business-days payments move Saturday and Sunday onto the
+    /// Monday, or Friday with early pay), the amounts are added instead of the later slot replacing
+    /// the earlier one, so placement agrees with the loan schedule and the planned statistics.
+    pub(crate) fn day_place_regular(&mut self, day: usize, pmt: usize, amount: f64, suffix: char) {
+        if self.days[day].regulars.contains(&pmt) {
+            if let Some(t) = self.days[day].get_mut(pmt) {
+                t.amount += amount;
+                if suffix == SUFFIX_LAST || t.suffix == SUFFIX_LAST { t.suffix = SUFFIX_LAST; } else { t.suffix = SUFFIX_ADJUSTED; }
+                self.days[day].regulars.push(pmt);
+                self.days[day].sorted = false;
+                return;
+            }
+        }
+        self.day_add_regular(day, pmt, amount, suffix);
+    }
     pub(crate) fn day_add_restorable(&mut self, day: usize, pmt: usize) {
         let d = &mut self.days[day];
         if !d.restorable.contains(&pmt) {
@@ -389,7 +403,7 @@ impl BudgetDb {
     /// `sort()`: description (case-insensitive), then start date, then end date.
     pub fn sort(&mut self) {
         self.payments.sort_by(|a, b| {
-            a.description.to_lowercase().cmp(&b.description.to_lowercase())
+            fold_key(&a.description).cmp(&fold_key(&b.description))
                 .then(a.start_date.cmp(&b.start_date))
                 .then(a.end_date.cmp(&b.end_date))
         });
@@ -409,7 +423,7 @@ impl BudgetDb {
 
     pub fn is_valid_category(&self, cat: Option<&str>, except: Option<usize>) -> bool {
         let Some(cat) = cat else { return true };
-        if cat == "(Unaccounted)" { return false; }
+        if cat == crate::stats::UNACCOUNTED { return false; }
         !self.payments.iter().enumerate().any(|(i, p)| Some(i) != except && p.description == cat)
     }
     pub fn is_valid_description(&self, desc: &str, except: Option<usize>) -> bool {
@@ -417,14 +431,14 @@ impl BudgetDb {
     }
     pub fn categories(&self) -> Vec<String> {
         let mut v: Vec<String> = self.payments.iter().filter_map(|p| p.category.clone()).collect();
-        v.sort_by_key(|s| s.to_lowercase());
+        v.sort_by_key(|s| fold_key(s));
         v.dedup();
         v
     }
     pub fn most_changed_payment(&self) -> Option<usize> {
         let mut best: Option<(usize, usize)> = None;
         for (i, p) in self.payments.iter().enumerate() {
-            if best.map_or(true, |(_, n)| p.opt.len() > n) { best = Some((i, p.opt.len())); }
+            if best.is_none_or(|(_, n)| p.opt.len() > n) { best = Some((i, p.opt.len())); }
         }
         best.map(|(i, _)| i)
     }

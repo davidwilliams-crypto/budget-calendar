@@ -6,6 +6,9 @@ use crate::numfmt::{format_frac2, sdate_dmy, to_double};
 
 const NBSPACE: char = '\u{2029}';
 
+/// The Java app stored '&' as the fullwidth U+FF06 (SWT mnemonics); match both spellings alike.
+fn amp(s: &str) -> String { s.replace('\u{ff06}', "&") }
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Name { Unknown, All, Cat, Desc, Date, Lt, Eq, Gt, Note, Range, Flag }
 
@@ -52,10 +55,10 @@ impl Filter {
         if deleted { t.remove(0); }
         let or_mode = t.starts_with('|');
         if or_mode { t.remove(0); }
-        let t = t.to_lowercase().replace("\\ ", &NBSPACE.to_string());
+        let t = amp(&t.to_lowercase()).replace("\\ ", &NBSPACE.to_string());
         let mut f = Filter { or_mode, deleted, filter: text.to_string(), today, elms: Vec::new() };
         let parts: Vec<&str> = t.split(' ').collect();
-        if parts.first().map_or(true, |p| p.is_empty()) { return Ok(f); }
+        if parts.first().is_none_or(|p| p.is_empty()) { return Ok(f); }
         for part in parts {
             if part.is_empty() { continue; }
             let mut tok = part.replace(NBSPACE, " ");
@@ -86,7 +89,7 @@ impl Filter {
         if self.elms.is_empty() { return true; }
         let cat = pmt.category.as_deref().unwrap_or("");
         let note = pmt.get_note(date).unwrap_or_default();
-        let all_hay = format!("{} {} {} {} {}", sdate_dmy(pmt.start_date), pmt.description, cat, format_frac2(amount), note).to_lowercase();
+        let all_hay = amp(&format!("{} {} {} {} {}", sdate_dmy(pmt.start_date), pmt.description, cat, format_frac2(amount), note).to_lowercase());
         let mut count = 0;
         for e in &self.elms {
             let mut hay: Option<String> = None;
@@ -94,13 +97,13 @@ impl Filter {
             let mut matched = false;
             match e.name {
                 Name::All => hay = Some(all_hay.clone()),
-                Name::Cat => hay = pmt.category.as_ref().map(|c| c.to_lowercase()),
-                Name::Desc => hay = Some(pmt.description.to_lowercase()),
+                Name::Cat => hay = pmt.category.as_ref().map(|c| amp(&c.to_lowercase())),
+                Name::Desc => hay = Some(amp(&pmt.description.to_lowercase())),
                 Name::Date => hay = Some(sdate_dmy(pmt.start_date).to_lowercase()),
                 Name::Lt => { boolean = true; matched = amount < e.val; }
                 Name::Eq => { boolean = true; matched = e.val == amount; }
                 Name::Gt => { boolean = true; matched = amount > e.val; }
-                Name::Note => hay = pmt.get_note(date).map(|n| n.to_lowercase()),
+                Name::Note => hay = pmt.get_note(date).map(|n| amp(&n.to_lowercase())),
                 Name::Range => { boolean = true; matched = self.range_match(pmt, e); }
                 Name::Flag | Name::Unknown => {
                     let f = pmt.get_flag(date);
@@ -118,7 +121,7 @@ impl Filter {
                     if !matched && e.val != 0.0 {
                         matched = amount == e.val;
                     } else if !matched && !e.is_dots && e.name == Name::All {
-                        let t = format!("{} {} {}", pmt.description, cat, note).to_lowercase();
+                        let t = amp(&format!("{} {} {}", pmt.description, cat, note).to_lowercase());
                         if t.contains('.') { matched = t.replace('.', "").contains(&e.exp); }
                     }
                 }
@@ -205,5 +208,20 @@ mod tests {
         assert!(!Filter::new("st.john x", TODAY).unwrap().is_match(&q, -1.0, 0));
         assert!(Filter::new("~", TODAY).is_err());
         assert!(Filter::new("-  cat:x", TODAY).unwrap().is_empty());
+    }
+
+    #[test]
+    fn ampersands_match_both_the_plain_and_legacy_fullwidth_spelling() {
+        let mut q = p();
+        q.description = "AT&T".into();
+        q.category = Some("R&D".into());
+        let mut legacy = q.clone();
+        legacy.description = "AT\u{ff06}T".into();
+        legacy.category = Some("R\u{ff06}D".into());
+        for text in ["desc:at&t", "desc:AT\u{ff06}T", "cat:r&d", "at&t"] {
+            let f = Filter::new(text, TODAY).unwrap();
+            assert!(f.is_match(&q, -1.0, 0), "{text} must match AT&T");
+            assert!(f.is_match(&legacy, -1.0, 0), "{text} must match a Java-saved AT\u{ff06}T");
+        }
     }
 }

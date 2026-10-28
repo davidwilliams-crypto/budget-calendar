@@ -9,8 +9,8 @@ use std::path::Path;
 pub fn parse_properties(text: &str) -> Vec<(String, String)> {
     let mut out = Vec::new();
     let mut logical = String::new();
-    let mut lines = text.lines().peekable();
-    while let Some(raw) = lines.next() {
+    // Java's line terminators: `\r\n`, `\n` or a lone `\r`.
+    for raw in crate::bgt::logical_lines(text) {
         let l = raw.trim_start_matches([' ', '\t', '\x0c']);
         if logical.is_empty() && (l.is_empty() || l.starts_with('#') || l.starts_with('!')) { continue; }
         // continuation: odd number of trailing backslashes
@@ -20,45 +20,62 @@ pub fn parse_properties(text: &str) -> Vec<(String, String)> {
             continue;
         }
         logical.push_str(l);
-        let line = std::mem::take(&mut logical);
-        // split key / value
-        let chars: Vec<char> = line.chars().collect();
-        let mut i = 0;
-        let mut key = String::new();
-        while i < chars.len() {
-            let c = chars[i];
-            if c == '\\' && i + 1 < chars.len() { key.push(c); key.push(chars[i + 1]); i += 2; continue; }
-            if c == '=' || c == ':' || c == ' ' || c == '\t' { break; }
-            key.push(c); i += 1;
-        }
-        while i < chars.len() && (chars[i] == ' ' || chars[i] == '\t') { i += 1; }
-        if i < chars.len() && (chars[i] == '=' || chars[i] == ':') { i += 1; }
-        while i < chars.len() && (chars[i] == ' ' || chars[i] == '\t') { i += 1; }
-        let value: String = chars[i..].iter().collect();
-        out.push((unescape(&key), unescape(&value)));
+        push_entry(&mut out, &std::mem::take(&mut logical));
     }
+    // Java keeps an entry whose last line ends in a continuation backslash at EOF.
+    if !logical.is_empty() { push_entry(&mut out, &logical); }
     out
 }
 
-fn unescape(s: &str) -> String {
+/// Split one logical line into key / value. A malformed `\u` escape drops the entry, so the
+/// key keeps its default (Java rejects the whole file; this keeps the other settings).
+fn push_entry(out: &mut Vec<(String, String)>, line: &str) {
+    let chars: Vec<char> = line.chars().collect();
+    let mut i = 0;
+    let mut key = String::new();
+    while i < chars.len() {
+        let c = chars[i];
+        if c == '\\' && i + 1 < chars.len() { key.push(c); key.push(chars[i + 1]); i += 2; continue; }
+        if c == '=' || c == ':' || c == ' ' || c == '\t' { break; }
+        key.push(c); i += 1;
+    }
+    while i < chars.len() && (chars[i] == ' ' || chars[i] == '\t') { i += 1; }
+    if i < chars.len() && (chars[i] == '=' || chars[i] == ':') { i += 1; }
+    while i < chars.len() && (chars[i] == ' ' || chars[i] == '\t') { i += 1; }
+    let value: String = chars[i..].iter().collect();
+    if let (Some(k), Some(v)) = (unescape(&key), unescape(&value)) { out.push((k, v)); }
+}
+
+/// `None` for a malformed `\uXXXX` (fewer than four hex digits). Consecutive `\u` units are
+/// decoded as UTF-16, so a surrogate pair written by Java recombines; a lone surrogate is `?`.
+fn unescape(s: &str) -> Option<String> {
     let mut out = String::new();
+    let mut units: Vec<u16> = Vec::new();
+    fn flush(units: &mut Vec<u16>, out: &mut String) {
+        for r in char::decode_utf16(units.drain(..)) { out.push(r.unwrap_or('?')); }
+    }
     let mut it = s.chars();
     while let Some(c) = it.next() {
-        if c != '\\' { out.push(c); continue; }
-        match it.next() {
+        if c != '\\' { flush(&mut units, &mut out); out.push(c); continue; }
+        let e = it.next();
+        if e == Some('u') {
+            let hex: String = (0..4).filter_map(|_| it.next()).collect();
+            if hex.len() != 4 || !hex.chars().all(|h| h.is_ascii_hexdigit()) { return None; }
+            units.push(u16::from_str_radix(&hex, 16).ok()?);
+            continue;
+        }
+        flush(&mut units, &mut out);
+        match e {
             Some('t') => out.push('\t'),
             Some('n') => out.push('\n'),
             Some('r') => out.push('\r'),
             Some('f') => out.push('\x0c'),
-            Some('u') => {
-                let hex: String = (0..4).filter_map(|_| it.next()).collect();
-                out.push(u32::from_str_radix(&hex, 16).ok().and_then(char::from_u32).unwrap_or('?'));
-            }
             Some(o) => out.push(o),
             None => {}
         }
     }
-    out
+    flush(&mut units, &mut out);
+    Some(out)
 }
 
 fn escape(s: &str, is_key: bool) -> String {
@@ -72,7 +89,10 @@ fn escape(s: &str, is_key: bool) -> String {
             '\r' => out.push_str("\\r"),
             '\x0c' => out.push_str("\\f"),
             '=' | ':' | '#' | '!' => { out.push('\\'); out.push(c); }
-            c if (c as u32) < 0x20 || (c as u32) > 0x7e => out.push_str(&format!("\\u{:04X}", c as u32)),
+            // one `\uXXXX` per UTF-16 unit, as Java writes it (a surrogate pair above U+FFFF)
+            c if (c as u32) < 0x20 || (c as u32) > 0x7e => {
+                for u in c.encode_utf16(&mut [0u16; 2]) { out.push_str(&format!("\\u{:04X}", u)); }
+            }
             c => out.push(c),
         }
     }

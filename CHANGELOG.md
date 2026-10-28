@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.5.0] - 2026-10-28
+
+Second full review: deeper calculation, file-safety, interaction and polish fixes.
+
+- Calculations: daily and every-2-day business-days payments merge weekend amounts onto Monday instead of dropping them; loan installments shifted off a weekend are no longer skipped or double-counted; brief-summary shares use expenses when a month has no income, and Total income shows its planned-vs-actual difference.
+- Tentative payments: marking an occurrence Paid pins it to that date; tentative loans and weekend options are blocked in the editor with an explanation.
+- Restore deleted occurrences from the day's right-click menu. Custom amounts are marked "Adjusted" rather than "Moved off a weekend". Adjusted balances show the adjustment, and per-transaction notes show a pencil marker.
+- Hovering a payment highlights its grace-period days.
+- Files: CR-only line endings, notes and descriptions with leading or trailing spaces, literal `&#x…;` text, control characters, out-of-range dates and colours, legacy encrypted bytes and emoji in preferences all save and reload correctly.
+- Saving works again after the budget file was deleted or moved. Save as to the same file under a different spelling still detects outside changes. Relative paths are stored as full paths.
+- Preferences are saved when the window closes and when "Show cents" changes; screenshot mode no longer touches your preferences.
+- Forms: amounts accept formulas such as `1200/12` or `2.5k`, show two decimals, and leave unchanged legacy values intact. A category equal to the description is rejected. Editing a payment that started in the past warns that earlier months change. The date picker follows the calendar's first weekday.
+- Interaction: a double-click no longer lands inside the editor it just opened; the password box keeps focus after a wrong password; typing a year in the month picker no longer jumps the calendar; the day dialog stays open after editing; shortcuts and right-click are ignored mid-drag; closing the window while an Open is pending closes.
+- Interface: today pill, repeated balances greyed, regular-weight names with semibold amounts, green maximum-balance strip, full-width status bar, clearer load-error banner, hover-only Edit and a Disabled badge on Payments, roomier dialog fields, a visible Expense/Income switch, a shared dialog footer, and a + hint for adding a payment to a day.
+- Code quality: zero clippy warnings, duplicated rounding and dead code removed, deep formula nesting rejected safely.
+
 ## [0.4.0] - 2026-10-27
 
 Full review release: calculation, reliability and interface polish.

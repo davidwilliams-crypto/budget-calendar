@@ -40,14 +40,15 @@ impl LineCipher {
     pub fn encrypt_line(&self, s: &str) -> String {
         let mut bytes = s.as_bytes().to_vec();
         let pad = (8 - bytes.len() % 8) % 8;
-        bytes.extend(std::iter::repeat(0u8).take(pad));
+        bytes.extend(std::iter::repeat_n(0u8, pad));
         for chunk in bytes.chunks_mut(8) {
             self.bf.encrypt_block(GenericArray::from_mut_slice(chunk));
         }
         bytes.iter().map(|b| format!("{b:02x}")).collect()
     }
 
-    /// `new String(bf.decrypt(hex2bytes(line)), 0, firstNul)`.
+    /// `new String(bf.decrypt(hex2bytes(line)), 0, firstNul)`, decoded as ISO-8859-1 like the
+    /// plain-file reader so the legacy 0xFF (`,`) / 0xFE (`\n`) bytes survive.
     pub fn decrypt_line(&self, hex: &str) -> Result<String, String> {
         let hex = if hex.len() % 2 == 1 { format!("0{hex}") } else { hex.to_string() };
         let mut bytes = Vec::with_capacity(hex.len() / 2);
@@ -60,7 +61,7 @@ impl LineCipher {
             self.bf.decrypt_block(GenericArray::from_mut_slice(chunk));
         }
         let n = bytes.iter().position(|&b| b == 0).unwrap_or(bytes.len());
-        Ok(String::from_utf8_lossy(&bytes[..n]).into_owned())
+        Ok(crate::bgt::latin1_decode(&bytes[..n]))
     }
 }
 
@@ -90,7 +91,7 @@ mod tests {
         let enc = c.encrypt_line(line);
         assert_eq!(enc.len() % 16, 0);
         assert_eq!(c.decrypt_line(&enc).unwrap(), line);
-        assert_eq!(c.decrypt_line("00").unwrap_err().contains("multiple of 8"), true);
+        assert!(c.decrypt_line("00").unwrap_err().contains("multiple of 8"));
         assert!(LineCipher::new("").is_err());
     }
 
@@ -101,6 +102,17 @@ mod tests {
         assert_eq!(LineCipher::new("a").unwrap().encrypt_line(line), LineCipher::new("aaaa").unwrap().encrypt_line(line));
         assert_eq!(LineCipher::new("abc").unwrap().encrypt_line(line), LineCipher::new("abcabcabc").unwrap().encrypt_line(line));
         assert_ne!(LineCipher::new("ab").unwrap().encrypt_line(line), LineCipher::new_legacy("ab").unwrap().encrypt_line(line));
+    }
+
+    #[test]
+    fn legacy_comma_and_newline_bytes_decrypt_as_latin1() {
+        let c = LineCipher::new("secret").unwrap();
+        let mut block = [0x41u8, 0xFF, 0x42, 0xFE, 0x43, 0, 0, 0];
+        c.bf.encrypt_block(GenericArray::from_mut_slice(&mut block));
+        let hex: String = block.iter().map(|b| format!("{b:02x}")).collect();
+        let line = c.decrypt_line(&hex).unwrap();
+        assert_eq!(line, "A\u{ff}B\u{fe}C");
+        assert_eq!(crate::bgt::decode_description(&line), "A,B\nC");
     }
 
     #[test]

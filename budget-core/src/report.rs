@@ -159,7 +159,7 @@ pub fn html_merge_styles(style: &str, extra: &str) -> String {
 
 fn base64(bytes: &[u8]) -> String {
     const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    let mut out = String::with_capacity((bytes.len() + 2) / 3 * 4);
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
     for chunk in bytes.chunks(3) {
         let n = (chunk[0] as u32) << 16 | (*chunk.get(1).unwrap_or(&0) as u32) << 8 | *chunk.get(2).unwrap_or(&0) as u32;
         out.push(T[(n >> 18) as usize & 63] as char);
@@ -247,6 +247,8 @@ fn bgcolor(shade: bool) -> String { format!("BGCOLOR=\"#{}\"", if shade { "eeeee
 // §4 Print -> generateStatsReport
 // ---------------------------------------------------------------------------------------------
 
+// Mirrors the original's addRepRow parameter list; a wrapper struct would only obscure the mapping.
+#[allow(clippy::too_many_arguments)]
 fn add_rep_row(w: &mut UnicodishWriter, st: &Stats, shade: &mut bool, desc: &str, amount: f64, indented: bool, diff: f64, images: ImageResolver) {
     let pct = if st.total_income != 0.0 { frac(amount / st.total_income * 100.0, 1) }
         else if st.total_expense != 0.0 { frac(amount / st.total_expense * 100.0, 1) }
@@ -350,6 +352,8 @@ pub fn comp_entry_from(base: &[Row], other: &[Row]) -> Vec<CompEntry> {
     v
 }
 
+// Mirrors the original's addCompRow parameter list; a wrapper struct would only obscure the mapping.
+#[allow(clippy::too_many_arguments)]
 fn add_comp_row(w: &mut UnicodishWriter, base: &Stats, shade: &mut bool, desc: &str, v1: f64, indented: bool, v2: f64, images: ImageResolver) {
     let v1 = ((v1 * 100.0) as i32) as f64 / 100.0;
     let v2 = ((v2 * 100.0) as i32) as f64 / 100.0;
@@ -874,8 +878,8 @@ mod tests {
 
     #[test]
     fn mbm_consistency_check_tolerates_float_noise() {
-        // 40874.000000000007 vs 40874.0 differ by one ceil() unit but are the same amount
-        assert!(amounts_match(40874.000000000007, 40874.0));
+        // one ulp above 40874.0 differs by one ceil() unit but is the same amount
+        assert!(amounts_match(f64::from_bits(40874.0f64.to_bits() + 1), 40874.0));
         assert!(amounts_match(-2732.0000000000005, -2732.0));
         assert!(!amounts_match(10.0, 10.01));
     }

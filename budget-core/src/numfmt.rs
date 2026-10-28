@@ -11,7 +11,7 @@ pub fn sdate_dmy(v: i32) -> String {
 fn group_digits(int_part: &str) -> String {
     let mut grouped = String::new();
     for (i, c) in int_part.chars().enumerate() {
-        if i > 0 && (int_part.len() - i) % 3 == 0 { grouped.push(','); }
+        if i > 0 && (int_part.len() - i).is_multiple_of(3) { grouped.push(','); }
         grouped.push(c);
     }
     grouped
@@ -22,6 +22,14 @@ fn non_finite(x: f64) -> Option<String> {
     if x.is_nan() { Some("NaN".to_string()) }
     else if x.is_infinite() { Some(if x < 0.0 { "-\u{221E}" } else { "\u{221E}" }.to_string()) }
     else { None }
+}
+
+/// Balance as the calendar and report show it: exact with decimals, else nudged away from zero by
+/// the original's `0.05f` and truncated toward zero.
+pub fn balance_display(v: f64, exact: bool) -> f64 {
+    if exact { return v; }
+    let nudge = 0.05f32 as f64;
+    if v > 0.0 { ((v + nudge) as i64) as f64 } else { ((v - nudge) as i64) as f64 }
 }
 
 /// `numFormatFrac2.format(x)`: grouping on, exactly two decimals (`-1,234.50`).
@@ -50,7 +58,6 @@ pub fn parse_prefix(s: &str) -> Option<(f64, usize)> {
     let b = s.as_bytes();
     let mut i = 0;
     if i < b.len() && b[i] == b'-' { i += 1; }
-    let start_digits = i;
     let mut saw_digit = false;
     while i < b.len() && (b[i].is_ascii_digit() || b[i] == b',') {
         if b[i].is_ascii_digit() { saw_digit = true; }
@@ -63,7 +70,6 @@ pub fn parse_prefix(s: &str) -> Option<(f64, usize)> {
         if k > j || saw_digit { saw_digit = saw_digit || k > j; i = k; }
     }
     if !saw_digit { return None; }
-    let _ = start_digits;
     // exponent
     if i < b.len() && (b[i] == b'E' || b[i] == b'e') {
         let mut k = i + 1;

@@ -90,6 +90,15 @@ pub fn secondary_button(ui: &mut egui::Ui, label: impl Into<String>, t: &Tokens)
     resp.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
+/// A secondary button raised to the accent (1px accent stroke, accent SEMI text):
+/// used for "Save changes" while there is something to save.
+pub fn accent_outline_button(ui: &mut egui::Ui, label: impl Into<String>, t: &Tokens) -> egui::Response {
+    let resp = ui.add(egui::Button::new(egui::RichText::new(label.into()).color(t.accent).text_style(ts(SEMI)))
+        .fill(tint(t.surface, t.accent, 0.06)).stroke(Stroke::new(1.0_f32, t.accent)).corner_radius(7).min_size(Vec2::new(0.0, 36.0)));
+    focus_ring(ui, &resp, t);
+    resp.on_hover_cursor(egui::CursorIcon::PointingHand)
+}
+
 pub fn danger_button(ui: &mut egui::Ui, label: impl Into<String>, t: &Tokens) -> egui::Response {
     filled_button(ui, egui::RichText::new(label.into()).color(on(t.negative)).text_style(ts(SEMI)), t.negative, t)
 }
@@ -125,8 +134,9 @@ pub fn keycap(ui: &mut egui::Ui, key: &str, t: &Tokens) -> egui::Response {
 }
 
 
-/// WCAG relative-luminance contrast ratio between two colours.
-pub fn contrast(a: Color32, b: Color32) -> f32 {
+/// WCAG relative-luminance contrast ratio between two colours (used by the palette tests).
+#[cfg(test)]
+fn contrast(a: Color32, b: Color32) -> f32 {
     let (la, lb) = (luminance(a), luminance(b));
     (la.max(lb) + 0.05) / (la.min(lb) + 0.05)
 }
@@ -191,7 +201,7 @@ impl Tokens {
                 paid: pick(c.bgColorPaid, dl.bgColorPaid, dd.bgColorPaid, 0x34d399),
                 important: pick(c.bgColorImportant, dl.bgColorImportant, dd.bgColorImportant, 0xfbbf24),
                 bal: strip(c.bgColorBalance, dl.bgColorBalance, dd.bgColorBalance, 0x232833, 0xc9ced6),
-                max: strip(c.bgColorMaxBalance, dl.bgColorMaxBalance, dd.bgColorMaxBalance, 0x4a1d3a, 0xf9a8d4),
+                max: strip(c.bgColorMaxBalance, dl.bgColorMaxBalance, dd.bgColorMaxBalance, 0x123524, 0x86efac),
                 min: strip(c.bgColorMinBalance, dl.bgColorMinBalance, dd.bgColorMinBalance, 0x1e3a5f, 0x93c5fd),
                 low: strip(c.bgColorBelowMinBalance, dl.bgColorBelowMinBalance, dd.bgColorBelowMinBalance, 0x4a3410, 0xfcd34d),
             }
@@ -218,7 +228,7 @@ impl Tokens {
                 paid: pick(c.bgColorPaid, dl.bgColorPaid, dd.bgColorPaid, 0x16a34a),
                 important: pick(c.bgColorImportant, dl.bgColorImportant, dd.bgColorImportant, 0xd97706),
                 bal: strip(c.bgColorBalance, dl.bgColorBalance, dd.bgColorBalance, 0xf3f4f6, 0x374151),
-                max: strip(c.bgColorMaxBalance, dl.bgColorMaxBalance, dd.bgColorMaxBalance, 0xfce7f3, 0x9d174d),
+                max: strip(c.bgColorMaxBalance, dl.bgColorMaxBalance, dd.bgColorMaxBalance, 0xdcfce7, 0x166534),
                 min: strip(c.bgColorMinBalance, dl.bgColorMinBalance, dd.bgColorMinBalance, 0xdbeafe, 0x1e40af),
                 low: strip(c.bgColorBelowMinBalance, dl.bgColorBelowMinBalance, dd.bgColorBelowMinBalance, 0xfef3c7, 0x92400e),
             }
@@ -351,6 +361,9 @@ mod tests {
                 let ratio = contrast(c, against);
                 assert!(ratio >= 4.5, "{name} on its background in {} theme is {ratio:.2}:1", if dark { "dark" } else { "light" });
             }
+            // Repeated (unchanged) day balances use faint text on the ordinary balance strip tint.
+            let ratio = contrast(t.text_faint, tint(t.surface, t.bal.0, 0.5));
+            assert!(ratio >= 4.5, "faint on the ordinary balance strip in {} theme is {ratio:.2}:1", if dark { "dark" } else { "light" });
         }
     }
 

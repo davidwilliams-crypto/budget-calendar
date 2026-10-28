@@ -387,25 +387,8 @@ impl PaymentList {
                             if response.double_clicked() {
                                 action = Some(Action::EditPayment(payment.id));
                             }
-                            let start = Cal::from_int(payment.start_date);
-                            let date = format!(
-                                "{:02} {} {}",
-                                start.day(),
-                                [
-                                    "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep",
-                                    "Oct", "Nov", "Dec"
-                                ][start.month() as usize],
-                                start.year()
-                            );
                             let schedule = schedule_label(payment);
-                            let start_label = format!(
-                                "{} {date}",
-                                if payment.start_date > today {
-                                    "Starts"
-                                } else {
-                                    "Started"
-                                }
-                            );
+                            let start_label = start_label(payment.start_date, today);
                             let x = row.left();
                             let label_y = row.top() + 19.0;
                             let detail_y = row.top() + 40.0;
@@ -462,29 +445,19 @@ impl PaymentList {
                                 t.text_muted,
                                 columns.schedule_width,
                             );
-                            let mut status_ui = ui.new_child(
-                                UiBuilder::new()
-                                    .id_salt(("payment_status", payment.id))
-                                    .max_rect(Rect::from_min_size(
-                                        Pos2::new(x + columns.status, row.top() + 15.0),
-                                        Vec2::new(88.0, 30.0),
-                                    ))
-                                    .layout(Layout::left_to_right(Align::Center)),
-                            );
-                            theme::badge(
-                                &mut status_ui,
-                                if payment.disabled {
-                                    "Disabled"
-                                } else {
-                                    "Enabled"
-                                },
-                                if payment.disabled {
-                                    t.text_muted
-                                } else {
-                                    t.accent
-                                },
-                                t,
-                            );
+                            // Only the exception state is marked; enabled rows stay quiet.
+                            if let Some(status) = status_badge(payment) {
+                                let mut status_ui = ui.new_child(
+                                    UiBuilder::new()
+                                        .id_salt(("payment_status", payment.id))
+                                        .max_rect(Rect::from_min_size(
+                                            Pos2::new(x + columns.status, row.top() + 15.0),
+                                            Vec2::new(88.0, 30.0),
+                                        ))
+                                        .layout(Layout::left_to_right(Align::Center)),
+                                );
+                                theme::badge(&mut status_ui, status, t.text_muted, t);
+                            }
                             response.on_hover_text(format!(
                                 "{}\n{}\n{}\n{}\n{}\nDouble-click to edit this payment",
                                 payment.description,
@@ -506,16 +479,36 @@ impl PaymentList {
                                         .layout(Layout::left_to_right(Align::Center)),
                                 );
                                 actions_ui.spacing_mut().item_spacing.x = 4.0;
-                                if theme::secondary_button(&mut actions_ui, "Edit", t)
-                                    .on_hover_text("Edit this payment and its schedule")
-                                    .clicked()
-                                {
-                                    self.selected = Some(payment.id);
-                                    action = Some(Action::EditPayment(payment.id));
+                                // Edit appears only on the row under the pointer or the selected
+                                // row; elsewhere its slot is reserved so the menu never moves.
+                                let row_hovered = ui.rect_contains_pointer(row);
+                                let (slot, _) = actions_ui.allocate_exact_size(
+                                    Vec2::new(EDIT_SLOT_WIDTH, 36.0),
+                                    Sense::hover(),
+                                );
+                                if show_row_edit(selected, row_hovered) {
+                                    let mut edit_ui = actions_ui.new_child(
+                                        UiBuilder::new()
+                                            .id_salt(("payment_edit", payment.id))
+                                            .max_rect(slot)
+                                            .layout(Layout::left_to_right(Align::Center)),
+                                    );
+                                    if theme::secondary_button(&mut edit_ui, "Edit", t)
+                                        .on_hover_text("Edit this payment and its schedule")
+                                        .clicked()
+                                    {
+                                        self.selected = Some(payment.id);
+                                        action = Some(Action::EditPayment(payment.id));
+                                    }
                                 }
                                 actions_ui
                                     .menu_button(ph::DOTS_THREE, |ui| {
-                                        if theme::danger_button(ui, "Delete payment…", t).clicked()
+                                        if ui
+                                            .button(
+                                                RichText::new("Delete payment…")
+                                                    .color(t.negative),
+                                            )
+                                            .clicked()
                                         {
                                             self.selected = Some(payment.id);
                                             action = Some(Action::DeletePayment(payment.id));
@@ -535,6 +528,34 @@ impl PaymentList {
             });
         action
     }
+}
+
+/// Width reserved for a row's Edit button whether or not it is drawn.
+const EDIT_SLOT_WIDTH: f32 = 52.0;
+
+/// The status column marks only the exception state: disabled payments.
+fn status_badge(payment: &Payment) -> Option<&'static str> {
+    payment.disabled.then_some("Disabled")
+}
+
+/// The per-row Edit button shows on the hovered or the selected row only.
+fn show_row_edit(selected: bool, hovered: bool) -> bool {
+    selected || hovered
+}
+
+/// `2 Jan 2026` (day without a leading zero).
+fn short_date(date: i32) -> String {
+    let d = Cal::from_int(date);
+    const MONTHS: [&str; 12] = [
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    ];
+    format!("{} {} {}", d.day(), MONTHS[d.month() as usize], d.year())
+}
+
+/// "Starts 2 Jan 2027" for a future start, "Since 2 Jan 2026" otherwise.
+fn start_label(start_date: i32, today: i32) -> String {
+    let verb = if start_date > today { "Starts" } else { "Since" };
+    format!("{verb} {}", short_date(start_date))
 }
 
 struct Columns {
@@ -759,5 +780,28 @@ mod tests {
         p.freq_type = 'L';
         p.frequency = 2;
         assert_eq!(schedule_label(&p), "Last Tuesday every 2 months");
+    }
+
+    #[test]
+    fn status_column_marks_only_disabled_payments() {
+        let mut p = payment(1, "Rent", 20260101, -100.0);
+        assert_eq!(status_badge(&p), None);
+        p.disabled = true;
+        assert_eq!(status_badge(&p), Some("Disabled"));
+    }
+
+    #[test]
+    fn row_edit_button_shows_only_for_hovered_or_selected_rows() {
+        assert!(!show_row_edit(false, false));
+        assert!(show_row_edit(true, false));
+        assert!(show_row_edit(false, true));
+        assert!(show_row_edit(true, true));
+    }
+
+    #[test]
+    fn start_label_drops_leading_zero_and_says_since_for_past_dates() {
+        assert_eq!(start_label(20260102, 20261027), "Since 2 Jan 2026");
+        assert_eq!(start_label(20261027, 20261027), "Since 27 Oct 2026");
+        assert_eq!(start_label(20271205, 20261027), "Starts 5 Dec 2027");
     }
 }
