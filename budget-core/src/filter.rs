@@ -2,7 +2,7 @@
 //! Grammar: `[-][|] <[~]token>[ <[~]token> ...]`; see analysis/02-filter-and-calculator.md §1.
 
 use crate::model::*;
-use crate::numfmt::{format_frac2, sdate_dmy, to_double};
+use crate::numfmt::{format_frac2, sdate_dmy, snap_to_cent, to_double};
 use std::borrow::Cow;
 use std::sync::Arc;
 
@@ -118,7 +118,8 @@ fn comparison_value(exp: &str) -> f64 {
         Some('t') => (&exp[..exp.len() - 1], 1e12),
         _ => (exp, 1.0),
     };
-    to_double(number) * mult
+    // 2.01 * 1000.0 is 2009.9999999999998: `=2.01k` must still find 2,010.00.
+    snap_to_cent(to_double(number) * mult)
 }
 
 impl Elm {
@@ -271,6 +272,13 @@ impl Filter {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_multiplier_suffix_compares_in_whole_cents() {
+        for (text, want) in [("2.01k", 2010.0), ("1.15k", 1150.0), ("0.29m", 290000.0), ("-4.35k", -4350.0), ("5", 5.0)] {
+            assert_eq!(comparison_value(text), want, "{text}");
+        }
+    }
 
     #[test]
     fn range_year_out_of_bounds_does_not_overflow() {

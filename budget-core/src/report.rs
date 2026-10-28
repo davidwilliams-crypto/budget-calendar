@@ -9,7 +9,7 @@
 use crate::date::{Cal, Field};
 use crate::db::BudgetDb;
 use crate::model::*;
-use crate::numfmt::{format_frac2, group_digits, sdate_dmy};
+use crate::numfmt::{format_frac2, group_digits, sdate_dmy, snap_to_cent};
 use crate::stats::{calc_statistics, Row, Stats, INDENT, UNCATEGORIZED_EXPENSES, UNCATEGORIZED_INCOME};
 use std::collections::HashMap;
 
@@ -87,9 +87,10 @@ fn frac(x: f64, n: usize) -> String {
 /// `amount2html(v, cssClass, colors, decimals)`: `<FONT color=red>-1,234<small>.50</small></font>`.
 pub fn amount2html(v: f64, css_class: Option<&str>, colors: [&str; 2], decimals: bool) -> String {
     let v = if v == 0.0 { 0.0 } else { v }; // -0.0 -> 0.0
-    let color = if v < 0.0 { colors[1] } else { colors[0] };
-    let open = match css_class { None => ">".to_string(), Some(c) => format!(" class='{c}'>") };
     let num = if decimals { format_frac2(v) } else { frac(v, 0) };
+    // Red exactly when the printed figure shows a minus (0.00 prints without one; whole dollars print -0).
+    let color = if num.starts_with('-') { colors[1] } else { colors[0] };
+    let open = match css_class { None => ">".to_string(), Some(c) => format!(" class='{c}'>") };
     let s = format!("<FONT color={color}{open}{num}");
     match s.find('.') {
         Some(i) => format!("{}<small>{}</small></font>", &s[..i], &s[i..]),
@@ -102,6 +103,7 @@ pub fn f2html(v: f64) -> String { amount2html(v, None, NORMAL_COLORS, true) }
 
 /// `f2html_no_zero(v)`: `""` when `|v| < 1.0` (integer division of cents), else `amount2html`.
 pub fn f2html_no_zero(v: f64, show_decimals: bool) -> String {
+    let v = snap_to_cent(v); // -0.9999999999999999 is -1.00, not "less than a dollar"
     if ((v * 100.0) as i32) / 100 == 0 { String::new() } else { amount2html(v, None, NORMAL_COLORS, show_decimals) }
 }
 
@@ -180,7 +182,7 @@ pub fn embedded_src(path: &str, is_excel: bool, images: ImageResolver) -> String
             if let Some(url) = images(rel) { return url; }
         }
     }
-    path.to_string()
+    escape_html_text(path)
 }
 
 /// `genRepImage(value, totalIncome, totalExpense, width)`.
@@ -254,7 +256,7 @@ fn add_rep_row(w: &mut UnicodishWriter, st: &Stats, shade: &mut bool, desc: &str
         else { "?".to_string() };
     let bg = if *shade { "EEeeEE" } else { "FFffFF" };
     w.write(&format!("<TR bgcolor={bg}><TD>{}{desc}<TD ALIGN=RIGHT>{NBSP3}{}<TD ALIGN=RIGHT>{NBSP3}{pct}<TD ALIGN=RIGHT>{NBSP3}{}",
-        if indented { NBSP3 } else { "" }, format_frac2(amount), if diff.abs() > 5.0 { format_frac2(diff) } else { String::new() }));
+        if indented { NBSP3 } else { "" }, format_frac2(amount), if snap_to_cent(diff).abs() > 5.0 { format_frac2(diff) } else { String::new() }));
     *shade = !*shade;
     w.write(&format!("<TD>{}", gen_rep_image(amount, st.total_income, st.total_expense, 300, images)));
 }
@@ -268,7 +270,7 @@ pub fn generate_stats_report(st: &Stats, images: ImageResolver) -> String {
     w.write(&format!("<CAPTION>Budget from <B>{}</B> to <B>{}</B></CAPTION>\n", sdate(&st.start), sdate(&st.end)));
     w.write("<TR bgcolor=ddDDdd><TD><B>Description</B><TD ALIGN=RIGHT><B>Amount</B><TD ALIGN=RIGHT><B>%</B><TD ALIGN=RIGHT><B>&#43;&#47;&#45;</B><TD><B>Graph</B>");
     let (ti, te, pti, pte) = (st.total_income, st.total_expense, st.total_planned_income, st.total_planned_expense);
-    add_rep_row(&mut w, st, &mut shade, "Disposable Income", ti + te, false, (ti + te) - (pti + pte), images);
+    add_rep_row(&mut w, st, &mut shade, "Disposable Income", st.net(), false, st.net_vs_plan(), images);
     add_rep_row(&mut w, st, &mut shade, "Total Income", ti, false, ti - pti, images);
     for r in &st.income { add_rep_row(&mut w, st, &mut shade, &entry_desc(&r.key), r.amount, true, r.amount - r.planned_amount, images); }
     add_rep_row(&mut w, st, &mut shade, "Total Expenses", te, false, te - pte, images);
@@ -300,7 +302,7 @@ fn excel_entries(w: &mut UnicodishWriter, rows: &[Row], r: &mut usize, den: &str
         if desc.starts_with(INDENT) { desc = format!("{NBSP4}{desc}"); }
         else { sum = format!(" FORMULA='=SUM(B{}..B{})'", *r + 1, *r + sub_count(rows, i)); }
         w.write(&format!("<TR><TD>{NBSP3}{desc}<TD ALIGN=RIGHT {s}{sum}>{}<TD ALIGN=RIGHT {s}FORMULA='=B{r}/{den}*100.0'>?\n", format_frac2(row.amount)));
-        if row.amount - row.planned_amount != 0.0 {
+        if (row.amount - row.planned_amount).abs() >= 0.005 {
             w.write(&format!("<TD ALIGN=RIGHT><FONT COLOR=aaAAaa>{}</FONT>\n", format_frac2(row.amount - row.planned_amount)));
         }
         *r += 1;
@@ -338,26 +340,48 @@ pub fn generate_excel_stats_report(st: &Stats) -> String {
 pub struct CompEntry { pub key: String, pub v1: f64, pub v2: f64 }
 
 /// `comp_entry_from(baseVec, otherVec)`: base entries in order, then unmatched other entries appended;
-/// entries with both amounts zero are dropped. Matching is by raw key (leaves keep their indent).
+/// entries with both amounts zero are dropped. Matching is by raw key (leaves keep their indent) and
+/// owning category: the same description under two categories is two rows, and a leaf only the other
+/// range has is listed with its category's rows rather than at the end of the table.
 pub fn comp_entry_from(base: &[Row], other: &[Row]) -> Vec<CompEntry> {
-    let mut v: Vec<CompEntry> = base.iter().map(|r| CompEntry { key: r.key.clone(), v1: r.amount, v2: 0.0 }).collect();
-    for r in other {
-        match v.iter_mut().find(|e| e.key == r.key) {
-            Some(e) => e.v2 = r.amount,
-            None => v.push(CompEntry { key: r.key.clone(), v1: 0.0, v2: r.amount }),
+    /// Each row with the category row above it (None for a category row itself).
+    fn owned(rows: &[Row]) -> Vec<(Option<&str>, &Row)> {
+        let mut category = None;
+        rows.iter().map(|r| {
+            if !r.is_sub { category = Some(r.key.as_str()); }
+            (if r.is_sub { category } else { None }, r)
+        }).collect()
+    }
+    let mut v: Vec<(Option<String>, CompEntry)> = owned(base).into_iter()
+        .map(|(c, r)| (c.map(str::to_string), CompEntry { key: r.key.clone(), v1: r.amount, v2: 0.0 })).collect();
+    for (c, r) in owned(other) {
+        match v.iter_mut().find(|(vc, e)| vc.as_deref() == c && e.key == r.key) {
+            Some((_, e)) => e.v2 = r.amount,
+            None => {
+                let at = c.and_then(|c| v.iter().rposition(|(vc, e)| vc.as_deref() == Some(c) || (vc.is_none() && e.key == c)))
+                    .map_or(v.len(), |i| i + 1);
+                v.insert(at, (c.map(str::to_string), CompEntry { key: r.key.clone(), v1: 0.0, v2: r.amount }));
+            }
         }
     }
-    v.retain(|e| e.v1 != 0.0 || e.v2 != 0.0);
-    v
+    v.retain(|(_, e)| e.v1 != 0.0 || e.v2 != 0.0);
+    v.into_iter().map(|(_, e)| e).collect()
+}
+
+/// The amount cut to whole cents, as the original does, but with 19.99 * 100.0 = 1998.9999999999998
+/// read as 1999 rather than losing a cent. Cents are an i64: an i32 saturates at 21,474,836.47.
+fn truncate_to_cents(v: f64) -> f64 {
+    let cents = v * 100.0;
+    // A millionth of a cent, or a few ulps of the product where one ulp is larger (amounts in the hundreds of millions).
+    let slack = (4.0 * f64::EPSILON * cents.abs()).max(1e-6);
+    ((cents + slack.copysign(v)).trunc() as i64) as f64 / 100.0
 }
 
 // Mirrors the original's addCompRow parameter list; a wrapper struct would only obscure the mapping.
 #[allow(clippy::too_many_arguments)]
 fn add_comp_row(w: &mut UnicodishWriter, base: &Stats, shade: &mut bool, desc: &str, v1: f64, indented: bool, v2: f64, images: ImageResolver) {
-    // Cents as i64: an i32 saturates at 21,474,836.47.
-    let v1 = ((v1 * 100.0) as i64) as f64 / 100.0;
-    let v2 = ((v2 * 100.0) as i64) as f64 / 100.0;
-    let diff = v1 - v2;
+    let (v1, v2) = (truncate_to_cents(v1), truncate_to_cents(v2));
+    let diff = snap_to_cent(v1 - v2);
     let pct = if v1 == 0.0 || diff == 0.0 { f64::INFINITY } else { diff / v1 * 100.0 };
     let bg = if *shade { "EEeeEE" } else { "FFffFF" };
     let diff_cell = if diff.abs() > 5.0 { f2html(diff) } else { String::new() };
@@ -379,7 +403,7 @@ pub fn generate_comparison_report(base: &Stats, other: &Stats, images: ImageReso
     let (rb, ro) = (range_string(base), range_string(other));
     w.write(&format!("<CAPTION>Stats comparison of two ranges <B>{rb}</B> vs <B>{ro}</B></CAPTION>\n"));
     w.write(&format!("<TR bgcolor=ddDDdd><TD><B>Description</B><TD ALIGN=CENTER><B>{rb}<br>(base)<br>amount</B><TD ALIGN=CENTER><B>{ro}<br>(other)<br>amount</B><TD ALIGN=CENTER><B>&#43;&#47;&#45;<br>amount</B><TD ALIGN=CENTER><B>&#43;&#47;&#45;<br>%</B><TD><B>Graph</B>"));
-    add_comp_row(&mut w, base, &mut shade, "Disposable Income", base.total_income + base.total_expense, false, other.total_income + other.total_expense, images);
+    add_comp_row(&mut w, base, &mut shade, "Disposable Income", base.net(), false, other.net(), images);
     add_comp_row(&mut w, base, &mut shade, "Total Income", base.total_income, false, other.total_income, images);
     for e in comp_entry_from(&base.income, &other.income) { add_comp_row(&mut w, base, &mut shade, &entry_desc(&e.key), e.v1, true, e.v2, images); }
     add_comp_row(&mut w, base, &mut shade, "Total Expenses", base.total_expense, false, other.total_expense, images);
@@ -426,10 +450,11 @@ pub fn month_by_month_entries(db: &mut BudgetDb, st: &Stats) -> Result<Vec<MbmEn
     let m = (st.duration_months() + 1) as usize;
     let monthly: Vec<Stats> = (0..m).map(|i| { let mut c = st.start; c.add(Field::Month, i as i32); calc_statistics(db, &c, 1, true, None) }).collect();
     let flat: Vec<HashMap<(Option<String>, String), f64>> = monthly.iter().map(|s| flat_map(s).into_iter().collect()).collect();
+    let range: HashMap<(Option<String>, String), f64> = flat_map(st).into_iter().collect();
 
     let mut list: Vec<MbmEntry> = Vec::new();
     let mut disposable = MbmEntry::new(None, "Disposable Income", true);
-    for s in &monthly { let v = s.total_income + s.total_expense; disposable.amounts.push(v); disposable.total += v; }
+    for s in &monthly { let v = s.net(); disposable.amounts.push(v); disposable.total += v; }
     list.push(disposable);
     let has_income = !st.income.is_empty();
     let has_expense = !st.expense.is_empty();
@@ -444,18 +469,23 @@ pub fn month_by_month_entries(db: &mut BudgetDb, st: &Stats) -> Result<Vec<MbmEn
             list.push(e);
         } else {
             let mut e = MbmEntry::new(cat.as_deref(), &row.key, false);
+            // A description in both uncategorised groups shows its net on one row of the range; the other
+            // keeps only its planned amount at 0. The row with the net carries both groups' amounts of
+            // every month (a month can fall on the other side), the other row none.
+            let alt = match cat.as_deref() {
+                Some(UNCATEGORIZED_INCOME) => Some(UNCATEGORIZED_EXPENSES),
+                Some(UNCATEGORIZED_EXPENSES) => Some(UNCATEGORIZED_INCOME),
+                _ => None,
+            };
+            let other = alt.map(|alt| (Some(alt.to_string()), row.key.clone()));
+            let carries = match other.as_ref().and_then(|k| range.get(k)) {
+                None => true,
+                Some(&o) => row.amount != 0.0 || (o == 0.0 && cat.as_deref() == Some(UNCATEGORIZED_EXPENSES)),
+            };
             for f in &flat {
-                let key = (cat.clone(), row.key.clone());
-                let mut v = f.get(&key);
-                if v.is_none() {
-                    let alt = match cat.as_deref() {
-                        Some(UNCATEGORIZED_INCOME) => Some(UNCATEGORIZED_EXPENSES),
-                        Some(UNCATEGORIZED_EXPENSES) => Some(UNCATEGORIZED_INCOME),
-                        _ => None,
-                    };
-                    v = f.get(&(alt.map(str::to_string), row.key.clone()));
-                }
-                let a = v.copied().unwrap_or(0.0);
+                let own = f.get(&(cat.clone(), row.key.clone())).copied().unwrap_or(0.0);
+                let sibling = other.as_ref().and_then(|k| f.get(k)).copied().unwrap_or(0.0);
+                let a = if carries { own + sibling } else { 0.0 };
                 e.amounts.push(a);
                 e.total += a;
             }
@@ -467,7 +497,7 @@ pub fn month_by_month_entries(db: &mut BudgetDb, st: &Stats) -> Result<Vec<MbmEn
         if list[i].special || !list[i].is_aggregate() { continue; }
         list[i].total = 0.0;
         for month in 0..m {
-            let sum: f64 = list[i + 1..].iter().take_while(|e| !e.is_aggregate()).map(|e| e.amounts[month]).sum();
+            let sum = snap_to_cent(list[i + 1..].iter().take_while(|e| !e.is_aggregate()).map(|e| e.amounts[month]).sum::<f64>());
             list[i].amounts[month] = sum;
             list[i].total += sum;
         }
@@ -478,7 +508,7 @@ pub fn month_by_month_entries(db: &mut BudgetDb, st: &Stats) -> Result<Vec<MbmEn
     if let Some(ti) = ti {
         let end = te.unwrap_or(list.len());
         for month in 0..m {
-            let sum: f64 = list[ti + 1..end].iter().filter(|e| e.is_aggregate()).map(|e| e.amounts[month]).sum();
+            let sum = snap_to_cent(list[ti + 1..end].iter().filter(|e| e.is_aggregate()).map(|e| e.amounts[month]).sum::<f64>());
             list[ti].total += sum;
             list[ti].amounts.push(sum);
         }
@@ -486,7 +516,7 @@ pub fn month_by_month_entries(db: &mut BudgetDb, st: &Stats) -> Result<Vec<MbmEn
     if let Some(te) = te {
         let end = list.len();
         for month in 0..m {
-            let sum: f64 = list[te + 1..end].iter().filter(|e| e.is_aggregate()).map(|e| e.amounts[month]).sum();
+            let sum = snap_to_cent(list[te + 1..end].iter().filter(|e| e.is_aggregate()).map(|e| e.amounts[month]).sum::<f64>());
             list[te].total += sum;
             list[te].amounts.push(sum);
         }
@@ -506,7 +536,7 @@ pub fn month_by_month_entries(db: &mut BudgetDb, st: &Stats) -> Result<Vec<MbmEn
     let by_key: HashMap<(Option<String>, String), &MbmEntry> = list.iter().filter(|e| !e.special).map(|e| ((e.category.clone(), e.description.clone()), e)).collect();
     for (key, amount) in flat_map(st) {
         match by_key.get(&key) {
-            None => if amount != 0.0 { return Err(format!("missing '{}' in the resultant table", key.1)); },
+            None => if amount.abs() >= 0.005 { return Err(format!("missing '{}' in the resultant table", key.1)); },
             Some(e) => if !amounts_match(e.total, amount) {
                 return Err(format!("'{}' amounts do NOT match: base_stats={:.2}, mbm={:.2}", e.description, amount, e.total));
             },
@@ -576,10 +606,13 @@ pub fn generate_month_by_month_report(db: &mut BudgetDb, st: &Stats, show_decima
 pub fn generate_report(db: &mut BudgetDb, start: &Cal, end: &Cal, mode: ReportMode, images: ImageResolver) -> String {
     let is_excel = mode == ReportMode::Excel;
     let num_attr = format!(" LOTUS_FORMAT=\"Fixed;2\" {}", if is_excel { excel_number_style() } else { "" });
-    let fmt = |x: f64| if is_excel { format!("{x:.2}") } else { format_frac2(x) }; // Excel: grouping off
+    // Excel: grouping off, and a value that rounds to zero is 0.00, never -0.00
+    let fmt = |x: f64| if is_excel { format!("{:.2}", if x.abs() < 0.005 { 0.0 } else { x }) } else { format_frac2(x) };
     let num = |x: f64| if is_excel { fmt(x) } else { f2html(x) };
+    // A spreadsheet evaluates an imported cell that starts with `=`, `+`, `-` or `@`: indent such text.
+    let cell_text = |t: &str| { let t = escape_html_text(t); if is_excel && t.trim_start().starts_with(['=', '+', '-', '@']) { format!("{NBSP3}{t}") } else { t } };
     // quirk: the Excel red font is never closed
-    let bal = |x: f64| if is_excel { format!("{}{}", if x < 0.0 { "<FONT COLOR=ff0000>" } else { "" }, fmt(x)) } else { f2html(x) };
+    let bal = |x: f64| if is_excel { format!("{}{}", if x <= -0.005 { "<FONT COLOR=ff0000>" } else { "" }, fmt(x)) } else { f2html(x) };
     let mut first_data_row = 3usize;
     let mut row = 0usize;
     let mut m = *start;
@@ -614,7 +647,7 @@ pub fn generate_report(db: &mut BudgetDb, start: &Cal, end: &Cal, mode: ReportMo
                 let note = get_normalized_note(Some(&note), mode, false);
                 let formula = format!(" FORMULA=\"=G{}+E{row}+F{row}\"", row - 1);
                 let c = bgcolor(shade);
-                let img = format!("<IMG SRC=\"{}\">", embedded_src("file://icons/note.png", is_excel, images));
+                let img = if is_excel { String::new() } else { format!("<IMG SRC=\"{}\">", embedded_src("file://icons/note.png", false, images)) };
                 w.write(&format!("<TR {c}><TD ALIGN=CENTER {c}>{}<TD WIDTH=18>{img}<TD ALIGN=LEFT {c}><TD ALIGN=LEFT {c}>{note}<TD ALIGN=RIGHT {c}{num_attr}><TD ALIGN=RIGHT {c}{num_attr}><TD ALIGN=RIGHT {c}{num_attr} {formula}>{}</TR>\n",
                     date_cell(show_date), bal(balance)));
                 row += 1;
@@ -625,7 +658,7 @@ pub fn generate_report(db: &mut BudgetDb, start: &Cal, end: &Cal, mode: ReportMo
                 let pmt = &db.payments[t.pmt];
                 if !pmt.disabled { balance += t.amount; }
                 let img = match &pmt.image_path {
-                    Some(p) if !p.is_empty() => format!("<IMG SRC=\"{}\">", embedded_src(&format!("file://images/{p}"), is_excel, images)),
+                    Some(p) if !p.is_empty() && !is_excel => format!("<IMG SRC=\"{}\">", embedded_src(&format!("file://images/{p}"), false, images)),
                     _ => String::new(),
                 };
                 let formula = format!(" FORMULA=\"=G{}{}\"", row - 1, if pmt.disabled { String::new() } else { format!("+E{row}+F{row}") });
@@ -636,13 +669,13 @@ pub fn generate_report(db: &mut BudgetDb, start: &Cal, end: &Cal, mode: ReportMo
                 let neg = if t.amount < 0.0 { amt(t.amount) } else { String::new() };
                 let bal_cell = if !is_excel && pmt.disabled { "<TD>".to_string() } else { format!("<TD ALIGN=RIGHT {c}{num_attr} {formula}>{}", bal(balance)) };
                 w.write(&format!("<TR {c}><TD ALIGN=CENTER {c}>{}<TD WIDTH=18>{img}<TD ALIGN=LEFT {c}>{}<TD ALIGN=LEFT {c}>{}{}{note}<TD ALIGN=RIGHT {c}{num_attr}>{pos}<TD ALIGN=RIGHT {c}{num_attr}>{neg}{bal_cell}</TR>\n",
-                    date_cell(show_date), html_string(pmt, &escape_html_text(pmt.category.as_deref().unwrap_or(""))), flag_icon(pmt.get_flag(date_int)), html_string(pmt, &escape_html_text(&pmt.description))));
+                    date_cell(show_date), html_string(pmt, &cell_text(pmt.category.as_deref().unwrap_or(""))), flag_icon(pmt.get_flag(date_int)), html_string(pmt, &cell_text(&pmt.description))));
                 row += 1;
                 shade = !shade;
                 if !pmt.disabled { if t.amount < 0.0 { expenses += t.amount; } else { income += t.amount; } }
                 show_date = false;
             }
-            if balance != day.closing_balance {
+            if (balance - day.closing_balance).abs() >= 0.005 {
                 let diff = day.closing_balance - balance;
                 balance = day.closing_balance;
                 let formula = format!(" FORMULA=\"=G{}+E{row}+F{row}\"", row - 1);
@@ -849,7 +882,7 @@ pub fn generate_monthly_calendar(db: &mut BudgetDb, start: &Cal, end: &Cal, opts
             }
             d.add(Field::Day, 1);
         }
-        out.push_str(&format!("</TR>\n</TABLE>\n<P class='bal' ALIGN=CENTER><B>Totals:</B> Income = <B>{}</B>, Expenses = <B>{}</B> ({})</P>\n<BR><BR>", fmt(income), fmt(expenses), fmt(income - expenses)));
+        out.push_str(&format!("</TR>\n</TABLE>\n<P class='bal' ALIGN=CENTER><B>Totals:</B> Income = <B>{}</B>, Expenses = <B>{}</B> ({})</P>\n<BR><BR>", fmt(income), fmt(expenses), fmt(snap_to_cent(income - expenses))));
         m.add(Field::Month, 1);
         if !(m.lt(end) || m == *end) { break; }
     }
@@ -980,7 +1013,7 @@ mod tests {
     #[test]
     fn comparison_report_and_comp_entry_merge() {
         let row = |key: &str, amount: f64, is_sub: bool| Row { key: key.into(), amount, planned_amount: 0.0, pmt: None, is_sub };
-        let merged = comp_entry_from(&[row("a", 10.0, false), row("   b", 0.0, true), row("z", 0.0, false)], &[row("   b", 5.0, true), row("c", 7.0, false)]);
+        let merged = comp_entry_from(&[row("a", 10.0, false), row("   b", 0.0, true), row("z", 0.0, false)], &[row("a", 0.0, false), row("   b", 5.0, true), row("c", 7.0, false)]);
         assert_eq!(merged, vec![
             CompEntry { key: "a".into(), v1: 10.0, v2: 0.0 },
             CompEntry { key: "   b".into(), v1: 0.0, v2: 5.0 },
@@ -997,6 +1030,189 @@ mod tests {
         assert!(html.contains(&unicodish(&format!("<TD>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;   Rent<TD ALIGN=RIGHT>&nbsp;&nbsp;&nbsp;{}", f2html(-1100.0)))));
         assert_eq!(range_string(&calc_statistics(&mut db, &Cal::from_int(DEC), 3, true, None)), "Dec, 2021 - Feb, 2022 (3m)");
         assert!(html.ends_with("</TABLE></HTML>"));
+    }
+
+    /// An uncategorised -50 monthly payment whose November occurrence turned into +50.
+    fn gift_with_a_positive_november() -> BudgetDb {
+        let mut db = BudgetDb::new(&Cal::from_int(20261001), 12, false);
+        let mut p = Payment::new(20261001);
+        p.description = "Gift".into();
+        p.amount = -50.0;
+        p.n_pays = 3;
+        db.add(p);
+        db.payments[0].set_custom_amount(20261101, 50.0);
+        db.update_payment(0);
+        db
+    }
+
+    #[test]
+    fn month_by_month_survives_an_occurrence_that_changed_sign() {
+        let mut db = gift_with_a_positive_november();
+        let st = calc_statistics(&mut db, &Cal::from_int(20261001), 3, true, None);
+        let entries = month_by_month_entries(&mut db, &st).unwrap_or_else(|e| panic!("{e}"));
+        let gift = entries.iter().find(|e| e.description == "   Gift").unwrap();
+        assert_eq!(gift.amounts, vec![-50.0, 50.0, -50.0]);
+        assert_eq!(gift.total, -50.0);
+        assert_eq!(entries[0].amounts, vec![-50.0, 50.0, -50.0]);
+    }
+
+    #[test]
+    fn month_by_month_survives_an_income_occurrence_that_turned_negative() {
+        let mut db = BudgetDb::new(&Cal::from_int(20261001), 12, false);
+        let mut p = Payment::new(20261001);
+        p.description = "Gift".into();
+        p.amount = 50.0;
+        p.n_pays = 3;
+        db.add(p);
+        db.payments[0].set_custom_amount(20261101, -50.0);
+        db.update_payment(0);
+        let st = calc_statistics(&mut db, &Cal::from_int(20261001), 3, true, None);
+        let entries = month_by_month_entries(&mut db, &st).unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(entries[0].amounts, vec![50.0, -50.0, 50.0]);
+        assert_eq!(entries.iter().find(|e| e.description == "Total Income").unwrap().total, st.total_income);
+    }
+
+    #[test]
+    fn month_by_month_counts_a_description_used_by_income_and_expense_once() {
+        let mut db = BudgetDb::new(&Cal::from_int(20261001), 12, false);
+        for amount in [50.0, -30.0] {
+            let mut p = Payment::new(20261001);
+            p.description = "Gift".into();
+            p.amount = amount;
+            p.n_pays = 3;
+            db.add(p);
+        }
+        let st = calc_statistics(&mut db, &Cal::from_int(20261001), 3, true, None);
+        let entries = month_by_month_entries(&mut db, &st).unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(entries[0].amounts, vec![20.0, 20.0, 20.0]);
+        let leaves: f64 = entries.iter().filter(|e| e.description == "   Gift").map(|e| e.total).sum();
+        assert_eq!(leaves, 60.0);
+    }
+
+    #[test]
+    fn comparison_keeps_the_same_description_in_two_categories_apart_and_groups_new_leaves() {
+        let row = |key: &str, amount: f64, is_sub: bool| Row { key: key.into(), amount, planned_amount: 0.0, pmt: None, is_sub };
+        let base = [row("Work", -30.0, false), row("   Gift", -30.0, true), row("Home", -10.0, false), row("   Gift", -10.0, true),
+            row("Auto", -50.0, false), row("   Fuel", -50.0, true)];
+        let other = [row("Work", -40.0, false), row("   Gift", -40.0, true), row("Home", -20.0, false), row("   Gift", -20.0, true),
+            row("Auto", -130.0, false), row("   Fuel", -50.0, true), row("   Insurance", -80.0, true)];
+        let got: Vec<(String, f64, f64)> = comp_entry_from(&base, &other).into_iter().map(|e| (e.key, e.v1, e.v2)).collect();
+        let want = [("Work", -30.0, -40.0), ("   Gift", -30.0, -40.0), ("Home", -10.0, -20.0), ("   Gift", -10.0, -20.0),
+            ("Auto", -50.0, -130.0), ("   Fuel", -50.0, -50.0), ("   Insurance", 0.0, -80.0)];
+        assert_eq!(got, want.iter().map(|(k, a, b)| (k.to_string(), *a, *b)).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn month_by_month_survives_cent_amounts_that_empty_a_category() {
+        // Round 6: Phone -49.95 and Netflix -19.99 whose first occurrence turned positive left residue in
+        // the emptied category and the report refused with "missing '(Uncategorized-Expenses)'".
+        let mut db = BudgetDb::new(&Cal::from_int(20261001), 12, false);
+        for (name, amount, first) in [("Phone", -49.95, 1234.56), ("Netflix", -19.99, 29.99)] {
+            let mut p = Payment::new(20261001);
+            p.description = name.into();
+            p.amount = amount;
+            p.n_pays = 2;
+            db.add(p);
+            let i = db.payments.len() - 1;
+            db.payments[i].set_custom_amount(20261001, first);
+            db.update_payment(i);
+        }
+        let st = calc_statistics(&mut db, &Cal::from_int(20261001), 4, true, None);
+        let entries = month_by_month_entries(&mut db, &st).unwrap_or_else(|e| panic!("{e}"));
+        assert!(entries.iter().any(|e| e.description == "   Phone"));
+        let print = generate_stats_report(&st, &no_images);
+        assert!(!print.contains("e+") && !print.contains("E+"), "{print}");
+    }
+
+    #[test]
+    fn comparison_lists_a_leaf_only_the_other_range_has_with_its_own_category() {
+        let row = |key: &str, amount: f64, is_sub: bool| Row { key: key.into(), amount, planned_amount: 0.0, pmt: None, is_sub };
+        // the category with the new leaf is NOT the last one in the base
+        let base = [row("Work", -30.0, false), row("   Gift", -30.0, true), row("Auto", -50.0, false), row("   Fuel", -50.0, true)];
+        let other = [row("Work", -130.0, false), row("   Gift", -30.0, true), row("   Bonus", -100.0, true), row("Auto", -50.0, false), row("   Fuel", -50.0, true)];
+        let keys: Vec<String> = comp_entry_from(&base, &other).into_iter().map(|e| e.key).collect();
+        assert_eq!(keys, ["Work", "   Gift", "   Bonus", "Auto", "   Fuel"]);
+    }
+
+    #[test]
+    fn a_checkpoint_typed_equal_to_the_balance_shown_adds_no_adjustment_row_to_the_detailed_reports() {
+        let mut db = BudgetDb::new(&Cal::from_int(20261001), 12, false);
+        let mut p = Payment::new(20261001);
+        p.description = "Groceries".into();
+        p.amount = -19.99;
+        p.freq_type = 'w';
+        p.frequency = 1;
+        p.n_pays = 10;
+        db.add(p);
+        for day in [20261008, 20261015, 20261022, 20261029] {
+            let day = Cal::from_int(day);
+            let shown = db.get_day(&day).unwrap().closing_balance;
+            db.update_adjustment(&day, (shown * 100.0).round() / 100.0);
+        }
+        let (start, end) = (Cal::from_int(20261001), Cal::from_int(20261101));
+        for mode in [ReportMode::Html, ReportMode::Excel] {
+            let report = generate_report(&mut db, &start, &end, mode, &no_images);
+            assert!(report.contains("Groceries"), "the month has its payments");
+            assert!(!report.contains("Balance adjustment"), "{mode:?}");
+        }
+        // a real difference still shows
+        let day = Cal::from_int(20261022);
+        let shown = db.get_day(&day).unwrap().closing_balance;
+        db.update_adjustment(&day, shown + 5.0);
+        assert!(generate_report(&mut db, &start, &end, ReportMode::Html, &no_images).contains("Balance adjustment"));
+    }
+
+    #[test]
+    fn a_figure_of_exactly_one_dollar_is_not_blanked_by_dust() {
+        // 0.1 added ten times is 0.9999999999999999: still a dollar in the Month-by-Month cells
+        let ten_pennies: f64 = (0..10).map(|_| -0.1).sum();
+        assert!(!f2html_no_zero(ten_pennies, true).is_empty());
+        assert!(f2html_no_zero(0.99, true).is_empty() && f2html_no_zero(-0.994, true).is_empty());
+        // whole-dollar print: red exactly when a minus is printed
+        assert!(amount2html(-0.4, None, NORMAL_COLORS, false).contains("color=red"));
+        assert!(amount2html(0.4, None, NORMAL_COLORS, false).contains("color=black"));
+        assert!(amount2html(-0.004, None, NORMAL_COLORS, true).contains("color=black"), "-0.004 prints as 0.00");
+    }
+
+    #[test]
+    fn comparison_cents_hold_at_large_amounts() {
+        for v in [307_373_906.09, -307_373_906.09, 6_846_580.48, 1_234_567_890.12, 19.99] {
+            assert_eq!(truncate_to_cents(v), v, "{v}");
+        }
+        assert_eq!(truncate_to_cents(3.339), 3.33, "sub-cent amounts are still cut, not rounded");
+    }
+
+    #[test]
+    fn comparison_amounts_keep_their_cents() {
+        for v in [19.99, 0.29, 1.15, 4.35, 8.2, -19.99, 2999.9999999999995] {
+            let want = (v * 100.0f64).round() / 100.0;
+            assert_eq!(truncate_to_cents(v), want, "{v}");
+        }
+        // sub-cent amounts are still cut, not rounded
+        assert_eq!(truncate_to_cents(3.339), 3.33);
+        assert_eq!(truncate_to_cents(-3.339), -3.33);
+        assert_eq!(truncate_to_cents(0.0), 0.0);
+    }
+
+    #[test]
+    fn the_monthly_excel_report_has_no_pictures_and_no_live_cells() {
+        let mut db = BudgetDb::new(&Cal::from_int(20261001), 12, false);
+        let mut p = Payment::new(20261001);
+        p.description = "=HYPERLINK(\"http://x\")".into();
+        p.category = Some("-Refunds".into());
+        p.image_path = Some("x\"><TD FORMULA=\"=1".into());
+        p.amount = -5.0;
+        p.n_pays = 1;
+        db.add(p);
+        let (start, end) = (Cal::from_int(20261001), Cal::from_int(20261101));
+        let excel = generate_report(&mut db, &start, &end, ReportMode::Excel, &no_images);
+        assert!(!excel.contains("file://") && !excel.contains("<IMG") && !excel.contains("FORMULA=\"=1"), "{excel}");
+        assert!(excel.contains(&unicodish("&nbsp;&nbsp;&nbsp;=HYPERLINK(&quot;http://x&quot;)")), "{excel}");
+        assert!(excel.contains(&unicodish("&nbsp;&nbsp;&nbsp;-Refunds")), "{excel}");
+        // the HTML report escapes the picture name where it cannot resolve it
+        let html = generate_report(&mut db, &start, &end, ReportMode::Html, &no_images);
+        assert!(!html.contains("x\"><TD"), "{html}");
+        assert!(html.contains(&unicodish("file://images/x&quot;&gt;&lt;TD FORMULA=&quot;=1")), "{html}");
     }
 
     #[test]

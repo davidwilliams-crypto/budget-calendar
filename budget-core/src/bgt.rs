@@ -240,7 +240,7 @@ fn parse_payment(mut first: &str, toks: &[&str], id: i32, today: i32, log: &mut 
 
 /// A UTF-8 byte-order mark (Notepad writes one): U+FEFF in decoded text, or the bytes EF BB BF as
 /// `load_file` reads them (ISO-8859-1). It is not part of the first line.
-fn strip_bom(text: &str) -> &str {
+pub(crate) fn strip_bom(text: &str) -> &str {
     text.strip_prefix('\u{feff}').or_else(|| text.strip_prefix("\u{ef}\u{bb}\u{bf}")).unwrap_or(text)
 }
 

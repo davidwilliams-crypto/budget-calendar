@@ -139,7 +139,13 @@ impl BudgetDb {
     /// with a date past `DATE_MAX`.
     fn scheduled_slots(&self, i: usize) -> impl Iterator<Item = Cal> {
         let p = &self.payments[i];
-        let until = (p.end_mode() == END_MODE_INDEFINITE).then_some(self.end_date);
+        let until = (p.end_mode() == END_MODE_INDEFINITE).then(|| {
+            let mut end = self.end_date;
+            // An early-pay occurrence due on a weekend just past the window is paid on the Friday
+            // inside it: the walk goes two days further so that day does not depend on the view.
+            if p.is_no_weekends() && p.is_early_pay() && !p.is_tentative() { end.add(Field::Day, 2); }
+            end
+        });
         p.slots().take(p.slot_limit()).take_while(move |c| until.is_none_or(|end| !c.gt(&end)))
     }
 
@@ -166,21 +172,21 @@ impl BudgetDb {
         // must not allocate millions of dates.
         let grace = if tentative { self.period_days(i) } else { p.grace_period_days }.min(366);
         if grace <= 0 { return Vec::new(); }
-        let mut d = Cal::from_int(cal);
-        d.set_day_one();
-        let month = d.ym();
-        while d.ym() == month {
-            let dv = d.get();
-            if self.is_regular_payment_on(i, dv) {
-                let mut last = d;
-                last.add(Field::Day, grace - 1);
-                let inside = dv <= cal && cal <= last.get();
-                if !(tentative && !inside) && !(cal > dv && !inside) {
-                    let mut c = d;
-                    return (0..grace).map(|_| { let v = c.get(); c.add(Field::Day, 1); v }).collect();
-                }
+        let mut first = Cal::from_int(cal);
+        first.set_day_one();
+        // The month's scheduled dates from a single walk over the slots (a daily payment that starts
+        // in year 1000 has millions: testing each day of the month on its own re-walked them all).
+        let (from, month) = (first.get(), first.get() / 100);
+        let dates = self.scheduled_slots(i).map(|c| c.get()).skip_while(|&v| v < from).take_while(|&v| v / 100 == month);
+        for dv in dates {
+            let d = Cal::from_int(dv);
+            let mut last = d;
+            last.add(Field::Day, grace - 1);
+            let inside = dv <= cal && cal <= last.get();
+            if !(tentative && !inside) && !(cal > dv && !inside) {
+                let mut c = d;
+                return (0..grace).map(|_| { let v = c.get(); c.add(Field::Day, 1); v }).collect();
             }
-            d.add(Field::Day, 1);
         }
         Vec::new()
     }
@@ -244,7 +250,7 @@ impl BudgetDb {
             ls.n_pays += 1;
             if !self.is_modified_on(i, &c) {
                 if remaining <= abs_amt + 0.005 {
-                    ls.last_payment_amount = if is_expense { -remaining } else { remaining };
+                    ls.last_payment_amount = crate::numfmt::snap_to_cent(if is_expense { -remaining } else { remaining });
                     if as_of.is_some() { trans.push((c.get(), ls.last_payment_amount)); }
                     break;
                 }

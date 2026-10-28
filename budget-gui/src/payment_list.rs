@@ -205,6 +205,7 @@ impl PaymentList {
                     .hint_text("Search description or category")
                     .margin(Vec2::new(10.0, 7.0)),
             );
+            crate::note_text_focus(ui.ctx(), &search);
             if self.focus_search {
                 search.request_focus();
                 self.focus_search = false;
@@ -234,7 +235,8 @@ impl PaymentList {
                         t.text_muted
                     }))
                     .fill(if selected {
-                        tint(t.surface, t.accent, 0.10)
+                        // 9%: the accent label is 4.5:1 on it (10% is 4.49:1 in the light theme).
+                        tint(t.surface, t.accent, 0.09)
                     } else {
                         t.surface
                     })
@@ -248,6 +250,7 @@ impl PaymentList {
                     ))
                     .min_size(Vec2::new(58.0, 34.0)),
                 );
+                crate::theme::focus_ring(ui, &response, t);
                 if response.clicked() {
                     self.status = filter;
                 }
@@ -274,14 +277,13 @@ impl PaymentList {
                 });
             if !self.search.is_empty() || self.status != StatusFilter::All {
                 ui.add_space(8.0);
-                if ui
-                    .add(
-                        egui::Button::new(RichText::new("Reset filters").color(t.accent))
-                            .frame(false)
-                            .min_size(Vec2::new(0.0, 34.0)),
-                    )
-                    .clicked()
-                {
+                let reset = ui.add(
+                    egui::Button::new(RichText::new("Reset filters").color(t.accent))
+                        .frame(false)
+                        .min_size(Vec2::new(0.0, 34.0)),
+                );
+                crate::theme::focus_ring(ui, &reset, t);
+                if reset.clicked() {
                     self.reset_filters();
                 }
             }
@@ -414,6 +416,7 @@ impl PaymentList {
             );
             theme::badge(&mut status_ui, status, t.text_muted, t);
         }
+        crate::theme::focus_ring_inside(ui, &response, t);
         response.on_hover_text(format!(
             "{}\n{}\n{}\n{}\n{}\nDouble-click to edit this payment",
             payment.description,

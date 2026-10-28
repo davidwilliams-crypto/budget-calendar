@@ -79,7 +79,8 @@ fn parse_cli_from(args: Vec<String>) -> Cli {
         screenshot: val("--screenshot").map(PathBuf::from),
         size: val("--size").and_then(|s| { let (w, h) = s.split_once('x')?; Some([w.parse().ok()?, h.parse().ok()?]) }),
         dark: args.iter().any(|a| a == "--dark"),
-        today: val("--today").and_then(|t| t.parse().ok()),
+        // Only a real calendar day: anything else would leave the grid and the engine on different dates.
+        today: val("--today").and_then(|t| t.parse().ok()).filter(|&d| budget_core::date::is_calendar_date(d)),
         filter: val("--filter"),
     }
 }
@@ -253,6 +254,8 @@ struct Dialogs {
     confirm_delete: Option<DeleteTarget>,
     /// An open or close waiting for the unsaved-changes prompt.
     pending: Option<PendingAction>,
+    /// Why the last save failed; the unsaved-changes prompt shows this, not an unrelated banner.
+    save_error: Option<String>,
     /// An encrypted budget waiting for its password.
     password: Option<PasswordPrompt>,
     about: bool,
@@ -263,7 +266,8 @@ struct Dialogs {
 impl Dialogs {
     /// The kinds of the open dialogs.
     fn open(&self) -> impl Iterator<Item = DialogKind> {
-        let Dialogs { payment_editor, transaction_editor, balance_editor, day, confirm_delete, pending, password, about, legend, shortcuts } = self;
+        // `save_error` is the text of the unsaved-changes prompt, not a dialog of its own.
+        let Dialogs { payment_editor, transaction_editor, balance_editor, day, confirm_delete, pending, password, about, legend, shortcuts, save_error: _ } = self;
         [
             (payment_editor.is_some(), DialogKind::Draft),
             (transaction_editor.is_some(), DialogKind::Draft),
@@ -347,11 +351,32 @@ struct App {
     t: Tokens,
 }
 
+/// The pass in which a text input of the main window (a search box, the year box) last had keyboard focus.
+const TEXT_FOCUS: &str = "text_input_focus";
+
+/// Record that `response` is a text input holding the keyboard focus. egui's own
+/// `wants_keyboard_input` is true for any focused widget, so a Tab-focused button would otherwise
+/// switch off the month keys and `?`.
+pub(crate) fn note_text_focus(ctx: &egui::Context, response: &egui::Response) {
+    // Read the pass number first: `data_mut` holds the context lock, and asking the context inside it deadlocks.
+    if response.has_focus() {
+        let pass = ctx.cumulative_pass_nr();
+        ctx.data_mut(|d| d.insert_temp(egui::Id::new(TEXT_FOCUS), pass));
+    }
+}
+
+/// Whether a text input had the focus in this pass or the one before (the keys run before the widgets).
+fn text_input_has_focus(ctx: &egui::Context) -> bool {
+    let pass = ctx.cumulative_pass_nr();
+    ctx.data(|d| d.get_temp::<u64>(egui::Id::new(TEXT_FOCUS))).is_some_and(|last| last + 1 >= pass)
+}
+
 impl App {
     fn new(cli: Cli) -> App {
         let rc_path = home_dir().join(".budgetrc");
         let cfg = BudgetConfig::load(&rc_path);
-        let mut cur = Cal::today();
+        // A simulated today also decides the month first shown (`--month=` still wins below).
+        let mut cur = cli.today.map_or_else(Cal::today, Cal::from_int);
         cur.set_day_one();
         let t = Tokens::new(&cfg.colors, cli.dark);
         let mut app = App {
@@ -496,6 +521,9 @@ impl App {
     /// Drops the open budget and its editors; the window shows the empty state. The closed budget is
     /// not reopened at the next start.
     fn close_budget(&mut self) {
+        // A close requested while another budget is still being read wins over that open.
+        self.opening = None;
+        self.auto_open = None;
         self.db = None;
         self.file = None;
         self.password = None;
@@ -511,7 +539,11 @@ impl App {
         self.dialogs.confirm_delete = None;
         self.drag_month_hover = None;
         self.payment_list.selected = None;
+        // The empty state has no Payments page: its toolbar and a pending search focus would be stale.
+        self.show_payments = false;
+        self.payment_list.focus_search = false;
         self.banner = None;
+        self.dialogs.save_error = None;
         self.title_dirty = true;
         self.cfg.last_file_name = None;
         self.save_config();
@@ -600,6 +632,7 @@ impl App {
                 self.remember_file(path);
                 self.view = None;
                 self.banner = None;
+                self.dialogs.save_error = None;
                 self.title_dirty = true;
                 if !quiet { self.notify(format!("Opened {}", file_name(path))); }
             }
@@ -624,7 +657,7 @@ impl App {
         let path = with_bgt_extension(path);
         let expected = match self.save_as_baseline(&path) {
             Ok(expected) => expected,
-            Err(e) => { self.fail(e); return false; }
+            Err(e) => { self.dialogs.save_error = Some(e.clone()); self.fail(e); return false; }
         };
         self.save_to(&path, expected.as_deref())
     }
@@ -671,16 +704,21 @@ impl App {
                 if let Some(opening) = &mut self.opening { opening.edits = self.edits; }
                 self.title_dirty = true;
                 self.banner = None;
+                self.dialogs.save_error = None;
                 self.remember_file(path);
                 self.notify(format!("Saved {}", file_name(path)));
                 true
             }
-            Err(e) => { self.fail(e); false }
+            Err(e) => { self.dialogs.save_error = Some(e.clone()); self.fail(e); false }
         }
     }
 
     fn go(&mut self, months: i32) {
-        self.cur.add(Field::Month, months);
+        let mut target = self.cur;
+        target.add(Field::Month, months);
+        // The schedule covers years 1000..=9999: the arrows and keys stop there like the year box.
+        if !(budget_core::date::YEAR_MIN..=budget_core::date::YEAR_MAX).contains(&target.year()) { return; }
+        self.cur = target;
         self.cur.set_day_one();
         if let Some(db) = &mut self.db {
             if !db.is_month_available(&self.cur) {
@@ -754,7 +792,8 @@ impl App {
         let t = self.t.clone();
         ui.spacing_mut().item_spacing.y = SP1;
         // Room for the file name: what is left after the brand, the status pill and the right-hand actions.
-        let name_w = (ui.available_width() - 880.0).clamp(0.0, 300.0);
+        // The "Unsaved changes" pill is 61 px wider than "Saved".
+        let name_w = (ui.available_width() - 880.0 - if self.dirty { 62.0 } else { 0.0 }).clamp(0.0, 300.0);
         ui.horizontal(|ui| {
             let (mark, _) = ui.allocate_exact_size(Vec2::splat(30.0), Sense::hover());
             ui.painter().rect_filled(mark, 8, t.accent);
@@ -887,7 +926,7 @@ impl App {
             ui.menu_button(RichText::new(format!("{} {}  {}", MONTHS_LONG[self.cur.month() as usize], self.cur.year(), ph::CARET_DOWN))
                 .size(if compact { 17.0 } else { 20.0 }).family(egui::FontFamily::Name("semi".into())), |ui| {
                 let mut year = self.cur.year();
-                ui.horizontal(|ui| { ui.label("Year"); ui.add(egui::DragValue::new(&mut year).range(budget_core::date::YEAR_MIN..=budget_core::date::YEAR_MAX).update_while_editing(false)); });
+                ui.horizontal(|ui| { ui.label("Year"); let r = ui.add(egui::DragValue::new(&mut year).range(budget_core::date::YEAR_MIN..=budget_core::date::YEAR_MAX).update_while_editing(false)); note_text_focus(ui.ctx(), &r); });
                 if year != self.cur.year() { self.go((year - self.cur.year()) * 12); }
                 egui::Grid::new("month_picker").num_columns(3).show(ui, |ui| {
                     for (month, label) in MONTHS.iter().enumerate() {
@@ -919,12 +958,13 @@ impl App {
     /// "Showing 7 of 20 · cat:Auto ×": the active search above the grid, with a × that clears it.
     fn filter_chip(&mut self, ui: &mut egui::Ui, t: &Tokens, shown: usize, total: usize) {
         let mut clear = false;
-        Frame::new().fill(tint(t.surface, t.accent, 0.12)).stroke(Stroke::new(1.0_f32, t.accent))
+        let chip = tint(t.surface, t.accent, 0.12);
+        Frame::new().fill(chip).stroke(Stroke::new(1.0_f32, t.accent))
             .corner_radius(theme::RADIUS).inner_margin(Margin::symmetric(10, 3)).show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = SP2;
                     ui.label(RichText::new(format!("Showing {shown} of {total} · {}", self.filter_text.trim())).text_style(ts(CAPTION)).color(t.text));
-                    if ui.add(Button::new(RichText::new("×").color(t.accent)).frame(false)).on_hover_text("Clear the search").clicked() { clear = true; }
+                    if ui.add(Button::new(RichText::new("×").color(theme::legible(t.accent, chip))).frame(false)).on_hover_text("Clear the search").clicked() { clear = true; }
                 });
             });
         if clear { self.filter_text.clear(); self.set_filter(); }
@@ -940,6 +980,7 @@ impl App {
                 ui.label(RichText::new(ph::MAGNIFYING_GLASS).text_style(ts(ICON)).color(t.text_muted));
                 let r = ui.add(TextEdit::singleline(&mut self.filter_text).id_source("transaction_search").frame(false)
                     .hint_text("Search transactions").desired_width(width - 62.0));
+                note_text_focus(ui.ctx(), &r);
                 if self.focus_filter { r.request_focus(); self.focus_filter = false; }
                 if r.changed() { self.set_filter(); }
                 r.on_hover_text("Search descriptions, categories or amounts. Advanced filters such as cat:Auto and <-100 also work.");
@@ -1075,21 +1116,24 @@ impl App {
                 let (rect, resp) = ui.allocate_exact_size(Vec2::new(ui.available_width(), if is_net { 26.0 } else { 30.0 }), if filterable { Sense::click() } else { Sense::hover() });
                 let selected = !active.is_empty() && row.filter == active;
                 let p = ui.painter();
-                if selected { p.rect_filled(rect.expand2(Vec2::new(6.0, 0.0)), 5, tint(t.surface, t.accent, 0.12)); }
+                // The fill the row's text sits on: figures and description are nudged to read on it.
+                let ground = if selected { tint(t.surface, t.accent, 0.12) } else if filterable && resp.hovered() { t.surface_hover } else { t.surface };
+                if selected { p.rect_filled(rect.expand2(Vec2::new(6.0, 0.0)), 5, ground); }
                 else if filterable && resp.hovered() { p.rect_filled(rect.expand2(Vec2::new(6.0, 0.0)), 5, t.surface_hover); }
+                if filterable && resp.has_focus() { p.rect_stroke(rect.expand2(Vec2::new(6.0, 0.0)), 5, Stroke::new(2.0_f32, t.accent), StrokeKind::Inside); }
                 // Text sits in the upper part of the row; the share bar owns the bottom 4px.
                 let cy = if is_net { rect.center().y } else { rect.min.y + 11.0 };
                 let fid = if row.total { ts(SEMI).resolve(ui.style()) } else { egui::TextStyle::Body.resolve(ui.style()) };
                 let mut x = rect.max.x;
                 if has_diff {
-                    if let Some(d) = row.diff { p.text(egui::pos2(x, cy), Align2::RIGHT_CENTER, money(d, false), fid.clone(), sign_colour(&t, d, false)); }
+                    if let Some(d) = row.diff { p.text(egui::pos2(x, cy), Align2::RIGHT_CENTER, money(d, false), fid.clone(), theme::legible(sign_colour(&t, d, false), ground)); }
                     x -= dw;
                 }
                 p.text(egui::pos2(x, cy), Align2::RIGHT_CENTER, view::share_cell(row.pct, is_net), fid.clone(), t.text_muted);
                 x -= pw;
-                let ar = p.text(egui::pos2(x, cy), Align2::RIGHT_CENTER, money(row.amount, false), fid.clone(), sign_colour(&t, row.amount, false));
+                let ar = p.text(egui::pos2(x, cy), Align2::RIGHT_CENTER, money(row.amount, false), fid.clone(), theme::legible(sign_colour(&t, row.amount, false), ground));
                 x -= aw.max(ar.width() + 8.0);
-                let desc_col = if selected { t.accent } else { t.text };
+                let desc_col = theme::legible(if selected { t.accent } else { t.text }, ground);
                 let desc_w = (x - rect.min.x).max(10.0);
                 let mut job = egui::text::LayoutJob::simple_singleline(row.desc.clone(), fid, desc_col);
                 job.wrap = egui::text::TextWrapping::truncate_at_width(desc_w);
@@ -1221,8 +1265,9 @@ impl App {
                     for (n, text) in ["Add your salary", "Add recurring bills and loans", "Watch the balance day by day"].iter().enumerate() {
                         ui.horizontal(|ui| {
                             let (c, _) = ui.allocate_exact_size(Vec2::splat(20.0), Sense::hover());
-                            ui.painter().circle_filled(c.center(), 10.0, tint(t.surface, t.accent, 0.14));
-                            ui.painter().text(c.center(), Align2::CENTER_CENTER, (n + 1).to_string(), ts(SEMI).resolve(ui.style()), t.accent);
+                            let disc = tint(t.surface, t.accent, 0.14);
+                            ui.painter().circle_filled(c.center(), 10.0, disc);
+                            ui.painter().text(c.center(), Align2::CENTER_CENTER, (n + 1).to_string(), ts(SEMI).resolve(ui.style()), theme::legible(t.accent, disc));
                             ui.label(RichText::new(*text).color(t.text));
                         });
                     }
@@ -1259,7 +1304,11 @@ impl App {
             });
         });
         ui.add_space(SP2);
-        if dismiss { self.banner = None; }
+        if dismiss {
+            // Dismissing an unrelated message leaves the failed save the unsaved-changes prompt reports.
+            if self.banner.as_ref().is_some_and(|b| self.dialogs.save_error.as_deref() == Some(b.text.as_str())) { self.dialogs.save_error = None; }
+            self.banner = None;
+        }
         if open { self.open_dialog(); }
     }
 
@@ -1298,8 +1347,7 @@ impl App {
             if !err.is_empty() { ui.label(RichText::new(err.as_str()).color(t.negative)); }
             ui.add_space(SP2);
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                let unlock = Button::new(RichText::new("Unlock").color(theme::on(t.accent))).fill(t.accent).stroke(Stroke::NONE);
-                if ui.add(unlock).clicked() || enter { done = Some(Some(pw.clone())); }
+                if theme::primary_button(ui, "Unlock", t).clicked() || enter { done = Some(Some(pw.clone())); }
                 if ui.button("Cancel").clicked() || ui.input(|i| i.key_pressed(Key::Escape)) { done = Some(None); }
             });
         });
@@ -1350,6 +1398,8 @@ impl App {
 
     /// After an applied edit. Returns whether the schedule had to be rebuilt.
     fn changed(&mut self) -> bool {
+        // A save that failed while the budget was clean (Save as) says nothing about the edits to come.
+        if !self.dirty { self.dialogs.save_error = None; }
         self.dirty = true;
         self.edits += 1;
         self.title_dirty = true;
@@ -1378,6 +1428,17 @@ impl App {
 
     fn apply_transaction_edit(&mut self, id: i32, date: i32, amount: f64, note: &str, flag: char, scope: TransactionScope) {
         let Some(db) = &mut self.db else { return };
+        // Under the future scope later occurrences are rewritten unless they already show the amount.
+        let rewrites_future = scope == TransactionScope::Future && !document::future_already_shows(db, id, date, amount);
+        let unchanged = match scope {
+            TransactionScope::Occurrence => document::transaction_unchanged(db, id, date, amount, note, flag),
+            TransactionScope::Future => document::future_unchanged(db, id, date, amount, note, flag),
+        };
+        if unchanged {
+            self.dialogs.transaction_editor = None;
+            self.notify("Nothing changed.");
+            return;
+        }
         let result = match scope {
             TransactionScope::Occurrence => document::change_transaction(db, id, date, amount, note, flag),
             TransactionScope::Future => document::change_future_transactions(db, id, date, amount, note, flag),
@@ -1386,7 +1447,7 @@ impl App {
             Ok(()) => {
                 self.dialogs.transaction_editor = None;
                 self.changed();
-                self.notify(if scope == TransactionScope::Future {
+                self.notify(if rewrites_future {
                     "This and future amounts updated. Press Ctrl+S to save."
                 } else { "Transaction applied. Press Ctrl+S to save." });
             }
@@ -1511,9 +1572,11 @@ impl App {
                     let p = &db.payments[tr.pmt];
                     ui.push_id(p.id, |ui| {
                         ui.horizontal(|ui| {
-                            ui.add(egui::Label::new(RichText::new(&p.description).text_style(ts(SEMI))).truncate());
                             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                                 ui.label(RichText::new(money(tr.amount, true)).text_style(ts(SEMI)).color(sign_colour(&t, tr.amount, true)));
+                                ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
+                                    ui.add(egui::Label::new(RichText::new(&p.description).text_style(ts(SEMI))).truncate());
+                                });
                             });
                         });
                         ui.horizontal(|ui| {
@@ -1540,12 +1603,14 @@ impl App {
                     let p = &db.payments[pi];
                     ui.push_id(("restorable", p.id), |ui| {
                         ui.horizontal(|ui| {
-                            ui.add(egui::Label::new(RichText::new(&p.description).color(t.text_muted)).truncate());
                             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                                 if ui.add_enabled(can_restore, Button::new("Restore")).on_disabled_hover_text("Clear the search filter to restore transactions.").clicked() {
                                     action = Some(calendar::Action::Restore { id: p.id, date });
                                 }
                                 ui.label(RichText::new("Deleted or moved").text_style(ts(CAPTION)).color(t.text_muted));
+                                ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
+                                    ui.add(egui::Label::new(RichText::new(&p.description).color(t.text_muted)).truncate());
+                                });
                             });
                         });
                         ui.add_space(SP2); ui.separator(); ui.add_space(SP2);
@@ -1576,6 +1641,11 @@ impl App {
                 PaymentAction::Cancel => self.dialogs.payment_editor = None,
                 PaymentAction::Apply(p, from) => {
                     let start = p.start_date;
+                    if id.is_some_and(|id| document::payment_unchanged(self.db.as_ref().unwrap(), id, &p)) {
+                        self.dialogs.payment_editor = None;
+                        self.notify("Nothing changed.");
+                        return;
+                    }
                     match document::apply_payment(self.db.as_mut().unwrap(), *p, id, from) {
                         Ok(id) => {
                             if self.dialogs.payment_editor.as_ref().is_some_and(|e| e.payment_id.is_none()) {
@@ -1635,16 +1705,16 @@ impl App {
                 ui.label(RichText::new(if draft { "Return to the editor to apply your changes, or discard this draft before continuing." }
                     else { "Save your changes before leaving this budget." }).color(t.text_muted));
                 if let Some(path) = &self.file { ui.label(RichText::new(file_name(path)).text_style(ts(SEMI))); }
-                if let Some(error) = &self.banner {
+                if let Some(error) = self.dialogs.save_error.as_ref().filter(|_| !draft) {
                     ui.add_space(SP2);
-                    ui.add(egui::Label::new(RichText::new(&error.text).color(t.negative)).wrap());
+                    ui.add(egui::Label::new(RichText::new(error).color(t.negative)).wrap());
                     if !draft && theme::secondary_button(ui, "Save a separate copy…", &t).clicked() { choice = Some(UnsavedChoice::SaveCopy); }
                 }
                 ui.add_space(SP4);
                 ui.horizontal(|ui| {
-                    if draft {
-                        if ui.add(Button::new(RichText::new("Discard draft").color(t.negative)).frame(false)).clicked() { choice = Some(UnsavedChoice::Discard); }
-                    } else if ui.add(Button::new(RichText::new("Discard changes").color(t.negative)).frame(false)).clicked() { choice = Some(UnsavedChoice::Discard); }
+                    let discard = ui.add(Button::new(RichText::new(if draft { "Discard draft" } else { "Discard changes" }).color(t.negative)).frame(false));
+                    theme::focus_ring(ui, &discard, &t);
+                    if discard.clicked() { choice = Some(UnsavedChoice::Discard); }
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         if draft {
                             if theme::primary_button(ui, "Return to editor", &t).clicked() { choice = Some(UnsavedChoice::Back); }
@@ -1711,7 +1781,7 @@ impl App {
         // F1 toggles the shortcuts sheet; "?" opens it when no text box has focus.
         let dragging = egui::DragAndDrop::payload::<calendar::DraggedTransaction>(ctx).is_some();
         let help = ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::F1))
-            || (!ctx.wants_keyboard_input() && ctx.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Text(s) if s == "?"))));
+            || (!text_input_has_focus(ctx) && ctx.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Text(s) if s == "?"))));
         if help && !dragging && !self.dialogs.any_but_shortcuts() { self.dialogs.shortcuts = !self.dialogs.shortcuts; }
         if self.has_modal() {
             // Dialogs keep their place (and any draft); say why the dropped budget did not open.
@@ -1721,9 +1791,11 @@ impl App {
         if dragging && ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape)) {
             egui::DragAndDrop::clear_payload(ctx); self.drag_month_hover = None; return;
         }
-        let typing = ctx.wants_keyboard_input();
+        // Only a text box swallows the plain keys: a Tab-focused tile, arrow or row must not disable them.
+        let typing = text_input_has_focus(ctx);
         // The month keys move the calendar, which is hidden on the Payments page: they act only while it shows.
-        let calendar = !self.show_payments;
+        // Without a budget the month controls are inert, and so are their keys.
+        let calendar = !self.show_payments && self.db.is_some();
         let (o, s, f, n, p, pgdn, pgup, home) = ctx.input_mut(|i| (
             i.consume_key(Modifiers::COMMAND, Key::O),
             i.consume_key(Modifiers::COMMAND, Key::S),
@@ -1895,8 +1967,15 @@ impl App {
     fn render(&mut self, ctx: &egui::Context) {
         let (modal_before, focus_before) = (self.has_modal(), ctx.memory(|m| m.focused()));
         self.files.wake(ctx);
+        // A mouse release in another application never reaches egui: losing the focus cancels a drag,
+        // or the payload would linger and swallow the next click as a drop.
+        if !ctx.input(|i| i.focused) && egui::DragAndDrop::has_payload_of_type::<calendar::DraggedTransaction>(ctx) {
+            egui::DragAndDrop::clear_payload(ctx);
+            self.drag_month_hover = None;
+        }
         self.finish_auto_open();
-        self.finish_opening();
+        // A dragged transaction belongs to the budget it was picked up from: the swap waits for the drop.
+        if !egui::DragAndDrop::has_payload_of_type::<calendar::DraggedTransaction>(ctx) { self.finish_opening(); }
         self.check_date(ctx);
         self.screenshot_step(ctx);
         if ctx.input(|i| i.viewport().close_requested()) {
@@ -1940,9 +2019,10 @@ impl App {
                             if let Some(view) = &self.view { ui.label(RichText::new(format!("·  {} of {} transactions", view.shown, view.total)).text_style(ts(CAPTION)).color(t.accent)); }
                         }
                         ui.label(RichText::new("·").color(t.text_faint));
-                        ui.label(RichText::new(if self.dirty { "Changes waiting to be saved" } else { "All changes saved" }).text_style(ts(CAPTION)).color(if self.dirty { t.important } else { t.text_muted }));
+                        ui.label(RichText::new(if self.dirty { "Changes waiting to be saved" } else { "All changes saved" }).text_style(ts(CAPTION)).color(if self.dirty { theme::legible(t.important, t.surface) } else { t.text_muted }));
                         // The calendar's gestures have no other cue; the wide window names all three.
-                        if !self.show_payments {
+                        let crowded = ctx.screen_rect().width() < 1000.0 && (self.dirty || self.filter.is_some());
+                        if !self.show_payments && !crowded {
                             let hint = if ctx.screen_rect().width() >= 1200.0 { "Double-click a day to add · Drag a payment to move · Right-click for more" }
                                 else { "Double-click a day to add · Right-click for more" };
                             ui.label(RichText::new("·").color(t.text_faint));
@@ -1996,11 +2076,13 @@ impl App {
             self.legend(ctx);
         } else if self.dialogs.shortcuts && !self.dialogs.any_but_shortcuts() {
             self.shortcuts(ctx);
+        } else if self.dialogs.password.is_some() {
+            // The password prompt is topmost: Escape and clicks reach it, not a dialog behind it.
+            self.password_prompt(ctx);
         } else {
             self.day_window(ctx);
             self.editors(ctx);
             self.confirmations(ctx);
-            self.password_prompt(ctx);
         }
         // The report range dialog waits behind a save/close prompt (Reports is unreachable under other dialogs).
         if !self.has_modal() {
@@ -3576,6 +3658,9 @@ mod lifecycle_tests {
         app.dirty = false;
         let ctx = gui(&app);
         frame(&mut app, &ctx, vec![], false);
+        // Two months away from today (20261027), so Home and T have somewhere to go.
+        app.go(2);
+        assert_eq!(app.cur.get(), 20261201);
         app.show_payments = true;
         for (name, key_event) in [
             ("PageDown", key(Key::PageDown, Modifiers::NONE)), ("PageUp", key(Key::PageUp, Modifiers::NONE)),
@@ -3583,12 +3668,183 @@ mod lifecycle_tests {
             ("Alt+Right", key(Key::ArrowRight, Modifiers::ALT)), ("Alt+Left", key(Key::ArrowLeft, Modifiers::ALT)),
         ] {
             frame(&mut app, &ctx, vec![key_event], false);
-            assert_eq!(app.cur.get(), 20261001, "{name} must not move the calendar that is hidden behind the Payments page");
+            assert_eq!(app.cur.get(), 20261201, "{name} must not move the calendar that is hidden behind the Payments page");
         }
         app.show_payments = false;
         frame(&mut app, &ctx, vec![key(Key::PageDown, Modifiers::NONE)], false);
-        assert_eq!(app.cur.get(), 20261101, "the calendar page still pages with PageDown");
+        assert_eq!(app.cur.get(), 20270101, "the calendar page still pages with PageDown");
+        frame(&mut app, &ctx, vec![key(Key::Home, Modifiers::NONE)], false);
+        assert_eq!(app.cur.get(), 20261001, "Home jumps to the current month on the calendar page");
+        app.go(3);
+        frame(&mut app, &ctx, vec![key(Key::T, Modifiers::NONE)], false);
+        assert_eq!(app.cur.get(), 20261001, "T jumps to the current month on the calendar page");
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn month_keys_work_while_a_button_has_focus_but_not_while_typing_in_a_search_box() {
+        let (mut app, dir) = fixture();
+        app.dirty = false;
+        let ctx = gui(&app);
+        for _ in 0..3 { frame(&mut app, &ctx, vec![], false); }
+        // Tab lands on a header control: the keys must still page the calendar.
+        frame(&mut app, &ctx, vec![key(Key::Tab, Modifiers::NONE)], false);
+        frame(&mut app, &ctx, vec![], false);
+        assert!(ctx.memory(|m| m.focused()).is_some(), "Tab focuses a control");
+        frame(&mut app, &ctx, vec![key(Key::PageDown, Modifiers::NONE)], false);
+        assert_eq!(app.cur.get(), 20261101, "PageDown pages the calendar while a button has focus");
+        // In the search box they are typing, not navigation.
+        app.focus_filter = true;
+        for _ in 0..3 { frame(&mut app, &ctx, vec![], false); }
+        frame(&mut app, &ctx, vec![key(Key::PageDown, Modifiers::NONE)], false);
+        assert_eq!(app.cur.get(), 20261101, "PageDown does not page while the search box has focus");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn month_keys_do_nothing_without_a_budget() {
+        let (mut app, dir) = fixture();
+        (app.db, app.file, app.dirty) = (None, None, false);
+        let ctx = gui(&app);
+        frame(&mut app, &ctx, vec![], false);
+        app.go(2); // away from today, so Home and T would have somewhere to go
+        let before = app.cur.get();
+        assert_ne!(before, 20261001);
+        for key_event in [key(Key::PageDown, Modifiers::NONE), key(Key::PageUp, Modifiers::NONE), key(Key::ArrowRight, Modifiers::ALT), key(Key::Home, Modifiers::NONE)] {
+            frame(&mut app, &ctx, vec![key_event], false);
+            assert_eq!(app.cur.get(), before);
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn month_navigation_stops_at_the_first_and_last_supported_year() {
+        let (mut app, dir) = fixture();
+        app.cur = Cal::from_int(99991201);
+        app.go(1);
+        assert_eq!(app.cur.get(), 99991201, "no month after December 9999");
+        app.go(-1);
+        assert_eq!(app.cur.get(), 99991101);
+        app.cur = Cal::from_int(10000101);
+        app.go(-1);
+        assert_eq!(app.cur.get(), 10000101, "no month before January 1000");
+        app.go(12);
+        assert_eq!(app.cur.get(), 10010101);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn the_unsaved_prompt_offers_a_copy_only_after_a_failed_save_not_for_unrelated_banners() {
+        let (mut app, dir) = fixture();
+        app.dirty = true;
+        app.fail("Line 23: Invalid data for 'frequency'");
+        app.dialogs.pending = Some(PendingAction::Close);
+        let ctx = gui(&app);
+        let mut output = frame(&mut app, &ctx, vec![], false);
+        for _ in 0..3 { output = frame(&mut app, &ctx, vec![], false); }
+        let texts = rendered_text(&output);
+        assert!(shown(&texts, "Discard changes"), "the prompt is on screen");
+        assert!(!shown(&texts, "Save a separate copy\u{2026}"), "a load error is not a failed save");
+        app.dialogs.save_error = Some("Unable to write the budget".into());
+        let mut output = frame(&mut app, &ctx, vec![], false);
+        for _ in 0..3 { output = frame(&mut app, &ctx, vec![], false); }
+        let texts = rendered_text(&output);
+        assert!(shown(&texts, "Save a separate copy\u{2026}"), "{:?}", texts.iter().map(|(t, _)| t.galley.job.text.clone()).collect::<Vec<_>>());
+        assert!(texts.iter().any(|(t, _)| t.galley.job.text.contains("Unable to write the budget")));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn closing_the_budget_cancels_an_open_still_being_read() {
+        let (mut app, dir) = fixture();
+        app.dirty = false;
+        let (other, _gate) = other_budget(&mut app, &dir);
+        app.open(&other);
+        assert!(app.opening.is_some(), "the read is in flight");
+        app.close_budget();
+        assert!(app.opening.is_none() && app.db.is_none(), "the close wins");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn losing_the_window_focus_cancels_a_drag() {
+        let (mut app, dir) = fixture();
+        app.dirty = false;
+        let ctx = gui(&app);
+        frame(&mut app, &ctx, vec![], false);
+        egui::DragAndDrop::set_payload(&ctx, calendar::DraggedTransaction { id: 1, date: 20261027, amount: -12.0 });
+        frame(&mut app, &ctx, vec![], false);
+        assert!(egui::DragAndDrop::has_payload_of_type::<calendar::DraggedTransaction>(&ctx), "a drag survives ordinary frames");
+        let blurred = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, Vec2::new(1280.0, 840.0))), focused: false, ..Default::default() };
+        let _ = ctx.run(blurred, |ctx| app.render(ctx));
+        assert!(!egui::DragAndDrop::has_payload_of_type::<calendar::DraggedTransaction>(&ctx), "focus loss cancels it");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn applying_an_untouched_occurrence_changes_nothing_and_leaves_the_budget_clean() {
+        let (mut app, dir) = fixture();
+        app.dirty = false;
+        let id = app.db.as_ref().unwrap().payments[0].id;
+        let flag = app.db.as_ref().unwrap().payments[0].get_flag(20261027);
+        let before = app.db.as_ref().unwrap().to_text(None).unwrap();
+        for (note, scope) in [("", TransactionScope::Occurrence), ("   ", TransactionScope::Occurrence), ("", TransactionScope::Future)] {
+            app.edit_transaction(id, 20261027, -12.0);
+            app.apply_transaction_edit(id, 20261027, -12.0, note, flag, scope);
+            assert!(app.dialogs.transaction_editor.is_none(), "the editor closes");
+            assert!(!app.dirty, "an untouched apply leaves the budget clean (note {note:?}, {scope:?})");
+            assert_eq!(app.db.as_ref().unwrap().to_text(None).unwrap(), before, "and writes no status entry");
+        }
+        // A real change still applies.
+        app.edit_transaction(id, 20261027, -12.0);
+        app.apply_transaction_edit(id, 20261027, -13.0, "", flag, TransactionScope::Occurrence);
+        assert!(app.dirty);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_failed_save_records_why_and_a_good_one_forgets_it() {
+        let (mut app, dir) = fixture();
+        let missing = dir.join("no-such-folder").join("x.bgt");
+        assert!(!app.save_to(&missing, None));
+        assert!(app.dialogs.save_error.is_some() && app.banner.is_some(), "the failure is kept for the prompt");
+        app.dirty = true;
+        assert!(app.save_to(&dir.join("saved.bgt"), None));
+        assert!(app.dialogs.save_error.is_none() && app.banner.is_none());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn closing_the_budget_on_the_payments_page_returns_to_the_calendar_toolbar() {
+        let (mut app, dir) = fixture();
+        app.dirty = false;
+        app.show_payments = true;
+        app.payment_list.focus_search = true;
+        app.close_budget();
+        assert!(!app.show_payments && !app.payment_list.focus_search);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_failed_save_as_on_a_clean_budget_is_forgotten_by_the_next_edit_but_not_by_more_edits() {
+        let (mut app, dir) = fixture();
+        app.dirty = false;
+        app.dialogs.save_error = Some("Unable to write the budget".into());
+        app.changed();
+        assert!(app.dialogs.save_error.is_none(), "the edit starts a new unsaved state");
+        // A failed Ctrl+S on a dirty budget still stands after further edits.
+        app.dialogs.save_error = Some("Unable to write the budget".into());
+        app.changed();
+        assert!(app.dialogs.save_error.is_some());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn today_must_be_a_real_calendar_day() {
+        for bad in ["--today=20260231", "--today=202610", "--today=5", "--today=abc"] {
+            assert_eq!(parse_cli_from(vec![bad.to_string()]).today, None, "{bad}");
+        }
+        assert_eq!(parse_cli_from(vec!["--today=20240229".to_string()]).today, Some(20240229));
     }
 
     #[test]

@@ -161,16 +161,24 @@ fn strip_colors(t: &Tokens, kind: BalKind, changed: bool) -> (Color32, Color32) 
         BalKind::Max => (t.max.0, t.max.1),
         BalKind::Min => (t.min.0, t.min.1),
         BalKind::Low => (t.low.0, t.low.1),
-        BalKind::Normal => (tint(t.surface, t.bal.0, 0.5), if changed { t.text } else { t.text_faint }),
+        BalKind::Normal => {
+            // The strip tint follows the chosen balance colour, so the ink is nudged to read on it.
+            let bg = tint(t.surface, t.bal.0, 0.5);
+            (bg, theme::legible(if changed { t.text } else { t.text_faint }, bg))
+        }
     }
 }
 
 /// The fill a row's text sits on: the hover or focus tint (opaque, so it covers any highlight), else the
-/// highlight colour, else the surface.
-fn row_ground(t: &Tokens, hilite: Option<Color32>, disabled: bool, hovered: bool) -> Color32 {
-    if hovered { return tint(t.surface, t.accent, 0.08); }
-    match hilite { Some(h) => tint(t.surface, h, if disabled { 0.07 } else { 0.14 }), None => t.surface }
+/// highlight colour, else the cell's own fill (a past, weekend, today or grace tier, not the surface).
+fn row_ground(t: &Tokens, fill: Color32, hilite: Option<Color32>, disabled: bool, hovered: bool) -> Color32 {
+    if hovered { return row_hover(t, fill); }
+    match hilite { Some(h) => tint(t.surface, h, if disabled { 0.07 } else { 0.14 }), None => fill }
 }
+
+/// A hovered or focused row's fill: the accent over the cell's own fill, so it shows on every tier
+/// (the surface-based tint was within two channel units of the today tier).
+fn row_hover(t: &Tokens, fill: Color32) -> Color32 { tint(fill, t.accent, 0.08) }
 
 /// The colour of a strip's balance figure: the ink, or the negative colour made legible on the strip.
 fn strip_figure_color(t: &Tokens, bg: Color32, ink: Color32, negative: bool) -> Color32 {
@@ -195,10 +203,13 @@ fn cell_fill(t: &Tokens, cell: &CellData, hovered: bool, grace: bool, today: i32
     else if hovered { t.surface_hover }
     else if grace { tint(t.surface, t.important, if t.dark { 0.22 } else { 0.16 }) }
     else if cell.is_today { tint(t.surface, t.today, if t.dark { 0.12 } else { 0.07 }) }
-    else if cell.weekend { t.weekend }
+    else if cell.weekend && !t.custom_cells { t.weekend }
     else if cell.date < today { t.past }
-    else { t.surface }
+    else { t.future }
 }
+
+/// Room the row's hover card needs beside the pointer (its width, and a generous height).
+const CARD_ROOM: Vec2 = Vec2::new(300.0, 240.0);
 
 /// Glyph size of the per-transaction note mark (Phosphor is a fallback of the proportional family).
 const NOTE_GLYPH: f32 = 11.0;
@@ -296,6 +307,17 @@ pub fn show(ui: &mut Ui, view: &MonthView, t: &Tokens, sunday_first: bool, today
     let filtered = view.filtered;
     let dragging = egui::DragAndDrop::has_payload_of_type::<DraggedTransaction>(ui.ctx());
     let changed = balance_changes(view.cells.iter().map(|c| (c.in_month, c.balance.as_ref().map(|b| b.value))));
+    // The destination of a dragged transaction under the pointer. Resolved geometrically: rows and
+    // footers are children of the same date, so dropping over them must still reach the entire cell.
+    let dragged = egui::DragAndDrop::payload::<DraggedTransaction>(ui.ctx());
+    let target = dragged.as_ref().and_then(|_| ui.ctx().pointer_latest_pos()).and_then(|pos| {
+        // A lingering informational tooltip must not cover a valid date while dragging.
+        // Other windows and popup menus still block calendar drops.
+        let over_tooltip = ui.ctx().layer_id_at(pos).is_some_and(|l| l.order == egui::Order::Tooltip);
+        if (ui.rect_contains_pointer(layout.grid) || over_tooltip) && ui.clip_rect().contains(pos) {
+            layout.index_at(pos, view.cells.len())
+        } else { None }
+    });
     for (i, cell) in view.cells.iter().enumerate() {
         let (r, c) = (i / 7, i % 7);
         let rect = layout.cell(i);
@@ -319,7 +341,10 @@ pub fn show(ui: &mut Ui, view: &MonthView, t: &Tokens, sunday_first: bool, today
             // buttons sense their own clicks) adds a payment on that date.
             if resp.double_clicked() { clicked = Some(Action::Add(cell.date)); }
         }
-        let fill = cell_fill(t, cell, resp.hovered(), grace.contains(&cell.date), today);
+        let mut fill = cell_fill(t, cell, resp.hovered(), grace.contains(&cell.date), today);
+        // The drop target is tinted UNDER the cell's content (its day, rows and balance stay readable
+        // while you decide), and everything in the cell is made legible on the tinted fill.
+        if target == Some(i) && dragged.as_ref().is_some_and(|d| d.date != cell.date) { fill = tint(fill, t.accent, 0.12); }
         p.rect_filled(rect, cr, fill);
         if cell.is_today && cell.in_month {
             // Today is findable at a glance: 1px inset border plus a 2px bar along the top edge.
@@ -334,22 +359,10 @@ pub fn show(ui: &mut Ui, view: &MonthView, t: &Tokens, sunday_first: bool, today
     for r in 1..rows { p.hline(layout.inner.x_range(), layout.cell(r * 7).min.y - 0.5, hair); }
     for c in 1..7 { p.vline(layout.inner.min.x + cw * c as f32 - 0.5, layout.grid.y_range(), hair); }
 
-    // Resolve the target geometrically: rows and footers are children of the same date,
-    // so dropping over them must still reach the entire calendar cell.
-    if let Some(payload) = egui::DragAndDrop::payload::<DraggedTransaction>(ui.ctx()) {
-        let target = ui.ctx().pointer_latest_pos().and_then(|pos| {
-            // A lingering informational tooltip must not cover a valid date while dragging.
-            // Other windows and popup menus still block calendar drops.
-            let over_tooltip = ui.ctx().layer_id_at(pos).is_some_and(|l| l.order == egui::Order::Tooltip);
-            if (ui.rect_contains_pointer(layout.grid) || over_tooltip) && ui.clip_rect().contains(pos) {
-                layout.index_at(pos, view.cells.len())
-            } else { None }
-        });
+    if let Some(payload) = dragged {
         if let Some(index) = target {
-            let cell = &view.cells[index];
-            if cell.date != payload.date {
-                let rect = layout.cell(index).shrink(2.0);
-                p.rect(rect, 4, tint(t.surface, t.accent, 0.12), Stroke::new(2.0_f32, t.accent), StrokeKind::Inside);
+            if view.cells[index].date != payload.date {
+                p.rect_stroke(layout.cell(index).shrink(2.0), 4, Stroke::new(2.0_f32, t.accent), StrokeKind::Inside);
             }
         }
         draw_drag_preview(ui, &payload, view, t);
@@ -411,25 +424,26 @@ fn cell_filter(ui: &mut Ui, p: &Painter, cell: &CellData, rect: Rect, t: &Tokens
         // dialog lists those first, then the day's other transactions.
         let (more_text, info) = if filtered {
             (format!("{hidden} more matching transactions. View this date's transactions, matches first."),
-                format!("View the {} matching transactions on {}", cell.rows.len(), cell.date))
+                format!("View the {} matching transactions on {}", cell.rows.len(), budget_core::date::sdate(cell.date)))
         } else {
             (format!("{hidden} more transactions. View all transactions on this date."),
-                format!("View all {} transactions on {}", cell.rows.len(), cell.date))
+                format!("View all {} transactions on {}", cell.rows.len(), budget_core::date::sdate(cell.date)))
         };
         let response = ui.interact(more, ui.id().with(("more", cell.date)), Sense::click())
             .on_hover_cursor(egui::CursorIcon::PointingHand)
             .on_hover_text(more_text);
         let label = format!("+{hidden}");
         response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, info.clone()));
-        if response.hovered() || response.has_focus() { hp.rect_filled(more, 4, tint(t.surface, t.accent, 0.08)); }
+        let more_ground = if response.hovered() || response.has_focus() { row_hover(t, fill) } else { fill };
+        if more_ground != fill { hp.rect_filled(more, 4, more_ground); }
         if response.has_focus() { hp.rect_stroke(more, 4, Stroke::new(1.0_f32, t.accent), StrokeKind::Inside); }
-        truncated(&hp.with_clip_rect(more), Pos2::new(more.min.x + 3.0, more.center().y), &label, font(ui, SEMI), t.accent, (more.width() - 6.0).max(0.0));
+        truncated(&hp.with_clip_rect(more), Pos2::new(more.min.x + 3.0, more.center().y), &label, font(ui, SEMI), theme::legible(t.accent, more_ground), (more.width() - 6.0).max(0.0));
         if response.clicked() { clicked = Some(Action::Day(cell.date)); }
         ix = more.min.x - 5.0;
     }
     let icon = font(ui, ICON);
     if cell.note.is_some() && ix - 17.0 >= rect.min.x + 35.0 {
-        let r = hp.text(Pos2::new(ix, day_pos.y), Align2::RIGHT_CENTER, ph::NOTE_PENCIL, icon.clone(), t.text_muted);
+        let r = hp.text(Pos2::new(ix, day_pos.y), Align2::RIGHT_CENTER, ph::NOTE_PENCIL, icon.clone(), theme::legible(t.text_muted, fill));
         ix = r.min.x - 4.0;
     }
     let restorable = !cell.restorable.is_empty();
@@ -446,8 +460,9 @@ fn cell_filter(ui: &mut Ui, p: &Painter, cell: &CellData, rect: Rect, t: &Tokens
             .on_hover_cursor(egui::CursorIcon::PointingHand)
             .on_hover_text(format!("Add payment on {date}"));
         aresp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, format!("Add payment on {date}")));
-        if aresp.hovered() || aresp.has_focus() { hp.rect_filled(add, 4, tint(t.surface, t.accent, 0.08)); }
-        hp.text(add.center(), Align2::CENTER_CENTER, ph::PLUS, icon, t.accent);
+        let add_ground = if aresp.hovered() || aresp.has_focus() { row_hover(t, fill) } else { fill };
+        if add_ground != fill { hp.rect_filled(add, 4, add_ground); }
+        hp.text(add.center(), Align2::CENTER_CENTER, ph::PLUS, icon, theme::legible(t.accent, add_ground));
         if aresp.clicked() { clicked = Some(Action::Add(cell.date)); }
     }
     if resp.hovered() && (cell.note.is_some() || restorable) {
@@ -462,7 +477,7 @@ fn cell_filter(ui: &mut Ui, p: &Painter, cell: &CellData, rect: Rect, t: &Tokens
     // transaction rows
     for (index, row) in cell.rows[..layout.visible].iter().enumerate() {
         let rr = layout.row(index);
-        if let Some(action) = draw_row(ui, p, row, rr, t, decimals) { clicked = Some(action); }
+        if let Some(action) = draw_row(ui, p, row, rr, t, fill, decimals) { clicked = Some(action); }
     }
     // balance strip
     if let Some(b) = &cell.balance {
@@ -499,7 +514,7 @@ fn cell_filter(ui: &mut Ui, p: &Painter, cell: &CellData, rect: Rect, t: &Tokens
         fp.galley(Pos2::new(amount_left, cy - amount.size().y / 2.0), amount, fg);
         // The strip opens a context menu (Edit balance), so it advertises that like the other click targets.
         let sresp = pointer_only(ui, sr, ui.id().with(("strip", cell.date))).on_hover_cursor(egui::CursorIcon::PointingHand);
-        sresp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, format!("Closing balance {} on {}{}. Right-click to edit balance", money(b.value, true), cell.date,
+        sresp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, format!("Closing balance {} on {}{}. Right-click to edit balance", money(b.value, true), budget_core::date::sdate(cell.date),
             if b.adjusted { format!(", adjusted by {}", money(b.adjustment, true)) } else { String::new() })));
         if !egui::DragAndDrop::has_payload_of_type::<DraggedTransaction>(ui.ctx()) {
             sresp.context_menu(|ui| {
@@ -538,7 +553,7 @@ fn amount_width(measured: f32, text_w: f32) -> f32 {
     natural.min(limit.max(0.0))
 }
 
-fn draw_row(ui: &mut Ui, p: &Painter, row: &TranRow, rr: Rect, t: &Tokens, decimals: bool) -> Option<Action> {
+fn draw_row(ui: &mut Ui, p: &Painter, row: &TranRow, rr: Rect, t: &Tokens, fill: Color32, decimals: bool) -> Option<Action> {
     let p = p.with_clip_rect(rr);
     let resp = ui.interact(rr, ui.id().with(("row", row.date, row.payment_id)), Sense::click_and_drag());
     resp.dnd_set_drag_payload(DraggedTransaction { id: row.payment_id, date: row.date, amount: row.value });
@@ -562,7 +577,7 @@ fn draw_row(ui: &mut Ui, p: &Painter, row: &TranRow, rr: Rect, t: &Tokens, decim
     let focused = resp.has_focus();
     // Disabled rows keep their highlight colour (05 §1.6) at a lighter tint next to the muted text.
     if let Some(h) = row.hilite { p.rect_filled(rr, 4, tint(t.surface, h, if row.disabled { 0.07 } else { 0.14 })); }
-    if hovered || focused { p.rect_filled(rr, 4, tint(t.surface, t.accent, 0.08)); }
+    if hovered || focused { p.rect_filled(rr, 4, row_hover(t, fill)); }
     // Keyboard focus (Tab; Enter or Space edits) gets the 2px accent ring the buttons use, drawn
     // inside the row so its geometry is unchanged.
     if focused { p.rect_stroke(rr, 4, Stroke::new(2.0_f32, t.accent), StrokeKind::Inside); }
@@ -576,8 +591,10 @@ fn draw_row(ui: &mut Ui, p: &Painter, row: &TranRow, rr: Rect, t: &Tokens, decim
     let amount_col = if row.disabled { t.disabled } else if is_negative(row.value, decimals) { t.negative } else { t.positive };
     // A 3px rounded accent bar marks income rows, so paydays stand out and polarity does not
     // depend on colour alone (expenses carry the U+2212 minus). Name positions stay fixed.
+    // Row marks and text are made legible on the fill they actually sit on (hover, highlight or cell).
+    let ground = row_ground(t, fill, row.hilite, row.disabled, hovered || focused);
     if income && rr.width() >= 16.0 {
-        let bar_color = if row.disabled { tint(t.surface, amount_col, 0.4) } else { amount_col };
+        let bar_color = if row.disabled { tint(t.surface, amount_col, 0.4) } else { theme::legible(amount_col, ground) };
         let bar = Rect::from_min_max(Pos2::new(rr.min.x, rr.min.y + 3.0), Pos2::new(rr.min.x + 3.0, rr.max.y - 3.0));
         p.rect_filled(bar, 1.5, bar_color);
     }
@@ -589,11 +606,9 @@ fn draw_row(ui: &mut Ui, p: &Painter, row: &TranRow, rr: Rect, t: &Tokens, decim
     }
     // Notes are discoverable at a glance (05 §1.6 marks them with a `...` prefix).
     if row.tip.note.is_some() && rr.width() >= 60.0 {
-        let mark = paint_note_mark(&p, Pos2::new(x0, name_y), if row.disabled { t.disabled } else { t.text_muted });
+        let mark = paint_note_mark(&p, Pos2::new(x0, name_y), theme::legible(if row.disabled { t.disabled } else { t.text_muted }, ground));
         x0 = mark.max.x + 3.0;
     }
-    // Row text is made legible on the fill it actually sits on (hover, highlight or surface).
-    let ground = row_ground(t, row.hilite, row.disabled, hovered || focused);
     let text_col = theme::legible(if row.disabled { t.disabled } else { t.text }, ground);
     let amount_ink = theme::legible(amount_col, ground);
     let right = (rr.max.x - 6.0).max(x0);
@@ -625,13 +640,27 @@ fn draw_row(ui: &mut Ui, p: &Painter, row: &TranRow, rr: Rect, t: &Tokens, decim
             ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(GRACE_DAYS_ID), row.valid_days.clone()));
         }
         resp.clone().on_hover_cursor(egui::CursorIcon::PointingHand);
-        let pos = ui.ctx().pointer_latest_pos().unwrap_or(rr.left_bottom()) + Vec2::new(12.0, 12.0);
+        // Below and to the right of the pointer, or above and to its left near the window's right and
+        // bottom edges. A card that egui had to shift over the pointer would contain the row's rectangle,
+        // and egui hides a widget from hit-testing when a widget on a higher layer fully contains it:
+        // the row would lose its hover and its clicks while its own card is showing.
+        let pointer = ui.ctx().pointer_latest_pos().unwrap_or(rr.left_bottom());
+        let screen = ui.ctx().screen_rect();
+        let (left_of, above) = (pointer.x + 12.0 + CARD_ROOM.x > screen.right(), pointer.y + 12.0 + CARD_ROOM.y > screen.bottom());
+        let pivot = match (left_of, above) {
+            (false, false) => Align2::LEFT_TOP, (true, false) => Align2::RIGHT_TOP,
+            (false, true) => Align2::LEFT_BOTTOM, (true, true) => Align2::RIGHT_BOTTOM,
+        };
+        let pos = pointer + Vec2::new(if left_of { -12.0 } else { 12.0 }, if above { -12.0 } else { 12.0 });
         // These details contain no controls. Let clicks pass through even when
         // egui constrains a newly sized tooltip over the payment being hovered.
         // One shared id: egui never prunes Area layers, so a per-row id would retain a layer for
         // every row ever hovered. Only one card is shown at a time.
         egui::Area::new(egui::Id::new(ROW_DETAILS_ID)).order(egui::Order::Tooltip).interactable(false)
-            .fixed_pos(pos).default_size(Vec2::new(280.0, 150.0)).show(ui.ctx(), |ui| {
+            .pivot(pivot).fixed_pos(pos).default_size(Vec2::new(280.0, 150.0)).show(ui.ctx(), |ui| {
+                // Selectable labels sense clicks and drags; where egui shifts the card over the pointer they
+                // would take the hover and the press from the row being described.
+                ui.style_mut().interaction.selectable_labels = false;
                 egui::Frame::popup(ui.style()).show(ui, |ui| {
                     ui.set_max_width(280.0);
                     ui.label(egui::RichText::new(format!("{}  {}", row.icon, tip.description)).text_style(ts(SECTION)).strong());
@@ -654,7 +683,7 @@ fn draw_row(ui: &mut Ui, p: &Painter, row: &TranRow, rr: Rect, t: &Tokens, decim
                     let line = |ui: &mut Ui, k: &str, v: egui::RichText| {
                         ui.horizontal(|ui| { ui.label(RichTextExt::muted(k, ui)); ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| ui.label(v)); });
                     };
-                    line(ui, "Amount", egui::RichText::new(money(tip.amount, decimals)).strong().color(amount_col));
+                    line(ui, "Amount", egui::RichText::new(money(tip.amount, decimals)).strong().color(theme::legible(amount_col, ui.visuals().window_fill)));
                     if (tip.planned - tip.amount).abs() >= 0.005 { line(ui, "Planned", egui::RichText::new(money(tip.planned, decimals))); }
                     line(ui, "Balance after", egui::RichText::new(money(balance_display(tip.balance_after, decimals), decimals)));
                     if let (Some(first), Some(last)) = (row.valid_days.first(), row.valid_days.last()) {
@@ -700,8 +729,10 @@ fn draw_drag_preview(ui: &Ui, payload: &DraggedTransaction, view: &MonthView, t:
 pub struct RichTextExt;
 impl RichTextExt {
     pub fn section(s: &str, _ui: &Ui) -> egui::RichText { egui::RichText::new(s).text_style(ts(SECTION)) }
-    pub fn muted(s: &str, ui: &Ui) -> egui::RichText { egui::RichText::new(s).color(ui.visuals().weak_text_color()) }
-    pub fn faint(s: &str, ui: &Ui) -> egui::RichText { egui::RichText::new(s).text_style(ts(CAPTION)).color(ui.visuals().weak_text_color()) }
+    /// The weak text colour, nudged to AA contrast against the popup or window fill it is painted on.
+    fn weak(ui: &Ui) -> Color32 { theme::legible(ui.visuals().weak_text_color(), ui.visuals().window_fill) }
+    pub fn muted(s: &str, ui: &Ui) -> egui::RichText { egui::RichText::new(s).color(Self::weak(ui)) }
+    pub fn faint(s: &str, ui: &Ui) -> egui::RichText { egui::RichText::new(s).text_style(ts(CAPTION)).color(Self::weak(ui)) }
 }
 
 #[cfg(test)]
@@ -1080,7 +1111,7 @@ mod tests {
         assert!(text_shapes(&preview).iter().any(|(s, _)| s.galley.job.text == "Payment name 0"));
         assert!(text_shapes(&preview).iter().any(|(s, _)| s.galley.job.text.contains("drop on a date")));
         assert!(preview.shapes.iter().any(|s| matches!(&s.shape, egui::Shape::Rect(r)
-            if r.stroke.width == 2.0 && r.stroke.color == t.accent && r.rect.contains(target))),
+            if r.stroke.width == 2.0 && r.stroke.color == t.accent && r.rect.contains(target) && r.fill == Color32::TRANSPARENT)),
             "destination must be highlighted in the first frame after changing month");
         let (_, action) = frame(&ctx, &t, &view, Vec2::new(860.0, 540.0), vec![button(target, false)]);
         assert!(matches!(action, Some(Action::MoveTransaction { id: 10, from: 20261001, to: 20261102, amount: 123.45 })));
@@ -1418,7 +1449,17 @@ mod tests {
             for (name, color) in [("positive", t.positive), ("negative", t.negative), ("disabled", t.disabled)] {
                 check(&format!("{name} amount on the surface"), color, t.surface);
             }
-            check("accent on the hover tint", t.accent, row_ground(&t, None, false, true));
+            check("accent on the hover tint", t.accent, row_ground(&t, t.surface, None, false, true));
+            // Row text is legible on every fill a cell can have (past, weekend, today, grace, hover), as painted.
+            for cell in &view.cells {
+                for (hovered, grace) in [(false, false), (true, false), (false, true)] {
+                    let fill = cell_fill(&t, cell, hovered, grace, today);
+                    let ground = row_ground(&t, fill, None, false, false);
+                    for (name, color) in [("positive", t.positive), ("negative", t.negative), ("disabled", t.disabled), ("text", t.text), ("+N accent", t.accent)] {
+                        check(&format!("{name} on the {fill:?} cell"), theme::legible(color, ground), ground);
+                    }
+                }
+            }
             // Today's pill.
             let (fill, fg) = today_pill_colors(&t);
             check("today pill", fg, fill);
@@ -1464,7 +1505,7 @@ mod tests {
                 }
                 let (output, _) = frame(&ctx, &t, &view, size, Vec::new());
                 let shapes = text_shapes(&output);
-                let ground = row_ground(&t, hilite, true, hovered);
+                let ground = row_ground(&t, t.surface, hilite, true, hovered);
                 for label in ["Payment name 0", "-12.00"] {
                     let (shape, _) = shapes.iter().find(|(s, _)| s.galley.job.text == label).unwrap_or_else(|| panic!("{label} must be painted"));
                     let colour = shape.galley.job.sections[0].format.color;
@@ -1474,6 +1515,62 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn row_text_is_legible_on_the_past_and_weekend_fills_it_is_painted_over() {
+        // Round 4: rows were made legible against the surface while the cell behind them was a past or
+        // weekend tier (income green on the past tier was 4.19:1). Checked on the painted colours.
+        let today = 20261020;
+        // Stock and a customised palette (a very dark "BKG cell future" in the light theme, a pale "BKG cell past" in the dark one).
+        let stock = budget_core::config::BudgetConfig::default().colors;
+        let dark_future = budget_core::config::Colors { bgColorCellPast: 0x2b2f36, ..stock.clone() };
+        let pale_past = budget_core::config::Colors { bgColorCell: 0xf0e8d0, ..stock.clone() };
+        for (dark, colors) in [(false, stock.clone()), (true, stock.clone()), (false, dark_future), (true, pale_past)] {
+            let t = Tokens::new(&colors, dark);
+            let ctx = egui::Context::default();
+            theme::install_fonts(&ctx);
+            theme::apply(&ctx, &t);
+            let mut view = fixture(4, 1);
+            view.cells[3].weekend = true;
+            // Cells 0, 3 and 5 lie before today (20261020); cell 22 (23 October) after it, on the future tier.
+            for (i, amount, disabled) in [(0, "111.11", false), (3, "333.33", true), (5, "555.55", false), (22, "777.77", false)] {
+                let row = std::rc::Rc::make_mut(&mut view.cells[i].rows[0]);
+                row.amount = amount.into();
+                row.disabled = disabled;
+            }
+            let run = |ctx: &egui::Context| ctx.run(egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(860.0, 540.0))), ..Default::default() }, |ctx| {
+                egui::CentralPanel::default().frame(egui::Frame::NONE).show(ctx, |ui| { show(ui, &view, &t, true, today, true); });
+            });
+            run(&ctx);
+            let output = run(&ctx);
+            let shapes = text_shapes(&output);
+            for (i, amount) in [(0, "111.11"), (3, "333.33"), (5, "555.55"), (22, "777.77")] {
+                let fill = cell_fill(&t, &view.cells[i], false, false, today);
+                let (shape, _) = shapes.iter().find(|(s, _)| s.galley.job.text == amount).unwrap_or_else(|| panic!("{amount} must be painted"));
+                let ratio = theme::contrast(shape.galley.job.sections[0].format.color, fill);
+                assert!(ratio >= 4.5, "{amount} on {fill:?} in the {} theme is {ratio:.2}:1", if dark { "dark" } else { "light" });
+            }
+        }
+    }
+
+    #[test]
+    fn a_row_in_the_bottom_right_corner_still_takes_the_click_while_its_card_is_showing() {
+        // Near the window's right and bottom edges egui shifts the hover card over the pointer; its labels
+        // must not sense clicks, or they take the hover and the press from the row they describe.
+        let (ctx, t) = context();
+        let view = fixture(4, 1);
+        let size = Vec2::new(860.0, 540.0);
+        let (output, _) = frame(&ctx, &t, &view, size, Vec::new());
+        let pos = text_shapes(&output).into_iter()
+            .filter(|(s, _)| s.galley.job.text == "Payment name 0")
+            .max_by(|a, b| (a.0.pos.x + a.0.pos.y).total_cmp(&(b.0.pos.x + b.0.pos.y)))
+            .expect("a row in the last cell").0.pos + Vec2::new(10.0, 7.0);
+        for _ in 0..3 { frame(&ctx, &t, &view, size, vec![egui::Event::PointerMoved(pos)]); }
+        assert!(ctx.memory(|m| m.areas().visible_layer_ids().iter().any(|l| l.order == egui::Order::Tooltip)), "the card is showing");
+        frame(&ctx, &t, &view, size, vec![button(pos, true)]);
+        let (_, action) = frame(&ctx, &t, &view, size, vec![button(pos, false)]);
+        assert!(matches!(action, Some(Action::EditTransaction { id: 10, .. })), "the click reaches the row, not the card");
     }
 
     #[test]

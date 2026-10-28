@@ -4,7 +4,7 @@
 
 use budget_core::config::BudgetConfig;
 use budget_core::filter::Filter;
-use budget_core::numfmt::{balance_display, format_frac0, format_frac2};
+use budget_core::numfmt::{balance_display, format_frac0, format_frac2, snap_to_cent};
 use budget_core::{add_period, calendar_field, stats, BudgetDb, Cal, Field, Payment, END_MODE_INDEFINITE, FLAG_IMPORTANT, FLAG_PAID,
     SUFFIX_ADJUSTED, SUFFIX_LAST, SUFFIX_NONE};
 use eframe::egui::Color32;
@@ -94,7 +94,7 @@ impl Balance {
         let mut txt = self.text.clone();
         if self.adjusted {
             txt.push('\u{2032}');
-            if self.adjustment.abs() >= 1.0 { txt.push_str(&format!("({})", money(balance_display(self.adjustment, decimals), decimals))); }
+            if snap_to_cent(self.adjustment).abs() >= 1.0 { txt.push_str(&format!("({})", money(self.adjustment, decimals))); }
         }
         txt
     }
@@ -334,22 +334,24 @@ fn brief(st: &stats::Stats) -> (Vec<BriefRow>, bool) {
     // 05 §13: shares are of total income, or of total expenses when there is no income, else `?`.
     let base = if st.total_income != 0.0 { st.total_income } else { st.total_expense };
     let pct = |a: f64| (base != 0.0).then(|| a / base * 100.0);
-    let threshold = base.abs() * 0.05;
     let income_diff = st.total_income - st.total_planned_income;
     let mut brief = vec![BriefRow { desc: "Total income".into(), amount: st.total_income, pct: pct(st.total_income),
-        diff: (income_diff.abs() >= 5.0).then_some(income_diff), total: true, filter: ">0".into() }];
+        diff: (snap_to_cent(income_diff).abs() >= 5.0).then_some(income_diff), total: true, filter: ">0".into() }];
     let mut other = 0.0;
     for r in st.income.iter().chain(st.expense.iter()).filter(|r| !r.is_sub) {
-        if r.amount.abs() >= threshold {
+        // A row of exactly 5.00% (to the cent) stays: 75.02 against 1500.40 compares as 75.02 >= 75.02000000000001
+        // in floating point, so the test is on 20 x the row against the base, in whole cents.
+        if snap_to_cent(r.amount.abs() * 20.0 - base.abs()) >= 0.0 {
             let diff = r.amount - r.planned_amount;
             let filter = if r.pmt.is_some() { format!("desc:{}", esc(r.key.trim())) } else { format!("cat:{}", esc(&r.key)) };
-            brief.push(BriefRow { desc: r.key.trim().to_string(), amount: r.amount, pct: pct(r.amount), diff: (diff.abs() >= 5.0).then_some(diff), total: false, filter });
+            brief.push(BriefRow { desc: r.key.trim().to_string(), amount: r.amount, pct: pct(r.amount), diff: (snap_to_cent(diff).abs() >= 5.0).then_some(diff), total: false, filter });
         } else {
             other += r.amount;
         }
     }
+    let other = snap_to_cent(other); // rows that cancel to the cent leave dust, not an "Other…" row
     if other != 0.0 { brief.push(BriefRow { desc: "Other…".into(), amount: other, pct: pct(other), diff: None, total: false, filter: String::new() }); }
-    let net = st.total_income + st.total_expense;
+    let net = st.net();
     brief.push(BriefRow { desc: "Disposable income".into(), amount: net, pct: pct(net), diff: None, total: true, filter: String::new() });
     (brief, st.total_income == 0.0 && st.total_expense != 0.0)
 }
@@ -392,6 +394,23 @@ mod build_tests {
         assert!(view.brief.iter().all(|r| r.pct.is_none()));
         assert_eq!(pct_cell(view.brief[0].pct), "?");
         assert!(!view.shares_of_expenses);
+    }
+
+    #[test]
+    fn a_row_of_exactly_five_percent_is_listed_not_folded_into_other() {
+        // Water is 75.02 of an income of 1500.40: exactly 5.00%, though 1500.4 * 0.05 is 75.02000000000001.
+        let (mut db, cur) = db_with(vec![payment(20261001, "Salary", 1500.0), payment(20261002, "Interest", 0.4), payment(20261005, "Water", -75.02)]);
+        let view = month(&mut db, &cur, None);
+        assert!(view.brief.iter().any(|r| r.desc == "Water"), "{:?}", view.brief.iter().map(|r| &r.desc).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn small_rows_that_cancel_to_the_cent_make_no_other_row() {
+        // 0.38 + 9.56 - 9.94 is 1.8e-15, not 0: no "Other…  0  0%" row, and a disposable income of exactly 0.
+        let (mut db, cur) = db_with(vec![payment(20261001, "Salary", 5000.0), payment(20261005, "Interest", 0.38),
+            payment(20261006, "Refund", 9.56), payment(20261007, "Fee", -9.94)]);
+        let view = month(&mut db, &cur, None);
+        assert!(view.brief.iter().all(|r| r.desc != "Other…"), "{:?}", view.brief.iter().map(|r| &r.desc).collect::<Vec<_>>());
     }
 
     #[test]
@@ -534,7 +553,10 @@ mod build_tests {
         assert_eq!(b.strip_text(false), "238\u{2032}(250)");
         let small = Balance { text: "1,000".into(), value: 1000.0, kind: BalKind::Normal, adjusted: true, adjustment: 0.99 };
         assert_eq!(small.strip_text(false), "1,000\u{2032}");
-        assert_eq!(Balance { adjustment: -1.0, ..small }.strip_text(true), "1,000\u{2032}(\u{2212}1.00)");
+        assert_eq!(Balance { adjustment: -1.0, ..small.clone() }.strip_text(true), "1,000\u{2032}(\u{2212}1.00)");
+        // The bracketed figure rounds like the original's CVformat; it does not drop the cents.
+        assert_eq!(Balance { adjustment: 250.6, ..small.clone() }.strip_text(false), "1,000\u{2032}(251)");
+        assert_eq!(Balance { adjustment: -250.6, ..small }.strip_text(false), "1,000\u{2032}(\u{2212}251)");
         assert_eq!(cell(&view, 20261016).balance.as_ref().unwrap().strip_text(false), "238");
     }
 

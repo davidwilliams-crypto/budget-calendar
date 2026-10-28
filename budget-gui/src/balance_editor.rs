@@ -96,9 +96,11 @@ impl BalanceEditor {
             });
             if self.adjusted {
                 ui.add_space(2.0);
-                if ui.add(egui::Button::new(RichText::new("Remove adjustment").color(t.negative))
+                let remove = ui.add(egui::Button::new(RichText::new("Remove adjustment").color(t.negative))
                     .fill(egui::Color32::TRANSPARENT).stroke(egui::Stroke::NONE))
-                    .on_hover_text("Use the balance calculated from earlier dates again.").clicked() {
+                    .on_hover_text("Use the balance calculated from earlier dates again.");
+                crate::theme::focus_ring(ui, &remove, t);
+                if remove.clicked() {
                     action = BalanceAction::Remove;
                 }
             }

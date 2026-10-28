@@ -33,6 +33,25 @@ pub fn balance_display(v: f64, exact: bool) -> f64 {
     if v > 0.0 { ((v + nudge) as i64) as f64 } else { ((v - nudge) as i64) as f64 }
 }
 
+/// Rounding dust: what is left when cent amounts are added in one order and taken away in another
+/// (a sum of 0.38 + 9.56 - 9.94 is 1.8e-15, not 0). Dust grows with the size of the amounts involved
+/// (`scale` is the sum of their magnitudes) and stays far below half a cent at the 1e12 limit.
+pub fn noise_floor(scale: f64) -> f64 { (8.0 * f64::EPSILON * scale).clamp(1e-9, 0.004) }
+
+/// `x`, or 0.0 when it is only rounding dust against the amounts (`scale`) it was computed from.
+pub fn drop_dust(x: f64, scale: f64) -> f64 { if x.abs() < noise_floor(scale) { 0.0 } else { x } }
+
+/// The nearest whole cent when `x` is within a millionth of it, else `x` unchanged: three amounts of
+/// 49.95 add up to 149.85000000000002, and 1234.56 - 234.56 - 1000 to -5.7e-14, which then fail the
+/// exact comparisons (`=-149.85`, "balance unchanged", "is negative") that cents are meant to satisfy.
+/// Never returns negative zero.
+pub fn snap_to_cent(x: f64) -> f64 {
+    let r = (x * 100.0).round() / 100.0;
+    // A millionth, or a few ulps of `x` where one ulp is itself larger (balances in the billions).
+    let tolerance = (4.0 * f64::EPSILON * x.abs()).clamp(1e-6, 0.004);
+    if (x - r).abs() < tolerance { r + 0.0 } else { x }
+}
+
 /// `numFormatFrac2.format(x)`: grouping on, exactly two decimals (`-1,234.50`).
 /// A value that rounds to zero prints without a sign (`0.00`).
 pub fn format_frac2(x: f64) -> String {

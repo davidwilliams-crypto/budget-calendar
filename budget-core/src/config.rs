@@ -449,7 +449,13 @@ impl BudgetConfig {
     /// `Config.load`: a missing or unreadable file yields the defaults.
     pub fn load(path: &Path) -> BudgetConfig {
         match std::fs::read(path) {
-            Ok(b) => { let mut c = BudgetConfig::from_properties(&parse_properties(&crate::bgt::latin1_decode(&b))); c.clamp_after_load(); c }
+            Ok(b) => {
+                // A hand edit in Notepad may have added a byte-order mark: it is not part of the first key.
+                let text = crate::bgt::latin1_decode(&b);
+                let mut c = BudgetConfig::from_properties(&parse_properties(crate::bgt::strip_bom(&text)));
+                c.clamp_after_load();
+                c
+            }
             Err(_) => BudgetConfig::default(),
         }
     }

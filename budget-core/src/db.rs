@@ -4,6 +4,7 @@
 use crate::bgt;
 use crate::date::{Cal, Field};
 use crate::model::*;
+use crate::numfmt::snap_to_cent;
 use std::path::Path;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -171,7 +172,7 @@ impl BudgetDb {
         self.start_date = start;
         self.end_date = end;
         self.start_year = start.year();
-        let n_years = (end.year() - self.start_year + 1) as usize;
+        let n_years = (end.year() - self.start_year + 1).max(1) as usize;
         self.y_offset = Vec::with_capacity(n_years);
         let mut y = start;
         let mut total = 0;
@@ -195,11 +196,14 @@ impl BudgetDb {
     /// every year with unlimited history, widened to cover a loan running across the start;
     /// through December of the year `future_months` after `cal`.
     pub fn window(&self, cal: &Cal, future_months: i32, unlimited_history: bool) -> (Cal, Cal) {
+        // Dates are compared as `Cal::from_int` reads them: a stored 3000 or 202701 is a year or a month
+        // there, not a day in the distant past, and must not pull the window start past its end.
+        let norm = |v: i32| Cal::from_int(v).get();
         // Where the first occurrence is actually placed: EARLY_PAY moves a weekend start to the prior Friday.
         let placed_start = |p: &Payment| -> i32 {
             let start = Cal::from_int(p.start_date);
             let shown = p.shown_date(&start);
-            if p.is_early_pay() && shown != start { shown.get() } else { p.start_date }
+            if p.is_early_pay() && shown != start { shown.get() } else { start.get() }
         };
         let mut base = *cal;
         base.add(Field::Month, -2);
@@ -207,20 +211,21 @@ impl BudgetDb {
         let mut latest_before = 0;
         let mut earliest = b;
         for a in &self.adjustments.opt {
-            if a.date < b && latest_before < a.date { latest_before = a.date; }
-            if earliest > a.date { earliest = a.date; }
+            let date = norm(a.date);
+            if date < b && latest_before < date { latest_before = date; }
+            if earliest > date { earliest = date; }
         }
         if latest_before == 0 {
             latest_before = b;
             for p in &self.payments {
                 latest_before = latest_before.min(placed_start(p));
-                for o in &p.opt { if !o.deleted { latest_before = latest_before.min(o.date); } }
+                for o in &p.opt { if !o.deleted { latest_before = latest_before.min(norm(o.date)); } }
             }
         }
         if unlimited_history {
             for p in &self.payments {
                 earliest = earliest.min(placed_start(p));
-                for o in &p.opt { if !o.deleted { earliest = earliest.min(o.date); } }
+                for o in &p.opt { if !o.deleted { earliest = earliest.min(norm(o.date)); } }
             }
         }
         let mut start = Cal::from_int(if unlimited_history { earliest } else { latest_before });
@@ -239,6 +244,8 @@ impl BudgetDb {
         // Viewing the last years must not build days past the calendar (a deliberate deviation).
         let date_max = Cal::from_int(crate::date::DATE_MAX);
         if end.gt(&date_max) { end = date_max; }
+        // A month past the last year leaves nothing to build: the window never starts after it ends.
+        if start.gt(&end) { start = end; start.set(Field::Day, 1); }
         (start, end)
     }
 
@@ -269,7 +276,7 @@ impl BudgetDb {
     pub(crate) fn day_place_regular(&mut self, day: usize, pmt: usize, amount: f64, suffix: char) {
         if self.days[day].regulars.contains(&pmt) {
             if let Some(t) = self.days[day].get_mut(pmt) {
-                t.amount += amount;
+                t.amount = snap_to_cent(t.amount + amount);
                 if suffix == SUFFIX_LAST || t.suffix == SUFFIX_LAST { t.suffix = SUFFIX_LAST; } else { t.suffix = SUFFIX_ADJUSTED; }
                 self.days[day].regulars.push(pmt);
                 self.days[day].sorted = false;
@@ -316,11 +323,14 @@ impl BudgetDb {
             sort_transactions(day, |p| disabled[p]);
             day.opening_balance = running;
             for t in day.transactions.iter_mut() {
-                if !disabled[t.pmt] { running += t.amount; }
+                // Cent amounts: a day that nets to nothing must leave the balance where it was, to the cent.
+                if !disabled[t.pmt] { running = snap_to_cent(running + t.amount); }
                 t.balance = running;
             }
             if day.closing_balance_adjusted {
-                day.adjustment_diff = day.closing_balance - running;
+                let diff = day.closing_balance - running;
+                // A checkpoint typed equal to the balance shown leaves ~1e-12 of float residue: not an adjustment.
+                day.adjustment_diff = if diff.abs() < 0.005 { 0.0 } else { diff };
                 running = day.closing_balance;
             } else {
                 day.closing_balance = running;

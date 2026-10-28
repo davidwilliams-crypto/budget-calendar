@@ -229,8 +229,6 @@ impl PaymentEditor {
 
     fn build(&self, db: &BudgetDb) -> Result<Payment, String> {
         if self.description.trim().is_empty() { return Err("Enter a description.".into()); }
-        check_text(&self.description, "Description")?;
-        check_text(&self.category, "Category")?;
         let mut p = self.original.clone();
         // Keep an untouched legacy description byte-for-byte; trim anything the user typed.
         if self.description != self.original.description { p.description = self.description.trim().to_string(); }
@@ -329,7 +327,9 @@ impl PaymentEditor {
         match self.build(db) {
             Err(e) => { self.error = Some(e); self.notice = None; self.confirm_past = None; PaymentAction::None }
             Ok(p) => {
-                if let Some(date) = self.split_date.filter(|_| self.changes_occurrences(&p)) {
+                // Once the scope panel is up its choice stands, even if the edit that raised it was undone
+                // since, but never for an apply that changes nothing at all (that must not split the record).
+                if let Some(date) = self.split_date.filter(|_| self.changes_occurrences(&p) || (self.scope.is_some() && p != self.original)) {
                     self.error = None;
                     return match self.scope {
                         None => { self.scope = Some(ChangeScope::FromDate); PaymentAction::None }
@@ -338,7 +338,7 @@ impl PaymentEditor {
                     };
                 }
                 match self.past_change_warning(&p, today) {
-                    Some(warning) if self.confirm_past.as_ref() != Some(&p) => {
+                    Some(warning) if self.confirm_past.is_none() => {
                         self.error = None;
                         self.notice = Some(warning);
                         self.confirm_past = Some(p);
@@ -554,7 +554,6 @@ impl TransactionEditor {
         let amount = if self.amount == self.amount_seed {
             if self.amount_kind == AmountKind::from_amount(self.seed_value) { self.seed_value } else { -self.seed_value }
         } else { self.amount_kind.signed(&self.amount)? };
-        check_text(&self.note, "Note")?;
         // Unknown legacy flags remain unchanged until the user explicitly chooses a new status.
         Ok((amount, self.note.clone(), self.flag))
     }
@@ -669,6 +668,7 @@ pub(crate) fn dialog_footer(ui: &mut egui::Ui, primary: &str, destructive: Optio
             let response = ui.add(egui::Button::new(RichText::new(destructive_label(text)).color(t.negative))
                 .fill(egui::Color32::TRANSPARENT).stroke(egui::Stroke::NONE).corner_radius(7)
                 .min_size(egui::vec2(0.0, 36.0)));
+            theme::focus_ring(ui, &response, t);
             destroy = response.on_hover_cursor(egui::CursorIcon::PointingHand).clicked();
         }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -872,11 +872,6 @@ fn end_label(mode: i32) -> &'static str {
 fn flag_label(flag: char) -> &'static str {
     match flag { FLAG_NONE => "None", FLAG_PAID => "Paid", FLAG_IMPORTANT => "Important", _ => "Existing status" }
 }
-fn check_text(text: &str, label: &str) -> Result<(), String> {
-    if text.chars().any(|c| c as u32 > 0xffff) {
-        Err(format!("{label} contains a character this budget format cannot save. Remove emoji and other unsupported symbols."))
-    } else { Ok(()) }
-}
 /// Largest absolute amount or balance accepted; keeps running balances far from f64 overflow.
 pub(crate) const MAX_ABS_AMOUNT: f64 = 1e12;
 pub(crate) fn amount_in_range(v: f64) -> bool { v.is_finite() && v.abs() <= MAX_ABS_AMOUNT }
@@ -896,6 +891,8 @@ fn looks_like_formula(text: &str) -> bool {
 /// sign, a `$`, well-formed thousands commas ("1,234.50") and accounting parentheses ("(50)" is -50),
 /// or a calculator formula (SPEC.md 3.2: `+ - * / ( )`, `k/m/b/t` suffixes). These fields have no
 /// income context, so `%n` income percentages are refused rather than silently evaluating to 0.
+/// The result is rounded to cents as the original's amount box is (it reformats to two decimals
+/// before reading the value), so `10/3` is stored as 3.33 and months add up to the balance shown.
 pub(crate) fn parse_amount(text: &str, label: &str) -> Result<f64, String> {
     let value = match parse_plain_amount(text, label) {
         Ok(v) => v,
@@ -910,7 +907,8 @@ pub(crate) fn parse_amount(text: &str, label: &str) -> Result<f64, String> {
     if value.abs() > MAX_ABS_AMOUNT || !value.is_finite() {
         return Err(too_large(label));
     }
-    Ok(value)
+    // A typed "-0" keeps its sign: the polarity checks read it.
+    Ok(format!("{value:.2}").parse::<f64>().unwrap_or(value))
 }
 
 fn too_large(label: &str) -> String { format!("{label} is too large (maximum 1,000,000,000,000).") }
@@ -1342,14 +1340,14 @@ mod tests {
     }
 
     #[test]
-    fn unsupported_non_bmp_input_is_rejected_in_all_editable_text() {
+    fn emoji_in_editable_text_is_accepted_because_the_file_format_saves_it() {
         let db = db();
-        let mut e = valid_editor(); e.description = "Gift 🎁".into();
-        assert!(e.build(&db).is_err());
-        e.description = "Gift".into(); e.category = "Fun 🎉".into();
-        assert!(e.build(&db).is_err());
+        let mut e = valid_editor(); e.description = "Gift 🎁".into(); e.category = "Fun 🎉".into();
+        let p = e.build(&db).unwrap();
+        assert_eq!((p.description.as_str(), p.category.as_deref()), ("Gift 🎁", Some("Fun 🎉")));
         let mut tx = TransactionEditor::new(&Payment::new(20261027), 20261027, -5.0);
-        tx.note = "Paid 👍".into(); assert!(tx.values().is_err());
+        tx.note = "Paid 👍".into();
+        assert_eq!(tx.values().unwrap().1, "Paid 👍");
     }
 
     #[test]
@@ -1685,6 +1683,15 @@ mod tests {
     }
 
     #[test]
+    fn typed_amounts_are_stored_in_whole_cents() {
+        for (text, expected) in [("10/3", 3.33), ("2.675", 2.67), ("1200/7", 171.43), ("-10/3", -3.33), ("0.004", 0.0), ("-0.004", 0.0), ("19.99", 19.99)] {
+            assert_eq!(parse_amount(text, "Amount").unwrap(), expected, "{text}");
+        }
+        let mut e = valid_editor(); e.amount = "10/3".into();
+        assert_eq!(e.build(&db()).unwrap().amount, -3.33);
+    }
+
+    #[test]
     fn amount_fields_evaluate_calculator_formulas() {
         for (text, expected) in [("1200-350", 850.0), ("2.5k", 2500.0), ("(100+20)*3", 360.0), ("$1,200.50 - 200", 1000.5)] {
             assert_eq!(parse_amount(text, "Amount").unwrap(), expected, "{text}");
@@ -1705,6 +1712,12 @@ mod tests {
         assert!(matches!(e.apply(&db(), 20261027), PaymentAction::None));
         assert!(e.notice.as_deref().unwrap().contains("2025-01-01"));
         assert!(matches!(e.apply(&db(), 20261027), PaymentAction::Apply(ref q, None) if q.amount == -1200.0));
+        // Fixing a typo after the notice must not swallow the next click: the button promised an apply.
+        let mut e = PaymentEditor::edit(&p);
+        e.amount = "1200".into();
+        assert!(matches!(e.apply(&db(), 20261027), PaymentAction::None));
+        e.description = "Rent (new)".into();
+        assert!(matches!(e.apply(&db(), 20261027), PaymentAction::Apply(ref q, None) if q.description == "Rent (new)"));
         // Renaming changes no occurrence; a payment that has not started yet has no past.
         let mut e = PaymentEditor::edit(&p); e.description = "Home rent".into();
         assert!(matches!(e.apply(&db(), 20261027), PaymentAction::Apply(_, None)));
@@ -1746,6 +1759,25 @@ mod tests {
         let mut e = PaymentEditor::edit_at(&p, None); e.amount = "1200".into();
         assert!(matches!(e.apply(&db(), 20261027), PaymentAction::None));
         assert!(e.notice.is_some() && e.scope.is_none());
+    }
+
+    #[test]
+    fn a_visible_scope_choice_stands_after_the_triggering_change_is_undone() {
+        // Round 5: change the amount (the panel and "Apply from <date>" appear), set it back and
+        // rename: the button still says "Apply from 2026-11-01", so that is what it must do.
+        let mut e = PaymentEditor::edit_at(&monthly_rent(), Some(20261101));
+        e.amount = "1200".into();
+        assert!(matches!(e.apply(&db(), 20261027), PaymentAction::None));
+        assert_eq!(e.apply_label(), "Apply from 2026-11-01");
+        e.amount = e.amount_seed.clone();
+        e.description = "Home rent".into();
+        assert!(matches!(e.apply(&db(), 20261027), PaymentAction::Apply(_, Some(20261101))));
+        e.scope = Some(ChangeScope::All);
+        assert!(matches!(e.apply(&db(), 20261027), PaymentAction::Apply(_, None)));
+        // Undone completely, "Apply from <date>" has nothing to split off.
+        e.scope = Some(ChangeScope::FromDate);
+        e.description = "Rent".into();
+        assert!(matches!(e.apply(&db(), 20261027), PaymentAction::Apply(_, None)));
     }
 
     #[test]

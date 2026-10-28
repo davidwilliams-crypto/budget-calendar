@@ -65,6 +65,46 @@ pub fn put_payment(db: &mut BudgetDb, payment: Payment, id: Option<i32>) -> Resu
     }
 }
 
+/// Whether applying these values to one occurrence would change nothing: the amount, note and status
+/// are what the occurrence already has (an editor applied untouched). Such an apply leaves the budget
+/// clean instead of writing an explicit status entry.
+pub fn transaction_unchanged(db: &mut BudgetDb, id: i32, date: i32, amount: f64, note: &str, flag: char) -> bool {
+    let Some(i) = db.get_by_id(id) else { return false };
+    let Some(current) = db.get_day(&Cal::from_int(date)).and_then(|d| d.get(i)).map(|t| t.amount) else { return false };
+    let old = db.payments[i].get_note(date).unwrap_or_default();
+    current.to_bits() == amount.to_bits()
+        && (old == note || (old.trim().is_empty() && note.trim().is_empty()))
+        && db.payments[i].get_flag(date) == flag
+}
+
+/// Whether `edited` is the payment `id` exactly as it is stored (an editor applied untouched).
+pub fn payment_unchanged(db: &BudgetDb, id: i32, edited: &Payment) -> bool {
+    // An editor opened before the window moved carries older placed days and so counts as a change:
+    // that only means the apply goes through as it always did.
+    db.get_by_id(id).is_some_and(|i| db.payments[i] == *edited)
+}
+
+/// The same for "this and all future occurrences": the occurrence is unchanged and every later one
+/// already shows the amount, so nothing would be split or rewritten.
+pub fn future_unchanged(db: &mut BudgetDb, id: i32, date: i32, amount: f64, note: &str, flag: char) -> bool {
+    transaction_unchanged(db, id, date, amount, note, flag) && future_already_shows(db, id, date, amount)
+}
+
+/// Whether every occurrence of payment `id` from `date` on already shows `amount`, so a "this and all
+/// future occurrences" apply rewrites nothing later (it then only changes the one occurrence).
+pub fn future_already_shows(db: &mut BudgetDb, id: i32, date: i32, amount: f64) -> bool {
+    let Some(i) = db.get_by_id(id) else { return false };
+    let original = db.payments[i].clone();
+    if validate_future_payment(&original).is_err() { return false; }
+    let cut = cut(&original, date);
+    let Ok(from) = history_start(&original).map(|f| f.min(cut.boundary)) else { return false };
+    let mut horizon = Cal::from_int(date);
+    horizon.add(Field::Year, 9);
+    let horizon = if horizon.year() > YEAR_MAX { DATE_MAX } else { horizon.get() };
+    let Ok(before) = schedule_snapshot(db.today, std::slice::from_ref(&original), from, horizon) else { return false };
+    before.contains_key(&date) && future_shows_amount(&original, &before, date, amount)
+}
+
 pub fn change_transaction(db: &mut BudgetDb, id: i32, date: i32, amount: f64, note: &str, flag: char) -> Result<(), String> {
     let i = db.get_by_id(id).ok_or("This payment no longer exists.")?;
     let current = db.get_day(&Cal::from_int(date)).and_then(|d| d.get(i)).map(|t| t.amount)
@@ -101,9 +141,6 @@ pub fn change_future_transactions(db: &mut BudgetDb, id: i32, date: i32, amount:
     let i = db.get_by_id(id).ok_or("This payment no longer exists.")?;
     let original = db.payments[i].clone();
     validate_future_payment(&original)?;
-    if note.chars().any(|c| c as u32 > 0xffff) {
-        return Err("This note contains a character the budget format cannot save.".into());
-    }
     if !matches!(flag, budget_core::FLAG_NONE | budget_core::FLAG_PAID | budget_core::FLAG_IMPORTANT) {
         return Err("Choose a valid transaction status.".into());
     }
@@ -212,6 +249,12 @@ fn put_payment_from(db: &mut BudgetDb, edited: Payment, id: i32, date: i32) -> R
         }
     }
     validate_future_payment(&later)?;
+    // The two records now coexist, so a description may not be the other's category (the editor only
+    // compared the edit with other payments); a reload would silently rename the category.
+    if later.category.as_deref() == Some(earlier.description.as_str()) || earlier.category.as_deref() == Some(later.description.as_str()) {
+        return Err(format!("From a date onward, the earlier transactions stay named \"{}\"{}. Choose a different description or category, or apply the change to all occurrences.",
+            earlier.description, earlier.category.as_deref().map_or_else(String::new, |c| format!(" in category \"{c}\""))));
+    }
     let after = schedule_snapshot(today, &[earlier.clone(), later.clone()], from, last.get())?;
     if before != after {
         return Err("This change cannot keep the earlier transactions unchanged. Apply it to all occurrences instead.".into());
@@ -1104,6 +1147,65 @@ mod tests {
         let mut edited = db.payments[0].clone(); edited.amount = -120.0;
         assert_eq!(apply_payment(&mut db, edited, Some(id), None).unwrap(), id);
         assert_eq!((db.payments.len(), amount(&mut db, 20261001)), (1, Some(-120.0)));
+    }
+
+    #[test]
+    fn future_already_shows_is_false_while_a_later_occurrence_differs() {
+        let mut db = db(false); db.today = 20261027;
+        let id = db.payments[0].id;
+        db.payments[0].start_date = 20260601;
+        db.rebuild_db(&Cal::from_int(20261001), 12, false);
+        let shown = amount(&mut db, 20261101).unwrap();
+        assert!(future_already_shows(&mut db, id, 20261101, shown));
+        assert!(!future_already_shows(&mut db, id, 20261101, shown - 20.0), "later occurrences would be rewritten");
+        // a one-off amount on this date, with the regular amount after it
+        db.payments[0].set_custom_amount(20261101, shown - 20.0);
+        db.update_payment(0);
+        assert!(!future_already_shows(&mut db, id, 20261101, shown - 20.0), "December onward still shows the regular amount");
+    }
+
+    #[test]
+    fn an_untouched_payment_is_unchanged_and_any_edit_is_not() {
+        let db = db(false);
+        let id = db.payments[0].id;
+        let mut p = db.payments[0].clone();
+        assert!(payment_unchanged(&db, id, &p));
+        p.amount -= 1.0;
+        assert!(!payment_unchanged(&db, id, &p));
+        assert!(!payment_unchanged(&db, id + 99, &db.payments[0].clone()));
+    }
+
+    #[test]
+    fn an_untouched_transaction_is_unchanged_and_any_edit_is_not() {
+        let mut db = db(false); db.today = 20261027;
+        let id = db.payments[0].id;
+        let shown = amount(&mut db, 20261001).unwrap();
+        let flag = db.payments[0].get_flag(20261001);
+        assert!(transaction_unchanged(&mut db, id, 20261001, shown, "", flag));
+        assert!(!transaction_unchanged(&mut db, id, 20261001, shown - 1.0, "", flag));
+        assert!(!transaction_unchanged(&mut db, id, 20261001, shown, "Note", flag));
+        assert!(!transaction_unchanged(&mut db, id, 20261001, shown, "", FLAG_PAID));
+        // an occurrence that does not exist is never "unchanged": the apply reports it
+        assert!(!transaction_unchanged(&mut db, id, 20261002, shown, "", flag));
+    }
+
+    #[test]
+    fn a_split_cannot_make_one_record_a_category_of_the_other() {
+        for (description, category) in [("Fitness club", "Monthly bill"), ("Fitness", "Other")] {
+            let mut db = db(false); db.today = 20261027;
+            let id = db.payments[0].id;
+            db.payments[0].start_date = 20260601;
+            db.payments[0].category = Some("Fitness".into());
+            db.rebuild_db(&Cal::from_int(20261001), 12, false);
+            let before = db.to_text(None).unwrap();
+            let mut edited = db.payments[0].clone();
+            edited.description = description.into(); edited.category = Some(category.into());
+            let err = apply_payment(&mut db, edited.clone(), Some(id), Some(20261101)).unwrap_err();
+            assert!(err.contains("earlier transactions"), "{err}");
+            assert_eq!(db.to_text(None).unwrap(), before);
+            // for every occurrence it is one record, so the rename is fine
+            assert!(apply_payment(&mut db, edited, Some(id), None).is_ok());
+        }
     }
 
     #[test]

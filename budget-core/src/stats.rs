@@ -5,6 +5,7 @@ use crate::date::{Cal, Field};
 use crate::db::BudgetDb;
 use crate::filter::Filter;
 use crate::model::amount_order;
+use crate::numfmt::{drop_dust, snap_to_cent};
 use std::cmp::Ordering;
 
 pub const UNCATEGORIZED_INCOME: &str = "(Uncategorized-Income)";
@@ -59,10 +60,22 @@ pub struct Stats {
     pub total_expense: f64,
     pub total_planned_income: f64,
     pub total_planned_expense: f64,
+    /// Sum of the magnitudes of every amount added: the rounding dust of any sum or difference of
+    /// them is bounded by a few ulps of this.
+    pub abs_sum: f64,
 }
 
 impl Stats {
     pub fn duration_months(&self) -> i32 { Cal::months_diff(&self.start, &self.end) }
+
+    /// Disposable income: income plus (negative) expenses, to the cent. Income and expenses are sums of
+    /// different categories, so when they cancel their difference is dust (1e-15), not 0.
+    pub fn net(&self) -> f64 { snap_to_cent(self.total_income + self.total_expense) }
+
+    /// How far disposable income is from plan, to the cent.
+    pub fn net_vs_plan(&self) -> f64 {
+        snap_to_cent(self.net() - snap_to_cent(self.total_planned_income + self.total_planned_expense))
+    }
 
     fn top_mut(&mut self, key: &str) -> &mut Amount {
         if let Some(i) = self.top.iter().position(|a| a.key == key) { return &mut self.top[i]; }
@@ -78,6 +91,7 @@ impl Stats {
             c => c,
         };
         let pmt_idx = pmt.map(|(i, _)| i);
+        self.abs_sum += amount.abs() + pmt_amount.abs();
         match category {
             Some(cat) => {
                 let top = self.top_mut(cat);
@@ -113,7 +127,12 @@ fn transfer_sub_amount(from: &mut Amount, to: &mut Amount, moves: fn(&Amount) ->
             from.planned_amount -= s.planned_amount;
             to.amount += s.amount;
             to.planned_amount += s.planned_amount;
-            to.sub_amounts.push(s);
+            // The other side may already hold the description (kept at 0 for its planned amount when the
+            // range nets to nothing): one row, not two.
+            match to.sub_amounts.iter_mut().find(|t| t.key == s.key) {
+                Some(t) => { t.amount += s.amount; t.planned_amount += s.planned_amount; if t.pmt.is_none() { t.pmt = s.pmt; } }
+                None => to.sub_amounts.push(s),
+            }
         } else { i += 1; }
     }
 }
@@ -192,7 +211,8 @@ pub fn calc_statistics_exact(db: &mut BudgetDb, start: &Cal, end: &Cal, full: bo
     for key in both {
         let inc_amt = st.top[ii].sub_amounts.iter().find(|s| s.key == key).unwrap().amount;
         let exp_amt = st.top[ei].sub_amounts.iter().find(|s| s.key == key).unwrap().amount;
-        let net = inc_amt + exp_amt;
+        // A description whose income and expense cancel must net to exactly 0, not to +-1e-15: the sign picks the side.
+        let net = drop_dust(inc_amt + exp_amt, st.abs_sum);
         if net > 0.0 {
             st.top[ei].amount -= exp_amt;
             st.top[ii].amount += exp_amt;
@@ -213,6 +233,18 @@ pub fn calc_statistics_exact(db: &mut BudgetDb, start: &Cal, end: &Cal, full: bo
         transfer_sub_amount(exp, inc, |s| !is_expense_row(s));
     }
     st.top.retain(|a| !(matches!(a.key.as_str(), UNCATEGORIZED_INCOME | UNCATEGORIZED_EXPENSES) && a.sub_amounts.is_empty()));
+    // Moving amounts between the groups subtracts them in a different order than they were added, which
+    // leaves ~1e-15 in a category that is empty in effect: that would sort it under income and make the
+    // reports see a nonzero amount where every leaf is zero.
+    let scale = st.abs_sum;
+    for a in &mut st.top {
+        a.amount = drop_dust(a.amount, scale);
+        a.planned_amount = drop_dust(a.planned_amount, scale);
+        for s in &mut a.sub_amounts {
+            s.amount = drop_dust(s.amount, scale);
+            s.planned_amount = drop_dust(s.planned_amount, scale);
+        }
+    }
 
     for a in &st.top {
         if a.amount < 0.0 { st.total_expense += a.amount; } else { st.total_income += a.amount; }
@@ -358,6 +390,44 @@ mod tests {
         assert_rows_reconcile(&st);
         assert!(st.expense.iter().any(|r| r.key == "   Refund" && r.amount == 0.0 && r.planned_amount == -30.0), "{:?}", st.expense);
         assert!(st.income.iter().any(|r| r.key == "   Refund" && r.amount == 30.0 && r.planned_amount == 0.0), "{:?}", st.income);
+    }
+
+    /// Round 6: moving a description's net to the other group left ~1e-15 in the emptied category, which
+    /// then counted as income (or as nonzero), though its leaves were all zero.
+    fn two_expenses_that_turned_positive(first: f64, second: f64) -> BudgetDb {
+        let mut db = db_of(vec![scheduled("Phone", None, -49.95, 20261001, 2), scheduled("Netflix", None, -19.99, 20261001, 2)]);
+        db.payments[0].set_custom_amount(20261001, first);
+        db.payments[1].set_custom_amount(20261001, second);
+        db.update_payment(0);
+        db.update_payment(1);
+        db
+    }
+
+    #[test]
+    fn a_category_emptied_by_the_reconcile_is_exactly_zero_and_stays_an_expense_category() {
+        for (first, second) in [(1234.56, 29.99), (49.95, 19.99), (0.07, 0.1), (1e6 + 0.01, 3.3)] {
+            let mut db = two_expenses_that_turned_positive(first, second);
+            let st = calc_statistics_exact(&mut db, &Cal::from_int(20261001), &Cal::from_int(20261130), true, None);
+            let uncategorised = |rows: &[Row]| rows.iter().any(|r| r.key == UNCATEGORIZED_EXPENSES);
+            assert!(uncategorised(&st.expense) && !uncategorised(&st.income), "{first} {second}: income {:?} expense {:?}", st.income, st.expense);
+            for r in st.income.iter().chain(st.expense.iter()) {
+                assert!(r.amount == 0.0 || r.amount.abs() > 1e-6, "residue {} in {}", r.amount, r.key);
+                assert!(r.planned_amount == 0.0 || r.planned_amount.abs() > 1e-6, "planned residue {} in {}", r.planned_amount, r.key);
+            }
+            assert_rows_reconcile(&st);
+        }
+    }
+
+    #[test]
+    fn a_description_that_nets_to_nothing_over_the_range_has_one_row() {
+        // +50 in October, -50 in November: the range nets to 0 and the description must list once.
+        let mut db = db_of(vec![scheduled("Refund", None, 50.0, 20261001, 2)]);
+        db.payments[0].set_custom_amount(20261101, -50.0);
+        db.update_payment(0);
+        let st = calc_statistics_exact(&mut db, &Cal::from_int(20261001), &Cal::from_int(20261130), true, None);
+        let rows = st.income.iter().chain(st.expense.iter()).filter(|r| r.is_sub && r.key == "   Refund").count();
+        assert_eq!(rows, 1, "income {:?} expense {:?}", st.income, st.expense);
+        assert_rows_reconcile(&st);
     }
 
     #[test]

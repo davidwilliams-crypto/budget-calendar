@@ -39,8 +39,10 @@ fn luminance(c: Color32) -> f32 {
 /// Readable text colour on an arbitrary background.
 pub fn on(bg: Color32) -> Color32 {
     let dark = rgb(0x172033);
-    let l = luminance(bg);
-    if (l + 0.05) / (luminance(dark) + 0.05) > 1.05 / (l + 0.05) { dark } else { Color32::WHITE }
+    let best = if contrast(dark, bg) > contrast(Color32::WHITE, bg) { dark } else { Color32::WHITE };
+    if contrast(best, bg) >= AA_TEXT { return best; }
+    // Mid-tone fills where neither the soft ink nor white reaches AA: take pure black or white.
+    if contrast(Color32::BLACK, bg) > contrast(Color32::WHITE, bg) { Color32::BLACK } else { Color32::WHITE }
 }
 
 /// Darkens (light theme) or lightens (dark theme) a fill for hover feedback.
@@ -49,9 +51,16 @@ pub fn hover_shade(c: Color32, dark: bool) -> Color32 {
 }
 
 /// A keyboard-focus ring (2px accent) that every helper button paints, so focus is always visible.
-fn focus_ring(ui: &egui::Ui, resp: &egui::Response, t: &Tokens) {
+pub fn focus_ring(ui: &egui::Ui, resp: &egui::Response, t: &Tokens) {
     if resp.has_focus() {
         ui.painter().rect_stroke(resp.rect.expand(2.0), 9, Stroke::new(2.0_f32, t.accent), StrokeKind::Outside);
+    }
+}
+
+/// The same ring drawn inside the response's rectangle, for rows that fill their whole width.
+pub fn focus_ring_inside(ui: &egui::Ui, resp: &egui::Response, t: &Tokens) {
+    if resp.has_focus() {
+        ui.painter().rect_stroke(resp.rect, 4, Stroke::new(2.0_f32, t.accent), StrokeKind::Inside);
     }
 }
 
@@ -59,10 +68,19 @@ fn focus_ring(ui: &egui::Ui, resp: &egui::Response, t: &Tokens) {
 /// (not `Button::fill`, which would pin one colour for every state).
 fn filled_button(ui: &mut egui::Ui, text: egui::RichText, fill: Color32, t: &Tokens) -> egui::Response {
     let resp = ui.scope(|ui| {
+        let (hover, pressed) = (hover_shade(fill, t.dark), hover_shade(hover_shade(fill, t.dark), t.dark));
+        // `apply` sets an override text colour for every label, and an uncoloured `RichText` takes it
+        // (egui bakes it into the galley), which would hide the per-state ink set below.
+        ui.style_mut().visuals.override_text_color = None;
         let w = &mut ui.style_mut().visuals.widgets;
         w.inactive.weak_bg_fill = fill;
-        w.hovered.weak_bg_fill = hover_shade(fill, t.dark);
-        w.active.weak_bg_fill = hover_shade(hover_shade(fill, t.dark), t.dark);
+        w.hovered.weak_bg_fill = hover;
+        w.active.weak_bg_fill = pressed;
+        // The label takes the ink of the state's own fill: shading the fill toward (or away from) the
+        // rest-state ink can drop a custom accent below 4.5:1 on hover, press or keyboard focus.
+        w.inactive.fg_stroke.color = on(fill);
+        w.hovered.fg_stroke.color = on(hover);
+        w.active.fg_stroke.color = on(pressed);
         w.inactive.bg_stroke = Stroke::NONE;
         w.hovered.bg_stroke = Stroke::NONE;
         w.active.bg_stroke = Stroke::NONE;
@@ -77,15 +95,25 @@ fn filled_button(ui: &mut egui::Ui, text: egui::RichText, fill: Color32, t: &Tok
 }
 
 pub fn primary_button(ui: &mut egui::Ui, label: impl Into<String>, t: &Tokens) -> egui::Response {
-    filled_button(ui, egui::RichText::new(label.into()).color(on(t.accent)).text_style(ts(SEMI)), t.accent, t)
+    filled_button(ui, egui::RichText::new(label.into()).text_style(ts(SEMI)), t.accent, t)
 }
 
 pub fn secondary_button(ui: &mut egui::Ui, label: impl Into<String>, t: &Tokens) -> egui::Response {
     let enabled = ui.is_enabled();
     // Disabled keeps readable text (muted, not faint) so a greyed "Save changes" is still legible.
     let color = if enabled { t.text } else { t.text_muted };
-    let resp = ui.add(egui::Button::new(egui::RichText::new(label.into()).color(color))
-        .fill(t.surface).stroke(Stroke::new(1.0_f32, t.border_strong)).corner_radius(7).min_size(Vec2::new(0.0, 36.0)));
+    let resp = ui.scope(|ui| {
+        // Per-state visuals (not `Button::fill`/`stroke`, which pin one look for every state): the
+        // border turns accent on hover and press.
+        let w = &mut ui.style_mut().visuals.widgets;
+        w.inactive.weak_bg_fill = t.surface;
+        w.hovered.weak_bg_fill = tint(t.surface, t.accent, 0.06);
+        w.active.weak_bg_fill = tint(t.surface, t.accent, 0.12);
+        w.inactive.bg_stroke = Stroke::new(1.0_f32, t.border_strong);
+        w.hovered.bg_stroke = Stroke::new(1.0_f32, t.accent);
+        w.active.bg_stroke = Stroke::new(1.0_f32, t.accent);
+        ui.add(egui::Button::new(egui::RichText::new(label.into()).color(color)).corner_radius(7).min_size(Vec2::new(0.0, 36.0)))
+    }).inner;
     focus_ring(ui, &resp, t);
     resp.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
@@ -93,21 +121,31 @@ pub fn secondary_button(ui: &mut egui::Ui, label: impl Into<String>, t: &Tokens)
 /// A secondary button raised to the accent (1px accent stroke, accent SEMI text):
 /// used for "Save changes" while there is something to save.
 pub fn accent_outline_button(ui: &mut egui::Ui, label: impl Into<String>, t: &Tokens) -> egui::Response {
-    let resp = ui.add(egui::Button::new(egui::RichText::new(label.into()).color(t.accent).text_style(ts(SEMI)))
-        .fill(tint(t.surface, t.accent, 0.06)).stroke(Stroke::new(1.0_f32, t.accent)).corner_radius(7).min_size(Vec2::new(0.0, 36.0)));
+    let resp = ui.scope(|ui| {
+        let w = &mut ui.style_mut().visuals.widgets;
+        // Tints stay at 9% or below: the accent label is 4.5:1 on them (10% already fails in the light theme),
+        // and a focused button keeps the pressed look.
+        w.inactive.weak_bg_fill = tint(t.surface, t.accent, 0.06);
+        w.hovered.weak_bg_fill = tint(t.surface, t.accent, 0.08);
+        w.active.weak_bg_fill = tint(t.surface, t.accent, 0.09);
+        w.inactive.bg_stroke = Stroke::new(1.0_f32, t.accent);
+        w.hovered.bg_stroke = Stroke::new(1.0_f32, t.accent);
+        w.active.bg_stroke = Stroke::new(1.0_f32, t.accent);
+        ui.add(egui::Button::new(egui::RichText::new(label.into()).color(t.accent).text_style(ts(SEMI))).corner_radius(7).min_size(Vec2::new(0.0, 36.0)))
+    }).inner;
     focus_ring(ui, &resp, t);
     resp.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
 pub fn danger_button(ui: &mut egui::Ui, label: impl Into<String>, t: &Tokens) -> egui::Response {
-    filled_button(ui, egui::RichText::new(label.into()).color(on(t.negative)).text_style(ts(SEMI)), t.negative, t)
+    filled_button(ui, egui::RichText::new(label.into()).text_style(ts(SEMI)), t.negative, t)
 }
 
 /// A neutral pill (used for the version chip and similar small labels).
 pub fn badge(ui: &mut egui::Ui, text: &str, color: Color32, t: &Tokens) {
     egui::Frame::new().fill(tint(t.surface, color, if t.dark { 0.18 } else { 0.07 }))
         .corner_radius(5).inner_margin(egui::Margin::symmetric(8, 3)).show(ui, |ui| {
-            ui.label(egui::RichText::new(text).text_style(ts(CAPTION)).color(color));
+            ui.add(egui::Label::new(egui::RichText::new(text).text_style(ts(CAPTION)).color(color)).selectable(false));
         });
 }
 
@@ -159,7 +197,11 @@ pub struct Tokens {
     pub surface: Color32,
     pub surface_hover: Color32,
     pub weekend: Color32,
+    /// Day cells before today, and after it: the original's "BKG cell past" and "BKG cell future".
     pub past: Color32,
+    pub future: Color32,
+    /// Either day-cell colour comes from `.budgetrc`: the weekend tier steps aside so it shows.
+    pub custom_cells: bool,
     pub other_month: Color32,
     pub border: Color32,
     pub border_strong: Color32,
@@ -201,10 +243,15 @@ impl Tokens {
             dark,
             //                         .budgetrc colour                    light      dark
             bg:            user(|c| c.bgColorWindow,                   0xf4f6fa, 0x111722),
-            surface:       user(|c| c.bgColorCell,                     0xffffff, 0x1b1f27),
+            // Cards, dialogs and fields keep the modern surface whatever the day-cell colours are.
+            surface:       tone(                                       0xffffff, 0x1b1f27),
             surface_hover: tone(                                       0xf0f3f8, 0x242935),
             weekend:       tone(                                       0xf6f8fb, 0x222831),
-            past:          user(|c| c.bgColorCellPast,                 0xe6ebf2, 0x151921),
+            // The original's field names are swapped against its labels (analysis/05 §1.5): `bgColorCell`
+            // ("BKG cell past") paints days before today, `bgColorCellPast` ("BKG cell future") the rest.
+            past:          user(|c| c.bgColorCell,                     0xe6ebf2, 0x151921),
+            future:        user(|c| c.bgColorCellPast,                 0xffffff, 0x1b1f27),
+            custom_cells:  customised(|c| c.bgColorCell) || customised(|c| c.bgColorCellPast),
             other_month:   user(|c| c.bgColorCellOtherMonths,          0xeef1f6, 0x0f131b),
             border:        tone(                                       0xe2e8f0, 0x2b313d),
             border_strong: tone(                                       0xcbd5e1, 0x3b4350),
@@ -361,7 +408,7 @@ mod tests {
     fn dump(t: &Tokens) -> String {
         let h = |c: Color32| format!("{:02x}{:02x}{:02x}", c.r(), c.g(), c.b());
         let pair = |p: (Color32, Color32)| format!("{}/{}", h(p.0), h(p.1));
-        [h(t.bg), h(t.surface), h(t.surface_hover), h(t.weekend), h(t.past), h(t.other_month), h(t.border), h(t.border_strong),
+        [h(t.bg), h(t.surface), h(t.surface_hover), h(t.weekend), h(t.past), h(t.future), h(t.other_month), h(t.border), h(t.border_strong),
             h(t.text), h(t.text_muted), h(t.text_faint), h(t.accent), h(t.today), h(t.positive), h(t.negative), h(t.disabled),
             h(t.paid), h(t.important), h(t.adjusted), pair(t.bal), pair(t.max), pair(t.min), pair(t.low)].join(" ")
     }
@@ -379,21 +426,96 @@ mod tests {
             ..Colors::theme(Theme::Light)
         };
         let dark_stock = Colors::theme(Theme::Dark);
-        let light = "f4f6fa ffffff f0f3f8 f6f8fb e6ebf2 eef1f6 e2e8f0 cbd5e1 1f2328 475569 5b6779 2563eb 2563eb 15803d b91c1c \
+        let light = "f4f6fa ffffff f0f3f8 f6f8fb e6ebf2 ffffff eef1f6 e2e8f0 cbd5e1 1f2328 475569 5b6779 2563eb 2563eb 15803d b91c1c \
             6b7280 16a34a d97706 6d28d9 f3f4f6/374151 dcfce7/166534 e2e8f0/334155 fef3c7/92400e";
         let cases = [
             (&stock, false, light),
-            (&stock, true, "111722 1b1f27 242935 222831 151921 0f131b 2b313d 3b4350 e6e8eb a0aec0 8b97aa 60a5fa 60a5fa 4ade80 \
+            (&stock, true, "111722 1b1f27 242935 222831 151921 1b1f27 0f131b 2b313d 3b4350 e6e8eb a0aec0 8b97aa 60a5fa 60a5fa 4ade80 \
                 f87171 7d8799 34d399 fbbf24 a78bfa 232833/c9ced6 123524/86efac 2d3748/e2e8f0 4a3410/fcd34d"),
             // The stock dark palette counts as stock in the light theme too.
             (&dark_stock, false, light),
-            (&custom, false, "101112 202122 f0f3f8 f6f8fb 303132 404142 e2e8f0 cbd5e1 505152 475569 5b6779 606162 707172 808182 \
+            (&custom, false, "101112 ffffff f0f3f8 f6f8fb 202122 303132 404142 e2e8f0 cbd5e1 505152 475569 5b6779 606162 707172 808182 \
                 909192 a0a1a2 b0b1b2 c0c1c2 6d28d9 d0d1d2/172033 e0e1e2/172033 f0f1f2/172033 0a0b0c/ffffff"),
-            (&custom, true, "101112 202122 242935 222831 303132 404142 2b313d 3b4350 505152 a0aec0 8b97aa 606162 707172 808182 \
+            (&custom, true, "101112 1b1f27 242935 222831 202122 303132 404142 2b313d 3b4350 505152 a0aec0 8b97aa 606162 707172 808182 \
                 909192 a0a1a2 b0b1b2 c0c1c2 a78bfa d0d1d2/172033 e0e1e2/172033 f0f1f2/172033 0a0b0c/ffffff"),
         ];
         for (colors, dark, expected) in cases {
             assert_eq!(dump(&Tokens::new(colors, dark)), expected, "dark={dark}");
+        }
+    }
+
+    /// Round 5: the day-cell colours colour the cells only. "BKG cell past" paints days before today,
+    /// "BKG cell future" the rest, and either one replaces the weekend tier.
+    #[test]
+    fn custom_day_cell_colours_follow_the_originals_meaning_and_leave_the_surface_alone() {
+        let stock = budget_core::config::BudgetConfig::default().colors;
+        let plain = Tokens::new(&stock, false);
+        assert!(!plain.custom_cells);
+        let past = Tokens::new(&Colors { bgColorCell: 0x202122, ..stock.clone() }, false);
+        assert!(past.custom_cells);
+        assert_eq!((past.past, past.future, past.surface), (rgb(0x202122), plain.future, plain.surface));
+        let future = Tokens::new(&Colors { bgColorCellPast: 0x303132, ..stock.clone() }, true);
+        assert!(future.custom_cells);
+        assert_eq!((future.future, future.surface), (rgb(0x303132), Tokens::new(&stock, true).surface));
+        assert_eq!(future.past, Tokens::new(&stock, true).past);
+    }
+
+    /// Round 5: where neither the soft ink nor white reaches AA (grey levels 119 to 134) `on` takes black.
+    #[test]
+    fn on_always_reaches_aa_even_on_mid_tones() {
+        for g in 0..=255u8 {
+            let bg = Color32::from_rgb(g, g, g);
+            assert!(contrast(on(bg), bg) >= AA_TEXT, "grey {g}: {:.2}:1", contrast(on(bg), bg));
+        }
+        // stock behaviour is unchanged: soft ink on light fills, white on dark ones
+        assert_eq!(on(rgb(0xf3f4f6)), rgb(0x172033));
+        assert_eq!(on(rgb(0x2563eb)), Color32::WHITE);
+    }
+
+    /// Round 9: the primary and danger buttons must PAINT their label in the ink of their fill, at rest and
+    /// under the pointer. An uncoloured `RichText` takes `Visuals::override_text_color` (set for every
+    /// label), which silently ignores the per-state `fg_stroke`: white-on-blue became dark-on-blue.
+    #[test]
+    fn primary_and_danger_labels_are_painted_in_the_ink_of_their_fill() {
+        for dark in [false, true] {
+            let t = Tokens::new(&budget_core::config::BudgetConfig::default().colors, dark);
+            let ctx = egui::Context::default();
+            install_fonts(&ctx);
+            apply(&ctx, &t);
+            let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(600.0, 300.0));
+            let run = |events: Vec<egui::Event>| ctx.run(egui::RawInput { screen_rect: Some(screen), events, ..Default::default() }, |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    primary_button(ui, "PrimaryLabel", &t);
+                    danger_button(ui, "DangerLabel", &t);
+                });
+            });
+            // The colour the label is actually painted in: its own section colour, or the fallback for a placeholder.
+            let painted = |output: &egui::FullOutput, label: &str| -> (egui::Pos2, Color32) {
+                for clipped in &output.shapes {
+                    if let egui::Shape::Text(text) = &clipped.shape {
+                        if text.galley.job.text == label {
+                            let section = text.galley.job.sections[0].format.color;
+                            return (text.pos, if section == Color32::PLACEHOLDER { text.fallback_color } else { section });
+                        }
+                    }
+                }
+                panic!("{label} must be painted");
+            };
+            run(Vec::new());
+            let rest = run(Vec::new());
+            for (label, fill) in [("PrimaryLabel", t.accent), ("DangerLabel", t.negative)] {
+                let (pos, colour) = painted(&rest, label);
+                let ratio = contrast(colour, fill);
+                assert!(ratio >= AA_TEXT, "{label} at rest in the {} theme is {ratio:.2}:1 ({colour:?} on {fill:?})", if dark { "dark" } else { "light" });
+                // under the pointer the fill shades; the ink follows it
+                let over = pos + egui::vec2(8.0, 6.0);
+                run(vec![egui::Event::PointerMoved(over)]);
+                let hovered = run(vec![egui::Event::PointerMoved(over)]);
+                let (_, colour) = painted(&hovered, label);
+                let shaded = hover_shade(fill, dark);
+                let ratio = contrast(colour, shaded);
+                assert!(ratio >= AA_TEXT, "{label} hovered in the {} theme is {ratio:.2}:1", if dark { "dark" } else { "light" });
+            }
         }
     }
 
