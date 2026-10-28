@@ -2,7 +2,7 @@
 //! Reads plain, Blowfish (`#db*encrypted`) and legacy XOR files; saves plain or Blowfish.
 
 use crate::crypto::{xor_line, LineCipher, HEADER_BLOWFISH, HEADER_XOR};
-use crate::date::DATE_MAX;
+use crate::date::{is_leap, DATE_MAX};
 use crate::javafmt::{java_double, parse_double, parse_int};
 use crate::model::*;
 use std::path::Path;
@@ -110,6 +110,18 @@ fn tokens(line: &str) -> Vec<&str> {
     line.split(',').filter(|t| !t.is_empty()).map(str::trim).collect()
 }
 
+/// Whether `date` (yyyymmdd, year 0 or later) is a day of the Gregorian calendar, leap days included.
+fn is_real_day(date: i32) -> bool {
+    let (y, m, d) = (date / 10000, date / 100 % 100, date % 100);
+    let days = match m {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 => if is_leap(y) { 29 } else { 28 },
+        _ => return false,
+    };
+    (1..=days).contains(&d)
+}
+
 fn parse_options(p: &mut Payment, toks: &[&str]) -> Result<(), String> {
     for &tok in toks {
         if tok.is_empty() { continue; }
@@ -120,10 +132,12 @@ fn parse_options(p: &mut Payment, toks: &[&str]) -> Result<(), String> {
         }
         let n = tok.chars().count();
         if n < 8 { return Err(format!("invalid option: '{tok}'")); }
-        let head = tok.get(..8).ok_or_else(|| format!("invalid option: '{tok}'"))?;
+        // Exactly eight digits, no surrounding blanks: `parse_int` would accept "2026030 ".
+        let head = tok.get(..8).filter(|h| h.bytes().all(|b| b.is_ascii_digit())).ok_or_else(|| format!("invalid option: '{tok}'"))?;
         let date = parse_int(head)?;
-        // Deliberate deviation: a negative/huge date would overflow the calendar arithmetic.
-        if !(0..=DATE_MAX).contains(&date) { return Err(format!("invalid option: '{tok}'")); }
+        // A date that is not a real day would be moved silently by the calendar; a negative or huge
+        // one would overflow the calendar arithmetic (deliberate deviation).
+        if !(0..=DATE_MAX).contains(&date) || !is_real_day(date) { return Err(format!("invalid option: '{tok}'")); }
         if n == 8 { p.add_no_transaction(date); continue; }
         let c = tok[8..].chars().next().unwrap();
         let rest = &tok[8 + c.len_utf8()..];
@@ -224,9 +238,15 @@ fn parse_payment(mut first: &str, toks: &[&str], id: i32, today: i32, log: &mut 
     Ok(p)
 }
 
+/// A UTF-8 byte-order mark (Notepad writes one): U+FEFF in decoded text, or the bytes EF BB BF as
+/// `load_file` reads them (ISO-8859-1). It is not part of the first line.
+fn strip_bom(text: &str) -> &str {
+    text.strip_prefix('\u{feff}').or_else(|| text.strip_prefix("\u{ef}\u{bb}\u{bf}")).unwrap_or(text)
+}
+
 /// `isEncrypted`: first line is one of the two encryption headers.
 pub fn is_encrypted_text(text: &str) -> bool {
-    let first = logical_lines(text).next().unwrap_or("");
+    let first = logical_lines(strip_bom(text)).next().unwrap_or("");
     first == HEADER_XOR || first == HEADER_BLOWFISH
 }
 
@@ -240,6 +260,7 @@ enum Mode<'a> { Plain, Xor(&'a str), Blowfish(Box<LineCipher>) }
 /// Parse the text of a `.bgt` file. `today` seeds new payments' default dates; `password` is used
 /// only when the first line is an encryption header (a plain file ignores it, like the original).
 pub fn load_str(text: &str, today: i32, password: Option<&str>) -> Result<Loaded, Box<Loaded>> {
+    let text = strip_bom(text);
     let first = load_with(text, today, password, false);
     if first.is_err() {
         // Files saved by earlier builds with a 1-3 byte password used a zero-padded key.
@@ -372,9 +393,18 @@ pub fn payment_line(p: &Payment) -> String {
     )
 }
 
+/// The loader takes only finite amounts (`parse_double`), so a save refuses NaN and infinity before
+/// anything is written, rather than producing a file that cannot be opened again.
+fn check_finite(name: &str, p: &Payment) -> Result<(), String> {
+    let finite = p.amount.is_finite() && p.loan_amount.is_finite() && p.opt.iter().all(|o| o.deleted || o.amount.is_finite());
+    if finite { Ok(()) } else { Err(format!("Cannot save: '{name}' has an amount that is not a finite number")) }
+}
+
 /// Whole file text including the END-OF-DATA trailer (no final newline). With a password every
 /// line is Blowfish-encrypted and the `#db*encrypted` header is prepended (it counts as a line).
 pub fn save_str(payments: &[Payment], adjustments: &Payment, notes: &str, password: Option<&str>) -> Result<String, String> {
+    for p in payments { check_finite(&p.description, p)?; }
+    check_finite("balance adjustments", adjustments)?;
     let cipher = match password { Some(p) => Some(LineCipher::new(p)?), None => None };
     let enc = |s: String| match &cipher { Some(c) => c.encrypt_line(&s), None => s };
     let mut out = String::new();
@@ -398,20 +428,52 @@ fn friendly_io_error(e: &std::io::Error) -> String {
     }
 }
 
-/// Skip byte-identical saves; otherwise stage a complete file and retain the prior `.bak[.N]`.
-pub fn save_file(path: &Path, content: &str) -> Result<(), String> {
+/// `path` with `suffix` appended to its native name. Appending to the path rather than its display
+/// text keeps names that are not valid Unicode intact.
+fn sibling(path: &Path, suffix: &str) -> std::path::PathBuf {
+    let mut name = path.as_os_str().to_os_string();
+    name.push(suffix);
+    std::path::PathBuf::from(name)
+}
+
+/// Create a new, uniquely named file beside `path` to stage a replacement of it.
+fn create_temp(path: &Path) -> std::io::Result<(std::path::PathBuf, std::fs::File)> {
     use std::fs::{self, OpenOptions};
-    use std::io::{ErrorKind, Write};
+    use std::io::ErrorKind;
     use std::sync::atomic::{AtomicU64, Ordering};
 
     static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
 
-    // Append to the native path rather than its display text, which can be lossy.
-    let sibling = |suffix: &str| {
-        let mut name = path.as_os_str().to_os_string();
-        name.push(suffix);
-        std::path::PathBuf::from(name)
-    };
+    loop {
+        let id = NEXT_TEMP.fetch_add(1, Ordering::Relaxed);
+        let candidate = sibling(path, &format!(".tmp.{}.{id}", std::process::id()));
+        match OpenOptions::new().write(true).create_new(true).open(&candidate) {
+            Ok(file) => return Ok((candidate, file)),
+            Err(error) if error.kind() == ErrorKind::AlreadyExists || fs::symlink_metadata(&candidate).is_ok() => continue,
+            Err(error) => return Err(error),
+        }
+    }
+}
+
+/// Replace `path` with `bytes` through a synced temporary file in the same directory and a rename,
+/// so the previous contents survive any failure before the rename. Nothing is left behind on failure.
+pub(crate) fn replace_file(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+
+    let (temp_path, mut temp_file) = create_temp(path)?;
+    let staged = temp_file.write_all(bytes).and_then(|()| temp_file.sync_all());
+    drop(temp_file);
+    let result = staged.and_then(|()| std::fs::rename(&temp_path, path));
+    if result.is_err() { let _ = std::fs::remove_file(&temp_path); }
+    result
+}
+
+/// Skip byte-identical saves; otherwise stage a complete file and retain the prior `.bak[.N]`, which
+/// is logged in `<name>.baklog` so that only backups this app made are ever pruned.
+pub fn save_file(path: &Path, content: &str) -> Result<(), String> {
+    use std::fs::{self, OpenOptions};
+    use std::io::{ErrorKind, Write};
+
     let bytes = latin1_encode(content);
     let original = match fs::read(path) {
         Ok(old) if old == bytes => return Ok(()),
@@ -420,15 +482,7 @@ pub fn save_file(path: &Path, content: &str) -> Result<(), String> {
         Err(error) => return Err(format!("File Save: cannot read original: {error}")),
     };
 
-    let (temp_path, mut temp_file) = loop {
-        let id = NEXT_TEMP.fetch_add(1, Ordering::Relaxed);
-        let candidate = sibling(&format!(".tmp.{}.{id}", std::process::id()));
-        match OpenOptions::new().write(true).create_new(true).open(&candidate) {
-            Ok(file) => break (candidate, file),
-            Err(error) if error.kind() == ErrorKind::AlreadyExists || fs::symlink_metadata(&candidate).is_ok() => continue,
-            Err(error) => return Err(format!("File Save: cannot create temporary file: {error}")),
-        }
-    };
+    let (temp_path, mut temp_file) = create_temp(path).map_err(|error| format!("File Save: cannot create temporary file: {error}"))?;
 
     let mut backup_path: Option<std::path::PathBuf> = None;
     let result = (|| -> Result<(), String> {
@@ -439,10 +493,13 @@ pub fn save_file(path: &Path, content: &str) -> Result<(), String> {
 
         if let Some(old) = original {
             // Continue after the newest backup so index order is age order even after pruning.
-            let mut index = existing_backups(path).last().map_or(0, |(newest, _)| newest + 1);
+            let mut index = match existing_backups(path).last() {
+                Some((newest, _)) => newest.checked_add(1).ok_or("File Save: too many backup files")?,
+                None => 0,
+            };
             let mut backup = loop {
                 let suffix = if index == 0 { ".bak".to_string() } else { format!(".bak.{index}") };
-                let candidate = sibling(&suffix);
+                let candidate = sibling(path, &suffix);
                 match OpenOptions::new().write(true).create_new(true).open(&candidate) {
                     Ok(file) => { backup_path = Some(candidate.clone()); break file }
                     // Windows may return AccessDenied for an existing directory.
@@ -465,8 +522,8 @@ pub fn save_file(path: &Path, content: &str) -> Result<(), String> {
         // original is untouched, so a backup of it would only pile up on every retry.
         let _ = fs::remove_file(&temp_path);
         if let Some(b) = &backup_path { let _ = fs::remove_file(b); }
-    } else if backup_path.is_some() {
-        prune_backups(path);
+    } else if let Some(name) = backup_path.as_deref().and_then(Path::file_name).and_then(|n| n.to_str()) {
+        record_backup(path, name);
     }
     result
 }
@@ -475,24 +532,27 @@ pub fn save_file(path: &Path, content: &str) -> Result<(), String> {
 pub const MAX_BACKUPS: usize = 10;
 
 /// `(index, path)` of every `.bak` (index 0) and `.bak.N` entry beside `path`, oldest first.
-/// Entries of any kind count so a stray directory still reserves its index.
+/// Entries of any kind count, and so does a file the app did not make: a new backup never takes
+/// an index that is in use.
 fn existing_backups(path: &Path) -> Vec<(u64, std::path::PathBuf)> {
     let (Some(dir), Some(name)) = (path.parent(), path.file_name().and_then(|n| n.to_str())) else { return Vec::new() };
     let dir = if dir.as_os_str().is_empty() { Path::new(".") } else { dir };
-    let prefix = format!("{name}.bak");
     let Ok(entries) = std::fs::read_dir(dir) else { return Vec::new() };
     let mut found: Vec<(u64, std::path::PathBuf)> = entries.flatten().filter_map(|entry| {
-        let file_name = entry.file_name();
-        let rest = strip_file_name_prefix(file_name.to_str()?, &prefix)?;
-        let index = if rest.is_empty() { 0 } else {
-            let digits = rest.strip_prefix('.')?;
-            if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) { return None }
-            digits.parse().ok()?
-        };
+        let index = backup_index(name, entry.file_name().to_str()?)?;
         Some((index, entry.path()))
     }).collect();
     found.sort();
     found
+}
+
+/// The index of `file` when it is a backup of the budget file `budget`: `.bak` is 0, `.bak.N` is N.
+fn backup_index(budget: &str, file: &str) -> Option<u64> {
+    let rest = strip_file_name_prefix(file, &format!("{budget}.bak"))?;
+    if rest.is_empty() { return Some(0); }
+    let digits = rest.strip_prefix('.')?;
+    if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) { return None; }
+    digits.parse().ok()
 }
 
 /// `name` without `prefix`, matched the way the file system matches names: ignoring case on
@@ -506,15 +566,58 @@ fn strip_file_name_prefix<'a>(name: &'a str, prefix: &str) -> Option<&'a str> {
     Some(rest.as_str())
 }
 
-/// Delete all but the newest `MAX_BACKUPS` backup files. Failures are ignored: the save
-/// itself already succeeded, and anything that is not a regular file is left alone.
-fn prune_backups(path: &Path) {
-    let files: Vec<_> = existing_backups(path).into_iter()
-        .filter(|(_, p)| std::fs::symlink_metadata(p).is_ok_and(|m| m.is_file()))
+/// `<budget file name>.baklog`: the backups this app made beside a budget, one file name per line,
+/// oldest first. Only logged names are ever removed, so a backup made by hand is never touched.
+fn backup_log_path(path: &Path) -> std::path::PathBuf {
+    sibling(path, ".baklog")
+}
+
+/// The backup names in the log, oldest first. A missing log lists nothing. `None` means the log file
+/// exists but is not a log of this budget (or is empty), so it belongs to the user: it is then
+/// neither trusted nor overwritten.
+fn logged_backups(path: &Path) -> Option<Vec<String>> {
+    let text = match std::fs::read_to_string(backup_log_path(path)) {
+        Ok(text) => text,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Some(Vec::new()),
+        Err(_) => return None,
+    };
+    let budget = path.file_name()?.to_str()?;
+    let names: Option<Vec<String>> = text.lines().filter(|line| !line.is_empty())
+        .map(|line| backup_index(budget, line).map(|_| line.to_string()))
         .collect();
-    for (_, old) in &files[..files.len().saturating_sub(MAX_BACKUPS)] {
-        let _ = std::fs::remove_file(old);
+    names.filter(|names| !names.is_empty())
+}
+
+/// File names compare as the file system does: ignoring case on Windows.
+fn same_name(a: &str, b: &str) -> bool {
+    if cfg!(windows) { a.to_lowercase() == b.to_lowercase() } else { a == b }
+}
+
+fn is_regular_file(path: &Path) -> bool {
+    std::fs::symlink_metadata(path).is_ok_and(|m| m.is_file())
+}
+
+/// Log `backup`, a file name just created beside `path`, then delete the oldest logged backups that
+/// go beyond `MAX_BACKUPS`. Only names in the log are removed, and only while they are regular files.
+/// Failures are ignored: the save itself succeeded, and a backup that cannot be removed stays logged
+/// for the next save.
+fn record_backup(path: &Path, backup: &str) {
+    let Some(mut names) = logged_backups(path) else { return };
+    names.retain(|name| !same_name(name, backup) && is_regular_file(&path.with_file_name(name)));
+    names.push(backup.to_string());
+    let excess = names.len().saturating_sub(MAX_BACKUPS);
+    let mut kept = Vec::with_capacity(names.len());
+    for (i, name) in names.into_iter().enumerate() {
+        if i < excess {
+            match std::fs::remove_file(path.with_file_name(&name)) {
+                Ok(()) => continue,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(_) => {}
+            }
+        }
+        kept.push(name);
     }
+    let _ = replace_file(&backup_log_path(path), format!("{}\n", kept.join("\n")).as_bytes());
 }
 
 #[cfg(test)]

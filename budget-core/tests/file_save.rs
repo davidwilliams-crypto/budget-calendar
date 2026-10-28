@@ -1,6 +1,7 @@
 //! File saving preserves the current document and the newest `bgt::MAX_BACKUPS` backups.
 
-use budget_core::bgt;
+use budget_core::config::BudgetConfig;
+use budget_core::{bgt, BudgetDb, Cal};
 use std::fs;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -85,7 +86,7 @@ fn replacing_existing_file_keeps_original_bytes_in_backup() {
 
     assert_eq!(fs::read(path).unwrap(), b"edited");
     assert_eq!(fs::read(dir.file("budget.bgt.bak")).unwrap(), b"original\r\nbytes\x80");
-    assert_eq!(dir.entries(), ["budget.bgt", "budget.bgt.bak"]);
+    assert_eq!(dir.entries(), ["budget.bgt", "budget.bgt.bak", "budget.bgt.baklog"]);
 }
 
 #[test]
@@ -100,7 +101,7 @@ fn repeated_changes_keep_all_prior_versions() {
     assert_eq!(fs::read(path).unwrap(), b"version three");
     assert_eq!(fs::read(dir.file("budget.bgt.bak")).unwrap(), b"version one");
     assert_eq!(fs::read(dir.file("budget.bgt.bak.1")).unwrap(), b"version two");
-    assert_eq!(dir.entries(), ["budget.bgt", "budget.bgt.bak", "budget.bgt.bak.1"]);
+    assert_eq!(dir.entries(), ["budget.bgt", "budget.bgt.bak", "budget.bgt.bak.1", "budget.bgt.baklog"]);
 }
 
 /// Windows names ignore case, so saving through another spelling of the same file continues the
@@ -113,7 +114,8 @@ fn backups_made_through_another_spelling_share_one_numbering_and_cap() {
     for n in 1..=8 { bgt::save_file(&dir.file("Home.bgt"), &format!("v{n}")).unwrap(); }
     for n in 9..=13 { bgt::save_file(&dir.file("HOME.BGT"), &format!("v{n}")).unwrap(); }
 
-    let backups: Vec<String> = dir.entries().into_iter().filter(|e| e.to_lowercase().contains(".bgt.bak")).collect();
+    // the log lists the backups, but is not one of them
+    let backups: Vec<String> = dir.entries().into_iter().filter(|e| e.to_lowercase().contains(".bgt.bak") && !e.to_lowercase().ends_with(".baklog")).collect();
     assert_eq!(backups.len(), bgt::MAX_BACKUPS, "{backups:?}");
     // v3..v12 survive whichever spelling made them; v0..v2 (the oldest) were pruned.
     for index in 3..=12 {
@@ -151,6 +153,127 @@ fn only_the_newest_backups_are_kept_and_numbering_continues() {
 }
 
 #[test]
+fn budgetrc_save_replaces_the_settings_without_leftover_files() {
+    let dir = TestDir::new();
+    let rc = dir.file(".budgetrc");
+    let mut config = BudgetConfig { currency_prefix: "EUR".into(), ..Default::default() };
+    config.save(&rc).unwrap();
+    config.currency_prefix = "CHF".into();
+    config.save(&rc).unwrap();
+
+    assert_eq!(BudgetConfig::load(&rc).currency_prefix, "CHF");
+    assert_eq!(dir.entries(), [".budgetrc"]);
+}
+
+#[cfg(windows)]
+#[test]
+fn failed_budgetrc_save_keeps_the_previous_settings_and_leaves_no_backup() {
+    use std::os::windows::fs::OpenOptionsExt;
+
+    let dir = TestDir::new();
+    let rc = dir.file(".budgetrc");
+    BudgetConfig { currency_prefix: "EUR".into(), ..Default::default() }.save(&rc).unwrap();
+    // Readable by others, but not writable or replaceable while held.
+    let held = fs::OpenOptions::new().read(true).share_mode(1).open(&rc).unwrap();
+
+    assert!(BudgetConfig { currency_prefix: "CHF".into(), ..Default::default() }.save(&rc).is_err());
+
+    drop(held);
+    assert_eq!(BudgetConfig::load(&rc).currency_prefix, "EUR");
+    assert_eq!(dir.entries(), [".budgetrc"]);
+}
+
+#[test]
+fn refused_save_of_a_non_finite_amount_leaves_the_file_and_backups_alone() {
+    let dir = TestDir::new();
+    let path = dir.file("budget.bgt");
+    fs::write(&path, b"original").unwrap();
+    fs::write(dir.file("budget.bgt.bak"), b"older backup").unwrap();
+    let text = "v,2\n:\n=,\n-10.0, A, 20260101, 1m, 5, 20261201, 48,  \n## END-OF-DATA; line_no=5 ##";
+    let mut db = BudgetDb::from_loaded(bgt::load_str(text, 20260101, None).unwrap_or_else(|l| panic!("{}", l.log)), &Cal::from_int(20260101), 12, false);
+    db.payments[0].amount = f64::NAN;
+
+    assert!(db.save(&path, None).is_err());
+
+    assert_eq!(fs::read(&path).unwrap(), b"original");
+    assert_eq!(fs::read(dir.file("budget.bgt.bak")).unwrap(), b"older backup");
+    assert_eq!(dir.entries(), ["budget.bgt", "budget.bgt.bak"]);
+}
+
+#[test]
+fn a_backup_made_by_hand_is_never_pruned() {
+    let dir = TestDir::new();
+    let path = dir.file("home.bgt");
+    fs::write(&path, b"v0").unwrap();
+    fs::write(dir.file("home.bgt.bak"), b"my own copy").unwrap();
+    for other in ["home.bgt.bak.old", "home.bgt.bak.1a", "home.bgt.backup", "other.bgt.bak"] {
+        fs::write(dir.file(other), b"keep").unwrap();
+    }
+
+    for n in 1..=bgt::MAX_BACKUPS + 2 {
+        bgt::save_file(&path, &format!("v{n}")).unwrap();
+    }
+
+    assert_eq!(fs::read(dir.file("home.bgt.bak")).unwrap(), b"my own copy");
+    // the app's own backups are .bak.1 .. .bak.12 (v0 .. v11); the newest ten are kept
+    assert!(!dir.file("home.bgt.bak.1").exists());
+    assert!(!dir.file("home.bgt.bak.2").exists());
+    for index in 3..=12 {
+        assert_eq!(fs::read(dir.file(&format!("home.bgt.bak.{index}"))).unwrap(), format!("v{}", index - 1).as_bytes());
+    }
+    for other in ["home.bgt.bak.old", "home.bgt.bak.1a", "home.bgt.backup", "other.bgt.bak"] {
+        assert_eq!(fs::read(dir.file(other)).unwrap(), b"keep");
+    }
+}
+
+#[test]
+fn the_backup_log_names_exactly_the_backups_this_app_kept() {
+    let dir = TestDir::new();
+    let path = dir.file("budget.bgt");
+    fs::write(&path, b"v0").unwrap();
+
+    for n in 1..=bgt::MAX_BACKUPS + 2 {
+        bgt::save_file(&path, &format!("v{n}")).unwrap();
+    }
+
+    let log = fs::read_to_string(dir.file("budget.bgt.baklog")).unwrap();
+    let want: Vec<String> = (2..=11).map(|index| format!("budget.bgt.bak.{index}")).collect();
+    assert_eq!(log.lines().collect::<Vec<_>>(), want);
+    assert_eq!(log.lines().count(), bgt::MAX_BACKUPS);
+}
+
+#[test]
+fn a_file_named_like_the_log_is_never_overwritten() {
+    let dir = TestDir::new();
+    let path = dir.file("budget.bgt");
+    fs::write(&path, b"v0").unwrap();
+    fs::write(dir.file("budget.bgt.baklog"), b"my notes, not a log").unwrap();
+
+    for n in 1..=3 {
+        bgt::save_file(&path, &format!("v{n}")).unwrap();
+    }
+
+    assert_eq!(fs::read(dir.file("budget.bgt.baklog")).unwrap(), b"my notes, not a log");
+    // without a log of its own the app removes nothing, so all three backups remain
+    assert_eq!(fs::read(dir.file("budget.bgt.bak")).unwrap(), b"v0");
+    assert_eq!(fs::read(dir.file("budget.bgt.bak.1")).unwrap(), b"v1");
+    assert_eq!(fs::read(dir.file("budget.bgt.bak.2")).unwrap(), b"v2");
+}
+
+#[test]
+fn a_backup_index_at_the_top_of_the_range_is_an_error_not_a_panic() {
+    let dir = TestDir::new();
+    let path = dir.file("budget.bgt");
+    fs::write(&path, b"original").unwrap();
+    fs::write(dir.file(&format!("budget.bgt.bak.{}", u64::MAX)), b"absurd").unwrap();
+
+    assert!(bgt::save_file(&path, "edited").is_err());
+
+    assert_eq!(fs::read(&path).unwrap(), b"original");
+    assert_eq!(dir.entries().len(), 2);
+}
+
+#[test]
 fn pruning_never_removes_a_directory_named_like_a_backup() {
     let dir = TestDir::new();
     let path = dir.file("budget.bgt");
@@ -180,7 +303,7 @@ fn existing_backup_files_and_directories_are_never_overwritten() {
     assert_eq!(fs::read(dir.file("budget.bgt.bak")).unwrap(), b"older backup");
     assert!(dir.file("budget.bgt.bak.1").is_dir());
     assert_eq!(fs::read(dir.file("budget.bgt.bak.2")).unwrap(), b"original");
-    assert_eq!(dir.entries(), ["budget.bgt", "budget.bgt.bak", "budget.bgt.bak.1", "budget.bgt.bak.2"]);
+    assert_eq!(dir.entries(), ["budget.bgt", "budget.bgt.bak", "budget.bgt.bak.1", "budget.bgt.bak.2", "budget.bgt.baklog"]);
 }
 
 #[test]

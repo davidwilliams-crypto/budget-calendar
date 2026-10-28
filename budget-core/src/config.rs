@@ -454,18 +454,13 @@ impl BudgetConfig {
         }
     }
 
-    /// `Config.saveProperties`: copy to `.bak`, write, delete `.bak` on success / restore on failure.
+    /// `Config.saveProperties`, with the file replaced through a temporary file beside it so a failed
+    /// or interrupted write keeps the previous settings. The original's `.bak` copy is not made: the
+    /// rename already keeps the old file, and the copy could overwrite and then delete a user's own
+    /// `.budgetrc.bak`.
     pub fn save(&self, path: &Path) -> Result<(), String> {
-        let bak = std::path::PathBuf::from(format!("{}.bak", path.display()));
-        let had_old = path.exists();
-        if had_old {
-            std::fs::copy(path, &bak).map_err(|_| format!("unable to backup '{}' to '{}'", path.display(), bak.display()))?;
-        }
         let text = format_properties(&self.to_properties());
-        match std::fs::write(path, crate::bgt::latin1_encode(&text)) {
-            Ok(()) => { if had_old { let _ = std::fs::remove_file(&bak); } Ok(()) }
-            Err(e) => { if had_old { let _ = std::fs::rename(&bak, path); } Err(format!("Exception: {e}")) }
-        }
+        crate::bgt::replace_file(path, &crate::bgt::latin1_encode(&text)).map_err(|e| format!("Exception: {e}"))
     }
 
     /// `addRecentFile`: move/insert at the front, keep at most 5.
