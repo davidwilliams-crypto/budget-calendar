@@ -1047,9 +1047,10 @@ impl App {
         if self.db.is_some() && !self.has_draft() { self.payment_editor = Some(PaymentEditor::new(date)); }
     }
 
-    fn edit_payment(&mut self, id: i32) {
+    /// `from`: the calendar occurrence the whole payment is edited from, if any.
+    fn edit_payment(&mut self, id: i32, from: Option<i32>) {
         if let Some(db) = &self.db {
-            if let Some(i) = db.get_by_id(id) { self.payment_editor = Some(PaymentEditor::edit(&db.payments[i])); }
+            if let Some(i) = db.get_by_id(id) { self.payment_editor = Some(PaymentEditor::edit_at(&db.payments[i], from)); }
         }
     }
 
@@ -1119,7 +1120,8 @@ impl App {
             calendar::Action::Filter(f) => self.apply_filter(&f),
             calendar::Action::Add(date) => self.new_payment(date),
             calendar::Action::Day(date) => self.day_dialog = Some(date),
-            calendar::Action::EditPayment(id) => self.edit_payment(id),
+            calendar::Action::EditPayment(id) => self.edit_payment(id, None),
+            calendar::Action::EditPaymentFrom { id, date } => self.edit_payment(id, Some(date)),
             calendar::Action::EditTransaction { id, date, amount } => self.edit_transaction(id, date, amount),
             calendar::Action::DeletePayment(id) => self.confirm_delete = Some(DeleteTarget { id, date: None }),
             calendar::Action::DeleteTransaction { id, date } => self.confirm_delete = Some(DeleteTarget { id, date: Some(date) }),
@@ -1204,7 +1206,7 @@ impl App {
                                 // Runs only while the menu is shown (egui 0.31 returns the menu's
                                 // inner response only on the frame it closes).
                                 menu_open = true;
-                                if ui.button("Edit whole payment").clicked() { action = Some(calendar::Action::EditPayment(p.id)); ui.close_menu(); }
+                                if ui.button("Edit whole payment").clicked() { action = Some(calendar::Action::EditPaymentFrom { id:p.id, date }); ui.close_menu(); }
                                 if ui.button(RichText::new("Delete transaction").color(t.negative)).clicked() { action = Some(calendar::Action::DeleteTransaction { id:p.id, date }); ui.close_menu(); }
                             });
                         });
@@ -1256,9 +1258,9 @@ impl App {
             match editor.show(ctx, &self.t, db, self.cfg.first_day_of_week_is_sunday, self.today) {
                 PaymentAction::None => {},
                 PaymentAction::Cancel => self.payment_editor = None,
-                PaymentAction::Apply(p) => {
+                PaymentAction::Apply(p, from) => {
                     let start = p.start_date;
-                    match document::put_payment(self.db.as_mut().unwrap(), *p, id) {
+                    match document::apply_payment(self.db.as_mut().unwrap(), *p, id, from) {
                         Ok(id) => {
                             if self.payment_editor.as_ref().is_some_and(|e| e.payment_id.is_none()) {
                                 // The calendar moves to the new payment's month, away from the day list.
@@ -2027,9 +2029,13 @@ mod lifecycle_tests {
                 let actual = restored.get_day(&Cal::from_int(date)).unwrap().transactions[0].amount;
                 assert_eq!(actual, expected, "scope {scope:?}, date {date}");
             }
-            assert_eq!(restored.payments[0].get_note(20261027).as_deref(), Some("This date only"));
-            assert!(restored.payments[0].get_note(20261127).is_none());
-            assert_eq!(restored.payments[0].get_flag(20261127), budget_core::FLAG_NONE);
+            // The future scope splits the payment (04 §18), so the selected date's note lives on
+            // whichever record holds that occurrence.
+            assert_eq!(restored.payments.len(), if future { 2 } else { 1 });
+            let note = |date| restored.payments.iter().find_map(|p| p.get_note(date));
+            assert_eq!(note(20261027).as_deref(), Some("This date only"));
+            assert!(note(20261127).is_none());
+            assert!(restored.payments.iter().all(|p| p.get_flag(20261127) == budget_core::FLAG_NONE));
             std::fs::remove_dir_all(dir).unwrap();
         }
     }

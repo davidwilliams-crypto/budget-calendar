@@ -194,6 +194,9 @@ fn pointer_only(ui: &Ui, rect: Rect, id: egui::Id) -> egui::Response {
 
 pub enum Action {
     Filter(String), Add(i32), Day(i32), EditPayment(i32), DeletePayment(i32),
+    /// Edit the whole payment from one of its calendar occurrences (04 §1: the dialog's `cal`),
+    /// so an amount or schedule change can apply from that date onward.
+    EditPaymentFrom { id: i32, date: i32 },
     EditTransaction { id: i32, date: i32, amount: f64 },
     DeleteTransaction { id: i32, date: i32 },
     MoveTransaction { id: i32, from: i32, to: i32, amount: f64 },
@@ -487,7 +490,7 @@ fn draw_row(ui: &mut Ui, p: &Painter, row: &TranRow, rr: Rect, t: &Tokens, decim
     // also open the menu of whatever row lies under the pointer.
     if !egui::DragAndDrop::has_payload_of_type::<DraggedTransaction>(ui.ctx()) { resp.context_menu(|ui| {
         if ui.button("Edit transaction (this date)").clicked() { action = Some(Action::EditTransaction { id:row.payment_id, date:row.date, amount:row.value }); ui.close_menu(); }
-        if ui.button("Edit whole payment").clicked() { action = Some(Action::EditPayment(row.payment_id)); ui.close_menu(); }
+        if ui.button("Edit whole payment").clicked() { action = Some(Action::EditPaymentFrom { id:row.payment_id, date:row.date }); ui.close_menu(); }
         if ui.button("Filter this payment").clicked() { action = Some(Action::Filter(row.filter.clone())); ui.close_menu(); }
         ui.separator();
         if ui.button("Delete transaction (this date)").clicked() { action = Some(Action::DeleteTransaction { id:row.payment_id, date:row.date }); ui.close_menu(); }
@@ -652,7 +655,7 @@ mod tests {
     fn suffix_markers_map_to_dots() {
         assert_eq!(super::suffix_marker('\''),Some(super::Marker::Adjusted));
         assert_eq!(super::suffix_marker('*'), Some(super::Marker::Last));
-        assert_eq!(super::suffix_marker(' '), None);
+        assert_eq!(super::suffix_marker('\0'), None);
         assert_eq!(super::LEGEND.len(), 5);
     }
 
@@ -1176,6 +1179,15 @@ mod tests {
         frame(ctx, t, view, size, vec![egui::Event::PointerMoved(pos)]);
         frame(ctx, t, view, size, vec![button(pos, true)]);
         frame(ctx, t, view, size, vec![button(pos, false)]).1
+    }
+
+    #[test]
+    fn editing_the_whole_payment_from_a_row_carries_the_clicked_date() {
+        // The payment editor offers "From <date> onward" only when it knows the clicked occurrence.
+        let (ctx, t) = context();
+        let view = fixture(4, 1);
+        let output = right_click_menu(&ctx, &t, &view, Pos2::new(25.0, 59.0));
+        assert!(matches!(click_text(&ctx, &t, &view, &output, "Edit whole payment"), Some(Action::EditPaymentFrom { id: 10, date: 20261001 })));
     }
 
     #[test]
