@@ -13,7 +13,7 @@ use std::rc::Rc;
 use crate::calendar::Action;
 use crate::names::{MONTHS, WEEKDAYS};
 use crate::theme::{self, font, tint, Tokens, CAPTION, SEMI};
-use crate::view::money;
+use crate::view::{is_negative, money};
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
 enum StatusFilter {
@@ -538,7 +538,8 @@ fn row_text(ui: &Ui, payment: &Payment, row: Rect, columns: &Columns, t: &Tokens
         Align2::RIGHT_CENTER,
         money(payment.amount, true),
         font(ui, SEMI),
-        if payment.disabled { t.text_muted } else { t.signed(payment.amount) },
+        // The colour follows the sign the amount is printed with, so a value that shows no minus is never red.
+        if payment.disabled { t.text_muted } else if is_negative(payment.amount, true) { t.negative } else { t.positive },
     );
     truncated(ui, Pos2::new(x + columns.schedule, label_y), schedule, egui::TextStyle::Body.resolve(ui.style()), t.text, columns.schedule_width);
     truncated(ui, Pos2::new(x + columns.schedule, detail_y), start_label, font(ui, CAPTION), t.text_muted, columns.schedule_width);

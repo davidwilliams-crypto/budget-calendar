@@ -36,15 +36,18 @@ pub fn share_cell(p: Option<f64>, signed: bool) -> String {
     p.map_or_else(|| "?".to_string(), |p| format!("{}%", pct_text(if signed { p } else { p.abs() })))
 }
 
-/// The original's `isNegative(x, decimals)`: `x < -0.01` with decimals, else `(long)x < 0`.
+/// Whether `money(v, decimals)` shows a minus sign. The colour follows the text, so a value that
+/// rounds to zero is never coloured as negative and every figure printed as "−1" is.
 pub fn is_negative(v: f64, decimals: bool) -> bool {
-    if decimals { v < -0.01 } else { (v as i64) < 0 }
+    money(v, decimals).starts_with('\u{2212}')
 }
 
 
-/// Day-balance classification in the original's precedence: low, then min, then max.
+/// Day-balance classification in the original's precedence: low, then min, then max. A flat
+/// month (every day equal, including an empty budget) has no lowest, highest or low day.
 pub fn balance_kind(closing: f64, min: f64, max: f64, threshold: f64) -> BalKind {
-    if closing + 0.05 < threshold && min != max { BalKind::Low }
+    if min == max { BalKind::Normal }
+    else if closing + 0.05 < threshold { BalKind::Low }
     else if closing == min { BalKind::Min }
     else if closing == max { BalKind::Max }
     else { BalKind::Normal }
@@ -497,6 +500,16 @@ mod build_tests {
     }
 
     #[test]
+    fn empty_budget_labels_no_day_as_min_max_or_low() {
+        // Every day of an empty budget holds the same balance, so none is the lowest or highest day.
+        let (mut db, cur) = db_with(Vec::new());
+        let view = month(&mut db, &cur, None);
+        let kinds: Vec<BalKind> = view.cells.iter().filter(|c| c.in_month).filter_map(|c| c.balance.as_ref().map(|b| b.kind)).collect();
+        assert_eq!(kinds.len(), 31, "every day of October has a balance");
+        assert!(kinds.iter().all(|k| *k == BalKind::Normal), "{kinds:?}");
+    }
+
+    #[test]
     fn disabled_payments_keep_their_highlight_colour() {
         let mut p = payment(20261015, "Parked", -50.0);
         p.disabled = true;
@@ -559,11 +572,15 @@ mod money_tests {
         assert_eq!(balance_display(10.96, true), 10.96);
     }
     #[test]
-    fn negative_rule_matches_original() {
+    fn negative_colour_follows_the_displayed_sign() {
+        // A value that prints without a sign is never coloured negative; one that prints "−1" always is.
         assert!(!is_negative(-2.7e-17, true));
-        assert!(!is_negative(-0.01, true));
+        assert!(!is_negative(-0.004, true));
+        assert!(is_negative(-0.01, true), "-0.01 prints as −0.01");
         assert!(is_negative(-0.02, true));
-        assert!(!is_negative(-0.7, false));
+        assert!(is_negative(-0.7, false), "-0.7 prints as −1");
+        assert!(!is_negative(-0.4, false), "-0.4 prints as 0");
+        assert_eq!(money(-0.4, false), "0");
         assert!(is_negative(-1.2, false));
         assert!(!is_negative(5.0, false));
     }
@@ -573,7 +590,9 @@ mod money_tests {
         assert_eq!(balance_kind(99.97, 50.0, 500.0, 100.0), BalKind::Normal);
         assert_eq!(balance_kind(99.94, 50.0, 500.0, 100.0), BalKind::Low);
         assert_eq!(balance_kind(500.0, 50.0, 500.0, 100.0), BalKind::Max);
-        assert_eq!(balance_kind(50.0, 50.0, 50.0, 100.0), BalKind::Min);
+        // A flat month has no lowest, highest or low day, whatever the threshold.
+        assert_eq!(balance_kind(50.0, 50.0, 50.0, 100.0), BalKind::Normal);
+        assert_eq!(balance_kind(0.0, 0.0, 0.0, 100.0), BalKind::Normal);
     }
     #[test]
     fn tiny_negatives_and_pct_have_no_minus() {
