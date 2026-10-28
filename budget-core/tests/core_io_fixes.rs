@@ -209,3 +209,30 @@ fn utf8_byte_order_mark_is_skipped() {
     let l = bgt::load_str(&enc, 20260101, Some("pw")).unwrap_or_else(|l| panic!("{}", l.log));
     assert_eq!(l.payments[0].description, "Rent");
 }
+
+#[test]
+fn non_finite_amounts_are_refused_before_saving() {
+    // The loader accepts only finite amounts, so a save must never write a file it cannot reopen.
+    let base = || {
+        let mut p = Payment::new(20260101);
+        p.description = "A".into();
+        p
+    };
+    let adj = Payment::new(20260101);
+    for v in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+        let mut amount = base();
+        amount.amount = v;
+        let mut loan = base();
+        loan.loan_amount = v;
+        let mut custom = base();
+        custom.add_custom_amount(20260201, v);
+        for p in [amount, loan, custom] {
+            assert!(bgt::save_str(&[p.clone()], &adj, "", None).is_err(), "{:?}", p.opt);
+            assert!(bgt::save_str(&[p], &adj, "", Some("pw")).is_err());
+        }
+    }
+    let mut bad_adjustment = Payment::new(20260101);
+    bad_adjustment.add_custom_amount(20260301, f64::NAN);
+    assert!(bgt::save_str(&[base()], &bad_adjustment, "", None).is_err());
+    assert!(bgt::save_str(&[base()], &adj, "", None).is_ok());
+}

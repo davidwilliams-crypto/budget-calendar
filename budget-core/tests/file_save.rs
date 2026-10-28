@@ -1,6 +1,6 @@
 //! File saving preserves the current document and the newest `bgt::MAX_BACKUPS` backups.
 
-use budget_core::bgt;
+use budget_core::{bgt, BudgetDb, Cal};
 use std::fs;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -148,6 +148,23 @@ fn only_the_newest_backups_are_kept_and_numbering_continues() {
     for other in ["budget.bgt.bak.old", "budget.bgt.bak.1a", "other.bgt.bak", "budget.bgt.backup"] {
         assert_eq!(fs::read(dir.file(other)).unwrap(), b"keep");
     }
+}
+
+#[test]
+fn refused_save_of_a_non_finite_amount_leaves_the_file_and_backups_alone() {
+    let dir = TestDir::new();
+    let path = dir.file("budget.bgt");
+    fs::write(&path, b"original").unwrap();
+    fs::write(dir.file("budget.bgt.bak"), b"older backup").unwrap();
+    let text = "v,2\n:\n=,\n-10.0, A, 20260101, 1m, 5, 20261201, 48,  \n## END-OF-DATA; line_no=5 ##";
+    let mut db = BudgetDb::from_loaded(bgt::load_str(text, 20260101, None).unwrap_or_else(|l| panic!("{}", l.log)), &Cal::from_int(20260101), 12, false);
+    db.payments[0].amount = f64::NAN;
+
+    assert!(db.save(&path, None).is_err());
+
+    assert_eq!(fs::read(&path).unwrap(), b"original");
+    assert_eq!(fs::read(dir.file("budget.bgt.bak")).unwrap(), b"older backup");
+    assert_eq!(dir.entries(), ["budget.bgt", "budget.bgt.bak"]);
 }
 
 #[test]
