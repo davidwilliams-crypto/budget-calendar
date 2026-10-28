@@ -1,8 +1,8 @@
 ; Budget Calendar (Rust port) — NSIS installer script
-; Build: makensis /DVERSION=0.2.0 installer\budget.nsi   (run from the repo root after `cargo build --release`)
+; Build: makensis /DVERSION=<budget-gui version from Cargo.toml> installer\budget.nsi   (run from the repo root after `cargo build --release`)
 
 !ifndef VERSION
-  !define VERSION "0.2.0"
+  !error "Pass /DVERSION=<budget-gui version from budget-gui/Cargo.toml>"
 !endif
 !define APPNAME "Budget Calendar"
 !define EXE "BudgetCalendar.exe"
@@ -24,9 +24,9 @@ UninstPage instfiles
 Section "Install"
   SetOutPath "$INSTDIR"
   File "/oname=${EXE}" "..\target\release\budget-gui.exe"
+  ; Sample budget is user-editable: install only if absent, never delete on uninstall.
+  IfFileExists "$INSTDIR\sample.bgt" +2 0
   File "..\reference\sample.bgt"
-  File "..\vendor\webbrowser\src\lib.rs"
-  Delete "$INSTDIR\lib.rs"
   WriteUninstaller "$INSTDIR\uninstall.exe"
 
   CreateDirectory "$SMPROGRAMS\${APPNAME}"
@@ -50,7 +50,6 @@ SectionEnd
 
 Section "Uninstall"
   Delete "$INSTDIR\${EXE}"
-  Delete "$INSTDIR\sample.bgt"
   Delete "$INSTDIR\uninstall.exe"
   RMDir "$INSTDIR"
   Delete "$SMPROGRAMS\${APPNAME}\${APPNAME}.lnk"

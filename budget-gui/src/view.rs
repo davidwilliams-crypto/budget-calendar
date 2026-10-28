@@ -2,7 +2,7 @@
 
 use budget_core::config::BudgetConfig;
 use budget_core::filter::Filter;
-use budget_core::numfmt::format_frac2;
+use budget_core::numfmt::{format_frac0, format_frac2};
 use budget_core::{stats, BudgetDb, Cal, Field, FLAG_IMPORTANT, FLAG_PAID};
 use eframe::egui::Color32;
 use egui_phosphor::regular as ph;
@@ -11,12 +11,37 @@ use crate::theme::rgb;
 
 /// `#,##0` or `#,##0.00`, with a typographic minus.
 pub fn money(v: f64, decimals: bool) -> String {
-    let s = format_frac2(v);
-    let s = if decimals { s } else { s[..s.len() - 3].to_string() };
+    let s = if decimals { format_frac2(v) } else { format_frac0(v) };
     s.replacen('-', "\u{2212}", 1)
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+/// Percentage share as a whole number, never "-0".
+pub fn pct_text(p: f64) -> String {
+    let r = p.round();
+    format!("{:.0}", if r == 0.0 { 0.0 } else { r }).replacen('-', "\u{2212}", 1)
+}
+
+/// The original's `isNegative(x, decimals)`: `x < -0.01` with decimals, else `(long)x < 0`.
+pub fn is_negative(v: f64, decimals: bool) -> bool {
+    if decimals { v < -0.01 } else { (v as i64) < 0 }
+}
+
+/// Balance as shown: exact with decimals, else nudged by `0.05f` and truncated toward zero.
+pub fn balance_display(v: f64, decimals: bool) -> f64 {
+    if decimals { return v; }
+    let nudge = 0.05f32 as f64;
+    if v > 0.0 { ((v + nudge) as i64) as f64 } else { ((v - nudge) as i64) as f64 }
+}
+
+/// Day-balance classification in the original's precedence: low, then min, then max.
+pub fn balance_kind(closing: f64, min: f64, max: f64, threshold: f64) -> BalKind {
+    if closing + 0.05 < threshold && min != max { BalKind::Low }
+    else if closing == min { BalKind::Min }
+    else if closing == max { BalKind::Max }
+    else { BalKind::Normal }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum BalKind { Normal, Max, Min, Low }
 
 pub struct Tip {
@@ -30,6 +55,8 @@ pub struct Tip {
 }
 
 pub struct TranRow {
+    pub payment_id: i32,
+    pub date: i32,
     pub icon: &'static str,
     pub text: String,
     pub amount: String,
@@ -132,9 +159,11 @@ pub fn build(db: &mut BudgetDb, cfg: &BudgetConfig, cur: &Cal, today: i32, filte
                     let hi = p.get_hilighting(date);
                     let hi = if hi == -1 { p.default_hilighting() } else { hi };
                     let note = p.get_note(date);
-                    let mut amt = money(amount, decimals);
-                    if suffix != '\0' { amt.push(suffix); }
+                    // The suffix marker is drawn as a coloured dot by the calendar, not as text.
+                    let amt = money(amount, decimals);
                     cell.rows.push(TranRow {
+                        payment_id: p.id,
+                        date,
                         icon: icon_for(p.image_path.as_deref(), &p.description, p.category.as_deref()),
                         text: p.short_description().to_string(),
                         amount: amt,
@@ -146,26 +175,27 @@ pub fn build(db: &mut BudgetDb, cfg: &BudgetConfig, cur: &Cal, today: i32, filte
                         tip: Tip { description: p.description.clone(), category: p.category.clone(), amount, planned: p.amount, balance_after: balance, note, suffix },
                     });
                 }
-                let kind = if closing == max { BalKind::Max }
-                    else if closing == min { BalKind::Min }
-                    else if closing < cfg.min_balance_4_max_saving { BalKind::Low }
-                    else { BalKind::Normal };
-                cell.balance = Some(Balance { text: money(closing, decimals), value: closing, kind, adjusted });
+                let kind = balance_kind(closing, min, max, cfg.min_balance_4_max_saving);
+                cell.balance = Some(Balance { text: money(balance_display(closing, decimals), decimals), value: closing, kind, adjusted });
             }
         }
         cells.push(cell);
     }
     let st = stats::calc_statistics(db, cur, 1, false, filter);
+    // The summary tiles must reconcile with the opening/closing balances, which are never filtered,
+    // so they always use unfiltered totals; the filter only narrows the calendar and the brief summary.
+    let st_all = filter.map(|_| stats::calc_statistics(db, cur, 1, false, None));
+    let totals = st_all.as_ref().unwrap_or(&st);
     let mut last = *cur;
     last.set_day_last();
     let opening = db.get_day(cur).map_or(0.0, |d| d.opening_balance);
     let closing = db.get_day(&last).map_or(0.0, |d| d.closing_balance);
     let avg = if closings.is_empty() { 0.0 } else { closings.iter().sum::<f64>() / closings.len() as f64 };
-    let quick = QuickStats { opening, closing, min, max, avg, income: st.total_income, expenses: st.total_expense };
+    let quick = QuickStats { opening, closing, min, max, avg, income: totals.total_income, expenses: totals.total_expense };
     // brief summary: rows >= 5% of total income, the rest as "Other…"; income first, then disposable income
     let pct = |a: f64| if st.total_income != 0.0 { a / st.total_income * 100.0 } else { 0.0 };
     let threshold = st.total_income.abs() * 0.05;
-    let mut brief = vec![BriefRow { desc: "Total income".into(), amount: st.total_income, pct: 100.0, diff: None, total: true, filter: ">0".into() }];
+    let mut brief = vec![BriefRow { desc: "Total income".into(), amount: st.total_income, pct: pct(st.total_income), diff: None, total: true, filter: ">0".into() }];
     let mut other = 0.0;
     for r in st.income.iter().chain(st.expense.iter()).filter(|r| !r.is_sub) {
         if r.amount.abs() >= threshold {
@@ -179,5 +209,53 @@ pub fn build(db: &mut BudgetDb, cfg: &BudgetConfig, cur: &Cal, today: i32, filte
     if other != 0.0 { brief.push(BriefRow { desc: "Other…".into(), amount: other, pct: pct(other), diff: None, total: false, filter: String::new() }); }
     let net = st.total_income + st.total_expense;
     brief.push(BriefRow { desc: "Disposable income".into(), amount: net, pct: pct(net), diff: None, total: true, filter: String::new() });
-    MonthView { key, cells, quick, brief, shown, total, below_min: min < cfg.min_balance_4_max_saving }
+    MonthView { key, cells, quick, brief, shown, total, below_min: min + 0.05 < cfg.min_balance_4_max_saving && min != max }
+}
+
+#[cfg(test)]
+mod money_tests {
+    use super::{balance_display, balance_kind, is_negative, money, BalKind};
+    #[test]
+    fn balance_strip_uses_nudge_and_truncate() {
+        let s = |v: f64| money(balance_display(v, false), false);
+        assert_eq!(s(10.96), "11");
+        assert_eq!(s(10.94), "10");
+        assert_eq!(s(10.6), "10");
+        assert_eq!(s(-10.96), "\u{2212}11");
+        assert_eq!(s(1234.96), "1,235");
+        assert_eq!(s(-0.4), "0");
+        assert_eq!(balance_display(10.96, true), 10.96);
+    }
+    #[test]
+    fn negative_rule_matches_original() {
+        assert!(!is_negative(-2.7e-17, true));
+        assert!(!is_negative(-0.01, true));
+        assert!(is_negative(-0.02, true));
+        assert!(!is_negative(-0.7, false));
+        assert!(is_negative(-1.2, false));
+        assert!(!is_negative(5.0, false));
+    }
+    #[test]
+    fn balance_kind_precedence() {
+        assert_eq!(balance_kind(50.0, 50.0, 500.0, 100.0), BalKind::Low);
+        assert_eq!(balance_kind(99.97, 50.0, 500.0, 100.0), BalKind::Normal);
+        assert_eq!(balance_kind(99.94, 50.0, 500.0, 100.0), BalKind::Low);
+        assert_eq!(balance_kind(500.0, 50.0, 500.0, 100.0), BalKind::Max);
+        assert_eq!(balance_kind(50.0, 50.0, 50.0, 100.0), BalKind::Min);
+    }
+    #[test]
+    fn tiny_negatives_and_pct_have_no_minus() {
+        assert_eq!(money(-1e-13, true), "0.00");
+        assert_eq!(money(-0.004, true), "0.00");
+        assert_eq!(super::pct_text(-0.3), "0");
+        assert_eq!(super::pct_text(-12.4), "\u{2212}12");
+    }
+    #[test]
+    fn whole_dollars_round_instead_of_truncate() {
+        assert_eq!(money(1234.99, false), "1,235");
+        assert_eq!(money(0.99, false), "1");
+        assert_eq!(money(-0.4, false), "0");
+        assert_eq!(money(-1234.5, true), "\u{2212}1,234.50");
+        assert_eq!(money(f64::INFINITY, true), "\u{221E}");
+    }
 }

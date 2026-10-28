@@ -19,12 +19,13 @@ pub fn calendar_field(freq_type: char) -> Field {
 
 /// `addPeriod(cal, field, frequency, startDate, n)` — `n` is the 1-based index of the period.
 pub fn add_period(cal: &mut Cal, field: Field, frequency: i32, start_date: i32, n: i32) {
+    let frequency = frequency.clamp(1, 1_000_000);
     if field == Field::NthWeekday {
         cal.set_int(start_date);
         cal.add(field, n);
     } else if (field == Field::Month || field == Field::Year) && cal.day() > 27 {
         cal.set_int(start_date);
-        cal.add(field, frequency * n);
+        cal.add(field, (frequency as i64 * n as i64).clamp(-1_000_000, 1_000_000) as i32);
     } else {
         cal.add(field, frequency);
     }
@@ -109,9 +110,19 @@ impl BudgetDb {
         count
     }
 
+    /// A slot is modified when an option sits on its scheduled date or on the weekend-shifted date
+    /// where the transaction is actually displayed (and where the GUI writes the option).
     fn is_modified_on(&self, i: usize, c: &Cal) -> bool {
+        let p = &self.payments[i];
         let v = c.get();
-        self.payments[i].opt.iter().any(|o| o.date == v)
+        let shifted = if p.is_no_weekends() && !p.is_tentative() && matches!(c.day_of_week(), SATURDAY | SUNDAY) {
+            let mut d = *c;
+            let w = c.day_of_week();
+            if p.is_early_pay() { d.add(Field::Day, if w == SUNDAY { -2 } else { -1 }); }
+            else { d.add(Field::Day, if w == SUNDAY { 1 } else { 2 }); }
+            d.get()
+        } else { v };
+        p.opt.iter().any(|o| o.date == v || o.date == shifted)
     }
 
     /// `calcLoanSchedule(p, asOf)`; exact double arithmetic, no rounding.
@@ -142,11 +153,14 @@ impl BudgetDb {
         let is_expense = p.amount < 0.0;
         let mut remaining = p.loan_amount.abs() - if is_expense { -sum } else { sum };
         let abs_amt = p.amount.abs();
-        while remaining > 0.0 {
+        // Half-a-cent tolerance absorbs floating-point residue when the principal is an exact multiple.
+        while remaining >= 0.005 {
+            // Bound the schedule at the last representable year so absurd loans cannot hang the app.
+            if c.get() > 99_991_231 { break; }
             ls.n_pays += 1;
             if !self.is_modified_on(i, &c) {
                 if c.gt(&ls.end) { ls.end.set_int(c.get()); }
-                if remaining <= abs_amt {
+                if remaining <= abs_amt + 0.005 {
                     ls.last_payment_amount = if is_expense { -remaining } else { remaining };
                     if as_of.is_some() { trans.push((c.get(), ls.last_payment_amount)); }
                     break;
@@ -155,7 +169,7 @@ impl BudgetDb {
                 if as_of.is_some() { trans.push((c.get(), p.amount)); }
             }
             add_period(&mut c, field, p.frequency, p.start_date, ls.n_pays);
-            if abs_amt == 0.0 && remaining > 0.0 { break; } // ponytail: guard against the original's infinite loop
+            if abs_amt == 0.0 { break; } // ponytail: guard against the original's infinite loop
         }
         ls.end = c;
         if ls.end.gt(&ls.actual_end) { ls.actual_end.set_int(ls.end.get()); }
@@ -363,6 +377,29 @@ impl BudgetDb {
                     k += 1;
                 }
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod freq_tests {
+    use super::*;
+
+    #[test]
+    fn add_period_zero_or_negative_frequency_advances() {
+        for f in [0, -3, i32::MAX] {
+            let mut c = Cal::from_int(20240131);
+            add_period(&mut c, Field::Month, f, 20240131, 3);
+            assert!(c.get() > 20240131);
+        }
+    }
+
+    #[test]
+    fn add_period_huge_frequency_with_early_start_day_does_not_overflow() {
+        for field in [Field::Month, Field::Year, Field::Day, Field::Week] {
+            let mut c = Cal::from_int(20240115);
+            add_period(&mut c, field, i32::MAX, 20240115, 3);
+            assert!(c.get() > 20240115);
         }
     }
 }

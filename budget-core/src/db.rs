@@ -2,7 +2,7 @@
 //! Scheduling (`update`, `addPeriod`, loan schedule) lives in `schedule.rs`.
 
 use crate::bgt;
-use crate::date::{Cal, Field};
+use crate::date::{Cal, Field, SATURDAY, SUNDAY};
 use crate::model::*;
 use std::cmp::Ordering;
 use std::path::Path;
@@ -160,6 +160,15 @@ impl BudgetDb {
 
     /// `rebuildDB(cal, futureMonths, unlimitedHistory)`.
     pub fn rebuild_db(&mut self, cal: &Cal, future_months: i32, unlimited_history: bool) {
+        // Where the first occurrence is actually placed: EARLY_PAY moves a weekend start to the prior Friday.
+        let placed_start = |p: &Payment| -> i32 {
+            if p.is_no_weekends() && p.is_early_pay() && !p.is_tentative() {
+                let c = Cal::from_int(p.start_date);
+                let back = match c.day_of_week() { SATURDAY => 1, SUNDAY => 2, _ => 0 };
+                if back != 0 { let mut d = c; d.add(Field::Day, -back); return d.get(); }
+            }
+            p.start_date
+        };
         let mut base = *cal;
         base.add(Field::Month, -2);
         let b = base.get();
@@ -172,13 +181,13 @@ impl BudgetDb {
         if latest_before == 0 {
             latest_before = b;
             for p in &self.payments {
-                latest_before = latest_before.min(p.start_date);
+                latest_before = latest_before.min(placed_start(p));
                 for o in &p.opt { if !o.deleted { latest_before = latest_before.min(o.date); } }
             }
         }
         if unlimited_history {
             for p in &self.payments {
-                earliest = earliest.min(p.start_date);
+                earliest = earliest.min(placed_start(p));
                 for o in &p.opt { if !o.deleted { earliest = earliest.min(o.date); } }
             }
         }

@@ -295,6 +295,7 @@ impl BudgetConfig {
         for (k, v) in props {
             c.set_key(k, v);
         }
+        c.recent_file.retain(|f| !f.is_empty());
         c
     }
 
@@ -354,7 +355,7 @@ impl BudgetConfig {
                     self.fonts[i] = Some(v.to_string());
                 } else if self.colors.set(k, u32::from_str_radix(v.trim(), 16).unwrap_or(0)) {
                 } else if let Some(idx) = k.strip_prefix("recentFile.").or_else(|| k.strip_prefix("recentFile")) {
-                    if let Ok(n) = idx.parse::<usize>() {
+                    if let Some(n) = idx.parse::<usize>().ok().filter(|&n| n < MAX_RECENT_FILES) {
                         if self.recent_file.len() <= n { self.recent_file.resize(n + 1, String::new()); }
                         self.recent_file[n] = v.to_string();
                     }
@@ -476,7 +477,9 @@ mod tests {
         let legacy = parse_properties("firstDayOfWeek=0\nrecentFile0=a.bgt\nrecentFile.2=c.bgt\nfutureNMonths=5\nunlimitedHistory=1\nbgColorCell=zz\ngraphMinBarColor=123456\nfoo=bar\nfontTran=1|Verdana|9.0|0|WINDOWS|1\n");
         let mut l = BudgetConfig::from_properties(&legacy);
         assert!(!l.first_day_of_week_is_sunday);
-        assert_eq!(l.recent_file, vec!["a.bgt".to_string(), String::new(), "c.bgt".to_string()]);
+        assert_eq!(l.recent_file, vec!["a.bgt".to_string(), "c.bgt".to_string()]);
+        let huge = BudgetConfig::from_properties(&parse_properties("recentFile.4000000000=x.bgt\nrecentFile.5=y.bgt\nrecentFile.1=b.bgt\n"));
+        assert_eq!(huge.recent_file, vec!["b.bgt".to_string()]);
         assert!(l.unlimited_history);
         assert_eq!(l.colors.bgColorCell, 0);
         assert_eq!(l.skipped, vec![("foo".to_string(), "bar".to_string())]);
@@ -489,6 +492,6 @@ mod tests {
         assert_eq!(l.colors.bgColorWindow, 0x535253);
         l.add_recent_file("c.bgt");
         assert_eq!(l.recent_file[0], "c.bgt");
-        assert_eq!(l.recent_file.len(), 3);
+        assert_eq!(l.recent_file.len(), 2);
     }
 }
