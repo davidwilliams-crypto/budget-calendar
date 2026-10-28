@@ -105,9 +105,29 @@ struct Elm {
     is_dots: bool,
 }
 
+/// The `flag:` words `is_match` tests.
+fn is_flag_word(exp: &str) -> bool { matches!(exp, "?" | "unpaid" | "." | "paid" | "!" | "important") }
+
+/// The amount a `<`, `=` or `>` term compares with: `toDouble`, with a trailing `k`/`m`/`b`/`t`
+/// multiplier as the calculator reads it (`-1k` is -1,000). The text is lower-cased already.
+fn comparison_value(exp: &str) -> f64 {
+    let (number, mult) = match exp.chars().last() {
+        Some('k') => (&exp[..exp.len() - 1], 1e3),
+        Some('m') => (&exp[..exp.len() - 1], 1e6),
+        Some('b') => (&exp[..exp.len() - 1], 1e9),
+        Some('t') => (&exp[..exp.len() - 1], 1e12),
+        _ => (exp, 1.0),
+    };
+    to_double(number) * mult
+}
+
 impl Elm {
     fn new(name: Name, exp: String, inverted: bool) -> Elm {
-        let val = if matches!(name, Name::All | Name::Lt | Name::Eq | Name::Gt | Name::Range) { to_double(&exp) } else { 0.0 };
+        let val = match name {
+            Name::Lt | Name::Eq | Name::Gt => comparison_value(&exp),
+            Name::All | Name::Range => to_double(&exp),
+            _ => 0.0,
+        };
         Elm { is_dots: exp.contains('.'), name, exp, inverted, val }
     }
 }
@@ -131,7 +151,8 @@ impl Filter {
         let deleted = t.starts_with('-');
         if deleted { t.remove(0); }
         let or_mode = t.starts_with('|');
-        if or_mode { t.remove(0); }
+        // "| rent": spaces may follow the OR marker; the terms start at the first other character.
+        if or_mode { t = t[1..].trim_start_matches(' ').to_string(); }
         let t = amp(&t.to_lowercase()).replace("\\ ", &NBSPACE.to_string());
         let mut f = Filter { or_mode, deleted, filter: text.to_string(), today, elms: Vec::new(), hay: None };
         let parts: Vec<&str> = t.split(' ').collect();
@@ -149,9 +170,11 @@ impl Filter {
                 '<' => Elm::new(Name::Lt, tok[1..].to_string(), inverted),
                 '=' => Elm::new(Name::Eq, tok[1..].to_string(), inverted),
                 '>' => Elm::new(Name::Gt, tok[1..].to_string(), inverted),
+                // "invoice: 12" is a plain search: a prefix is a field only when it names one (or
+                // the value is a flag word, which the original accepts after any prefix).
                 _ => match tok.split_once(':') {
-                    Some((prefix, exp)) => Elm::new(name_of(prefix), exp.to_string(), inverted),
-                    None => Elm::new(Name::All, tok.clone(), inverted),
+                    Some((prefix, exp)) if name_of(prefix) != Name::Unknown || is_flag_word(exp) => Elm::new(name_of(prefix), exp.to_string(), inverted),
+                    _ => Elm::new(Name::All, tok.clone(), inverted),
                 },
             };
             f.elms.push(elm);
@@ -175,7 +198,8 @@ impl Filter {
         };
         // The occurrence's note and the whole `all` haystack are made only when an element needs them.
         let (note_cell, all_cell) = (std::cell::OnceCell::new(), std::cell::OnceCell::new());
-        let note = || note_cell.get_or_init(|| pmt.get_note(date).map(|n| lower(&n))).as_deref();
+        // `get_note(0)` is `Some("")` for a payment without notes: an empty note is no note.
+        let note = || note_cell.get_or_init(|| pmt.get_note(date).filter(|n| !n.is_empty()).map(|n| lower(&n))).as_deref();
         let all = || all_cell.get_or_init(|| ph.all(amount, note().unwrap_or(""))).as_ref();
         let mut count = 0;
         for e in &self.elms {
@@ -318,7 +342,7 @@ mod tests {
                 Name::Lt => { boolean = true; matched = amount < e.val; }
                 Name::Eq => { boolean = true; matched = e.val == amount; }
                 Name::Gt => { boolean = true; matched = amount > e.val; }
-                Name::Note => hay = pmt.get_note(date).map(|n| amp(&n.to_lowercase())),
+                Name::Note => hay = pmt.get_note(date).filter(|n| !n.is_empty()).map(|n| amp(&n.to_lowercase())),
                 Name::Range => { boolean = true; matched = f.range_match(pmt, e); }
                 Name::Flag | Name::Unknown => {
                     let fl = pmt.get_flag(date);
@@ -415,6 +439,76 @@ mod tests {
         by_amount.set_haystacks(Some(hay));
         q.amount = 77.0;
         assert!(by_amount.is_match(&q, 77.0, 0) && !by_amount.is_match(&q, -120.0, 0));
+    }
+
+    fn named(description: &str) -> Payment {
+        let mut q = p();
+        q.description = description.into();
+        q
+    }
+
+    #[test]
+    fn or_marker_followed_by_spaces_filters_by_its_terms() {
+        // "| rent" used to match every transaction: the spaces left an empty first token.
+        let rent = named("Rent");
+        let hydro = p();
+        for text in ["| rent", "|rent", "|  rent"] {
+            let f = Filter::new(text, TODAY).unwrap();
+            assert!(f.or_mode, "{text:?} is OR mode");
+            assert!(f.is_match(&rent, -120.0, 0), "{text:?} must match Rent");
+            assert!(!f.is_match(&hydro, -120.0, 0), "{text:?} must not match Hydro bill");
+        }
+        // "-" stays the deleted-only filter, and "-  cat:x" keeps its no-element reading.
+        assert!(Filter::new("- rent", TODAY).unwrap().is_empty());
+    }
+
+    #[test]
+    fn comparisons_accept_the_calculator_multiplier_suffixes() {
+        // "<-1k" used to read -1k as -1, so -500 (and every amount above -1,000) matched.
+        assert!(!m("<-1k", -500.0, 0) && m("<-1k", -1500.0, 0));
+        assert!(m(">-1k", -500.0, 0) && !m(">-1k", -1500.0, 0));
+        assert!(m("=-1k", -1000.0, 0) && !m("=-1k", -1.0, 0));
+        assert!(m("<-1m", -2_000_000.0, 0) && !m("<-1m", -500_000.0, 0));
+        assert!(m("<-1b", -2e9, 0) && !m("<-1b", -5e8, 0));
+        assert!(m("<-1t", -2e12, 0) && !m("<-1t", -5e11, 0));
+        assert!(m("<-2.5K", -2600.0, 0) && !m("<-2.5K", -2400.0, 0));
+        assert!(m("lt:-1k", -1500.0, 0) && m("gt:-1k", -500.0, 0));
+        assert!(m("<$-1k", -1500.0, 0), "the $ sign is still ignored");
+        // unknown trailing text keeps the lenient reading of the number before it (-1, as toDouble)
+        assert!(m("<-1kx", -500.0, 0));
+    }
+
+    #[test]
+    fn note_filter_with_no_notes_is_false() {
+        // get_note(0) is Some("") for a payment without notes, which matched every note term.
+        let plain = p();
+        assert!(!Filter::new("note:", TODAY).unwrap().is_match(&plain, -120.0, 0));
+        assert!(!Filter::new("note:shell", TODAY).unwrap().is_match(&plain, -120.0, 0));
+        assert!(!Filter::new("note:shell", TODAY).unwrap().is_match(&plain, -120.0, 20261105));
+        assert!(Filter::new("~note:shell", TODAY).unwrap().is_match(&plain, -120.0, 0));
+        let mut noted = p();
+        noted.set_note(20261105, Some("Shell"));
+        assert!(Filter::new("note:shell", TODAY).unwrap().is_match(&noted, -120.0, 0));
+        assert!(Filter::new("note:shell", TODAY).unwrap().is_match(&noted, -120.0, 20261105));
+        assert!(!Filter::new("note:shell", TODAY).unwrap().is_match(&noted, -120.0, 20261106));
+    }
+
+    #[test]
+    fn a_word_before_a_colon_is_a_plain_term_unless_it_is_a_field() {
+        // "invoice: 12" used to read "invoice" as an unknown field and never matched.
+        let mut invoice = named("Invoice: 12");
+        invoice.category = Some("Auto".into());
+        assert!(Filter::new("invoice: 12", TODAY).unwrap().is_match(&invoice, -120.0, 0));
+        assert!(Filter::new("invoice:", TODAY).unwrap().is_match(&invoice, -120.0, 0));
+        assert!(!Filter::new("invoice: 13", TODAY).unwrap().is_match(&invoice, -120.0, 0));
+        assert!(Filter::new("10:30 meeting", TODAY).unwrap().is_match(&named("10:30 Meeting"), -120.0, 0));
+        // known fields still work, and so do flag words after any prefix
+        assert!(Filter::new("cat:Auto", TODAY).unwrap().is_match(&invoice, -120.0, 0));
+        assert!(!Filter::new("cat:Utils", TODAY).unwrap().is_match(&invoice, -120.0, 0));
+        let mut paid = p();
+        paid.set_flag(20261105, FLAG_PAID);
+        assert!(Filter::new("invoice:paid", TODAY).unwrap().is_match(&paid, -120.0, 20261105));
+        assert!(Filter::new(":paid", TODAY).unwrap().is_match(&paid, -120.0, 20261105));
     }
 
     #[test]

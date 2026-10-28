@@ -157,6 +157,12 @@ Deliberate deviations already taken by the port:
 - Backups: the original deleted `.bak` after a successful save. The port keeps the previous version as `.bak`, `.bak.1`, … with numbering that continues upward, and after each successful save removes all but the newest 10 backup files (`bgt::MAX_BACKUPS`). On Windows backup names are matched ignoring case, like the file system, so every spelling of a budget's path shares one numbering and cap.
 - The schedule window ends no later than 31 December 9999 (`date::DATE_MAX`); the original computed December of the year `futureMonths` ahead even when that passed the calendar.
 - Restoring a deleted tentative occurrence clears the deletion anywhere in its pay period: the port's scheduler shows the period's deletion on today without moving the stored date, where the original moved the stored marker itself (01 §3.7).
+- Filter: `| rent` (OR marker, then spaces) filters by its terms; the original's empty first token made it match every transaction.
+- Filter: `<`, `=`, `>` (and `lt:`, `eq:`, `gt:`) read a trailing `k`/`m`/`b`/`t` as the calculator does, so `<-1k` is below -1,000; the original's `toDouble` ignored the suffix. A word before a colon is a field only when it names one (or the value is a flag word), so `invoice: 12` searches the text; the original read any prefix as a field and never matched it.
+- Statistics: each scheduled occurrence is tested against its own date's note and flag (the original tested the schedule with no date, so `note:` and `flag:` ignored them). A search leaves `(Unaccounted)` out, because a balance adjustment is not a transaction; the original counted it under any search.
+- Statistics reconciliation: a description present on both uncategorised sides keeps its planned amount on its own row, and a row with no actual amount is listed by its planned sign. The original dropped the planned amount of the side it netted away and listed an expense planned but not paid as income.
+- Reports: descriptions, categories and notes are HTML-escaped in every report (the original wrote them raw, so a note containing `<b>` formatted the file). Comparative-report cents are no longer held in a 32-bit integer, which printed values above 21,474,836.47 wrong.
+- Calculator: text after a percentage (`%5k`, `%5abc`) is a syntax error, where the original ignored it. A number beyond a double (`1e999`) reports "Number too large" instead of a syntax error.
 
 ## 7. Consolidated unknowns
 

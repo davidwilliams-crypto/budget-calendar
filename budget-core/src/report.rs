@@ -127,9 +127,10 @@ pub fn escape_html_text(s: &str) -> String {
 /// always `-1`, and a stats key passed in keeps its leading 3-space indent (callers rely on it).
 pub fn get_desc(desc: &str) -> &str { desc.split(';').next().unwrap_or("") }
 
-/// `get_normalized_note(note, mode, leadingBR)`; the note text is NOT HTML-escaped (original behaviour).
+/// `get_normalized_note(note, mode, leadingBR)`. The note text is HTML-escaped (the original wrote it raw).
 pub fn get_normalized_note(note: Option<&str>, mode: ReportMode, leading_br: bool) -> String {
     let Some(note) = note else { return String::new() };
+    let note = escape_html_text(note);
     match mode {
         ReportMode::Excel => match note.split_once('\n') {
             Some((first, _)) => format!("  (Note: {first}...)"),
@@ -353,8 +354,9 @@ pub fn comp_entry_from(base: &[Row], other: &[Row]) -> Vec<CompEntry> {
 // Mirrors the original's addCompRow parameter list; a wrapper struct would only obscure the mapping.
 #[allow(clippy::too_many_arguments)]
 fn add_comp_row(w: &mut UnicodishWriter, base: &Stats, shade: &mut bool, desc: &str, v1: f64, indented: bool, v2: f64, images: ImageResolver) {
-    let v1 = ((v1 * 100.0) as i32) as f64 / 100.0;
-    let v2 = ((v2 * 100.0) as i32) as f64 / 100.0;
+    // Cents as i64: an i32 saturates at 21,474,836.47.
+    let v1 = ((v1 * 100.0) as i64) as f64 / 100.0;
+    let v2 = ((v2 * 100.0) as i64) as f64 / 100.0;
     let diff = v1 - v2;
     let pct = if v1 == 0.0 || diff == 0.0 { f64::INFINITY } else { diff / v1 * 100.0 };
     let bg = if *shade { "EEeeEE" } else { "FFffFF" };
@@ -634,7 +636,7 @@ pub fn generate_report(db: &mut BudgetDb, start: &Cal, end: &Cal, mode: ReportMo
                 let neg = if t.amount < 0.0 { amt(t.amount) } else { String::new() };
                 let bal_cell = if !is_excel && pmt.disabled { "<TD>".to_string() } else { format!("<TD ALIGN=RIGHT {c}{num_attr} {formula}>{}", bal(balance)) };
                 w.write(&format!("<TR {c}><TD ALIGN=CENTER {c}>{}<TD WIDTH=18>{img}<TD ALIGN=LEFT {c}>{}<TD ALIGN=LEFT {c}>{}{}{note}<TD ALIGN=RIGHT {c}{num_attr}>{pos}<TD ALIGN=RIGHT {c}{num_attr}>{neg}{bal_cell}</TR>\n",
-                    date_cell(show_date), html_string(pmt, pmt.category.as_deref().unwrap_or("")), flag_icon(pmt.get_flag(date_int)), html_string(pmt, &pmt.description)));
+                    date_cell(show_date), html_string(pmt, &escape_html_text(pmt.category.as_deref().unwrap_or(""))), flag_icon(pmt.get_flag(date_int)), html_string(pmt, &escape_html_text(&pmt.description))));
                 row += 1;
                 shade = !shade;
                 if !pmt.disabled { if t.amount < 0.0 { expenses += t.amount; } else { income += t.amount; } }
@@ -722,7 +724,7 @@ pub fn generate_paid_unpaid_report(db: &mut BudgetDb, start: &Cal, end: &Cal, im
             let amt = amount2html(amount, None, NORMAL_COLORS, true);
             w.write(&format!("<TR {c}><TD ALIGN=CENTER {c}>{}<TD WIDTH=18>{img}<TD ALIGN=LEFT {c}>{}<TD ALIGN=LEFT {c}>{}{}{}<TD ALIGN=RIGHT>{}<TD ALIGN=RIGHT>{}</TR>\n",
                 if date != last_date { sdate_dmy(date) } else { String::new() },
-                p.category.as_deref().unwrap_or(""),
+                escape_html_text(p.category.as_deref().unwrap_or("")),
                 flag_icon(p.get_flag(date)), escape_html_text(get_desc(&p.description)),
                 get_normalized_note(p.get_note(date).as_deref(), ReportMode::Html, true),
                 if amount >= 0.0 { amt.clone() } else { String::new() }, if amount < 0.0 { amt } else { String::new() }));
@@ -822,7 +824,7 @@ pub fn generate_monthly_calendar(db: &mut BudgetDb, start: &Cal, end: &Cal, opts
                     };
                     let (bg, fg) = html_span_color(pmt, d.get(), opts);
                     out.push_str(&format!("<TR><TD class='dsc'>{img}<SPAN style='background-color: {bg};'><FONT COLOR={fg}>{}</FONT></SPAN><TD class='amt'>{}{}</TR>\n",
-                        unicodish(get_desc(&pmt.description)),
+                        unicodish(&escape_html_text(get_desc(&pmt.description))),
                         amount2html(t.amount, Some("tamt"), if pmt.disabled { DISABLED_COLORS } else { NORMAL_COLORS }, opts.show_decimals),
                         if t.amount != pmt.amount { "'" } else { "&nbsp;" }));
                 }
@@ -1094,6 +1096,54 @@ mod tests {
         let first = trans[0];
         assert!(html.contains(&unicodish(&format!("<TR BGCOLOR=\"#ffffff\"><TD ALIGN=CENTER BGCOLOR=\"#ffffff\">{}<TD WIDTH=18>", sdate_dmy(first.0)))));
         assert!(!html.contains("</TABLE>"));
+    }
+
+    /// One October 2026 payment whose description, category and note carry markup, paid on the 5th.
+    fn markup_db() -> BudgetDb {
+        let mut db = BudgetDb::new(&Cal::from_int(20261001), 12, false);
+        let mut p = Payment::new(20261005);
+        p.description = "Fish & <Chips> \"x\"".into();
+        p.category = Some("Food<Out>".into());
+        p.amount = -12.5;
+        db.add(p);
+        db.payments[0].set_note(20261005, Some("<b>bold</b>"));
+        db.payments[0].set_flag(20261005, FLAG_PAID);
+        db
+    }
+
+    #[test]
+    fn user_text_is_escaped_in_every_report() {
+        let mut db = markup_db();
+        let (oct, last) = (Cal::from_int(20261001), Cal::from_int(20261031));
+        let texts = ["Fish &amp; &lt;Chips&gt; &quot;x&quot;", "Food&lt;Out&gt;", "&lt;b&gt;bold&lt;/b&gt;"];
+        let raw = ["<Chips>", "Food<Out>", "<b>bold</b>", "Fish & <"];
+        let check = |name: &str, html: &str, texts: &[&str]| {
+            for t in texts { assert!(html.contains(t), "{name} lacks {t}"); }
+            for r in raw { assert!(!html.contains(r), "{name} writes {r} raw"); }
+        };
+        for mode in [ReportMode::Html, ReportMode::Excel] {
+            check(&format!("detailed {mode:?}"), &generate_report(&mut db, &oct, &oct, mode, &no_images), &texts);
+        }
+        check("paid/unpaid", &generate_paid_unpaid_report(&mut db, &oct, &last, &no_images), &texts);
+        let calendar = generate_monthly_calendar(&mut db, &oct, &oct, &CalendarOptions::default(), &no_images);
+        check("calendar", &calendar, &texts[..1]);
+        // the statistics reports escape the same text
+        let st = calc_statistics(&mut db, &oct, 1, true, None);
+        check("stats print", &generate_stats_report(&st, &no_images), &texts[..1]);
+        check("stats excel", &generate_excel_stats_report(&st), &texts[..1]);
+        check("comparison", &generate_comparison_report(&st, &st, &no_images), &texts[..1]);
+        let range = crate::stats::calc_statistics_exact(&mut db, &oct, &Cal::from_int(20261130), true, None);
+        check("month by month", &generate_month_by_month_report(&mut db, &range, false).unwrap(), &texts[..1]);
+    }
+
+    #[test]
+    fn comparison_cents_do_not_saturate_above_the_i32_range() {
+        // 25,000,000.00 * 100 is beyond i32::MAX: the cents used to saturate at 21,474,836.47.
+        let salary = Row { key: "   Salary".into(), amount: 25e6, planned_amount: 0.0, pmt: None, is_sub: true };
+        let base = Stats { total_income: 25e6, income: vec![salary], ..Default::default() };
+        let html = generate_comparison_report(&base, &Stats::default(), &no_images);
+        assert!(html.contains(&unicodish(&f2html(25_000_000.0))), "{html}");
+        assert!(!html.contains(&unicodish("21,474,836")));
     }
 
     #[test]
