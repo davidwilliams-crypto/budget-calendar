@@ -445,7 +445,8 @@ impl BudgetDb {
     pub fn categories(&self) -> Vec<String> {
         let mut v: Vec<String> = self.payments.iter().filter_map(|p| p.category.clone()).collect();
         v.sort_by_key(|s| fold_key(s));
-        v.dedup();
+        // The sort is stable, so the first spelling in payment order of each folded name is kept.
+        v.dedup_by(|a, b| fold_key(a) == fold_key(b));
         v
     }
     pub fn most_changed_payment(&self) -> Option<usize> {
