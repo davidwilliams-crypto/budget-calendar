@@ -542,7 +542,7 @@ impl TransactionEditor {
     }
 }
 
-fn form_section(ui: &mut egui::Ui, title: &str, t: &Tokens, body: impl FnOnce(&mut egui::Ui)) {
+pub(crate) fn form_section(ui: &mut egui::Ui, title: &str, t: &Tokens, body: impl FnOnce(&mut egui::Ui)) {
     egui::Frame::new().fill(t.bg).corner_radius(8).inner_margin(16).show(ui, |ui| {
         ui.set_width(ui.available_width());
         ui.label(RichText::new(title).strong().color(t.text));
@@ -555,7 +555,7 @@ fn field_label(ui: &mut egui::Ui, label: &str, t: &Tokens) -> egui::Response {
 }
 /// A caption and its control(s), kept `LABEL_GAP` apart so the caption reads as belonging to the
 /// control below it rather than the field above (fields themselves are `FIELD_GAP` apart).
-fn field<R>(ui: &mut egui::Ui, label: &str, t: &Tokens, add: impl FnOnce(&mut egui::Ui, egui::Id) -> R) -> R {
+pub(crate) fn field<R>(ui: &mut egui::Ui, label: &str, t: &Tokens, add: impl FnOnce(&mut egui::Ui, egui::Id) -> R) -> R {
     ui.vertical(|ui| {
         ui.spacing_mut().item_spacing.y = LABEL_GAP;
         let label = field_label(ui, label, t);
@@ -569,7 +569,7 @@ fn text_field(ui: &mut egui::Ui, label: &str, value: &mut String, hint: &str, t:
 }
 /// One dialog footer for every form: an optional destructive ghost action on the left, then
 /// (right to left) the primary action and Cancel beside it. Returns `(apply, cancel, destroy)`.
-fn dialog_footer(ui: &mut egui::Ui, primary: &str, destructive: Option<&str>, t: &Tokens) -> (bool, bool, bool) {
+pub(crate) fn dialog_footer(ui: &mut egui::Ui, primary: &str, destructive: Option<&str>, t: &Tokens) -> (bool, bool, bool) {
     let (mut apply, mut cancel, mut destroy) = (false, false, false);
     ui.horizontal(|ui| {
         if let Some(text) = destructive {
@@ -681,7 +681,7 @@ fn amount_field(ui: &mut egui::Ui, amount: &mut String, kind: &mut AmountKind, t
         }).inner
     })
 }
-fn form_error(ui: &mut egui::Ui, error: &str, t: &Tokens) {
+pub(crate) fn form_error(ui: &mut egui::Ui, error: &str, t: &Tokens) {
     egui::Frame::new().fill(theme::tint(t.surface, t.negative, 0.08)).corner_radius(6)
         .inner_margin(10).show(ui, |ui| {
             ui.label(RichText::new(error).color(t.negative));
