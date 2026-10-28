@@ -27,14 +27,28 @@ pub enum TransactionAction { None, Cancel, Apply { amount: f64, note: String, fl
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum AmountKind { Expense, Income }
 impl AmountKind {
+    /// Income only for a positive amount: the original shows a zero amount as Expense (analysis/04 §1.2).
     fn from_amount(amount: f64) -> Self {
-        if amount.is_sign_negative() { Self::Expense } else { Self::Income }
+        if amount > 0.0 { Self::Income } else { Self::Expense }
     }
     fn signed(self, text: &str) -> Result<f64, String> {
         let amount = finite_number(text, "Amount")?;
-        if amount.is_sign_negative() { return Err("Enter an amount of zero or more, then choose Expense or Income.".into()); }
+        // The polarity is chosen with the control, so a sign that contradicts it is refused, not switched.
+        let selected = match self { Self::Expense => "Expense", Self::Income => "Income" };
+        if amount.is_sign_negative() {
+            let other = match self { Self::Expense => "", Self::Income => " Choose Expense for money going out." };
+            return Err(format!("{selected} is selected, so enter the amount without a minus sign or parentheses.{other}"));
+        }
+        if self == Self::Expense && has_plus_sign(text) {
+            return Err("Expense is selected, so enter the amount without a plus sign. Choose Income for money coming in.".into());
+        }
         Ok(if self == Self::Expense { -amount } else { amount })
     }
+}
+
+/// Whether amount text starts with a plus sign, after any opening bracket or dollar sign.
+fn has_plus_sign(text: &str) -> bool {
+    text.trim().trim_start_matches(['(', '$']).trim_start().starts_with('+')
 }
 
 /// Seed text for an amount box: the grouped 2-decimal magnitude, as the original shows it.
@@ -248,8 +262,9 @@ impl PaymentEditor {
         p.freq_type = self.recurrence.freq_type(p.freq_type);
         // The engine emits the start date itself as the first "last weekday" payment, so a start
         // outside the last week of its month would contradict the label: snap it to the last
-        // matching weekday (an unchanged start of an existing payment is left alone).
-        if p.freq_type == 'L' && (self.original.freq_type != 'L' || p.start_date != self.original.start_date) {
+        // matching weekday (an unchanged start of an existing payment is left alone). A single payment
+        // keeps its start date even when it still carries the last-weekday type.
+        if self.recurrence == Recurrence::LastWeekday && (self.original.freq_type != 'L' || p.start_date != self.original.start_date) {
             p.start_date = last_same_weekday_of_month(p.start_date);
         }
         if self.recurrence == Recurrence::Once {
@@ -258,9 +273,12 @@ impl PaymentEditor {
             // An interval is irrelevant for a single payment, but must remain safe for the engine.
             if p.frequency < 1 || p.frequency > max_frequency(&p) { p.frequency = 1; }
         } else {
-            p.frequency = if self.recurrence == Recurrence::NthWeekday && self.original.freq_type != 'W' {
-                1
-            } else { positive_integer(&self.frequency, "Frequency")? };
+            // The numbered-weekday repeat has no "Every" box, so its hidden text is not validated; the
+            // engine ignores its interval and a stored one is kept.
+            p.frequency = match self.recurrence {
+                Recurrence::NthWeekday => if self.original.freq_type == 'W' { self.original.frequency } else { 1 },
+                _ => positive_integer(&self.frequency, "Frequency")?,
+            };
             // Write just the end-mode bits, retaining all other known and unknown flags. Legacy
             // end modes can be retained unchanged, but cannot be invented by the form.
             if !matches!(self.end_mode, END_MODE_INDEFINITE | END_MODE_DATE | END_MODE_N_PAYS | END_MODE_LOAN_PAID)
@@ -299,6 +317,7 @@ impl PaymentEditor {
                     .ok_or("Grace period must be a whole number of days from 0 to 366.")?,
             };
         }
+        align_end_date(&mut p);
         validate_schedule_bounds(&p)?;
         Ok(p)
     }
@@ -342,6 +361,14 @@ impl PaymentEditor {
         }
     }
 
+    /// The disclosure title for the schedule options it hides, with a count of those set, so a
+    /// closed disclosure still shows that something is on.
+    fn more_options_title(&self) -> String {
+        let set = [self.no_weekends, self.early_pay, self.tentative, self.reminder, self.sticky].into_iter().filter(|&on| on).count()
+            + usize::from(!matches!(self.grace.trim(), "" | "0"));
+        if set == 0 { "More schedule options".into() } else { format!("More schedule options ({set} set)") }
+    }
+
     /// `sunday_first` lays out the date pickers like the calendar grid; `today` decides whether
     /// an edit rewrites past occurrences and needs confirming.
     pub fn show(&mut self, ctx: &egui::Context, t: &Tokens, db: &BudgetDb, sunday_first: bool, today: i32) -> PaymentAction {
@@ -371,7 +398,8 @@ impl PaymentEditor {
                     if self.focus_description { response.request_focus(); self.focus_description = false; }
                     let response = amount_field(ui, &mut self.amount, &mut self.amount_kind, t);
                     enter |= submitted(ui, &response);
-                    field(ui, "Category · Optional", t, |ui, label| {
+                    ui.checkbox(&mut self.enabled, "Enabled in calendar");
+                    field(ui, "Category (optional)", t, |ui, label| {
                         ui.horizontal(|ui| {
                             let width = (ui.available_width() - 110.0).max(100.0);
                             let response = ui.add(TextEdit::singleline(&mut self.category).desired_width(width).hint_text("e.g. Home")).labelled_by(label);
@@ -403,8 +431,15 @@ impl PaymentEditor {
                             let unit = match self.recurrence {
                                 Recurrence::Days => "days", Recurrence::Weeks => "weeks", Recurrence::Years => "years", _ => "months",
                             };
-                            let response = text_field(ui, &format!("Every · {unit}"), &mut self.frequency, "1", t);
-                            enter |= submitted(ui, &response);
+                            field(ui, "Repeat every", t, |ui, label| {
+                                ui.horizontal(|ui| {
+                                    // The unit sits beside the number, so the box leaves room for it.
+                                    let width = (ui.available_width() - 80.0).max(100.0);
+                                    let response = ui.add(TextEdit::singleline(&mut self.frequency).desired_width(width).hint_text("1")).labelled_by(label);
+                                    enter |= submitted(ui, &response);
+                                    ui.label(RichText::new(unit).color(t.text));
+                                });
+                            });
                         }
                         if self.recurrence == Recurrence::LastWeekday {
                             let hint = match parse_iso_date(&self.start_date).map(last_same_weekday_of_month) {
@@ -439,8 +474,8 @@ impl PaymentEditor {
                             _ => {}
                         }
                     }
-                    ui.checkbox(&mut self.enabled, "Enabled in calendar");
-                    ui.collapsing("More schedule options", |ui| {
+                    // A fixed id keeps the disclosure open or closed while the count in its title changes.
+                    egui::CollapsingHeader::new(self.more_options_title()).id_salt("more_schedule_options").show(ui, |ui| {
                         ui.add_enabled_ui(self.weekend_options_enabled(), |ui| {
                             ui.checkbox(&mut self.no_weekends, "Move weekend payments to a business day");
                             ui.add_enabled_ui(self.no_weekends, |ui| {
@@ -462,8 +497,10 @@ impl PaymentEditor {
                                 .on_hover_text("Days after the due date on which paying still counts as on time; highlighted when you hover the payment. 0 turns it off.");
                             enter |= submitted(ui, &response);
                         });
-                        ui.checkbox(&mut self.reminder, "Reminder");
-                        ui.checkbox(&mut self.sticky, "Carry changed amounts forward");
+                        ui.checkbox(&mut self.reminder, "Reminder")
+                            .on_hover_text("A marker for your own reference. It does not change amounts, dates or balances.");
+                        ui.checkbox(&mut self.sticky, "Carry changed amounts forward")
+                            .on_hover_text("Later occurrences keep the last amount you changed before them, until the next change. Off: each occurrence uses the payment's amount unless you change it.");
                     });
                 });
             });
@@ -871,10 +908,12 @@ pub(crate) fn parse_amount(text: &str, label: &str) -> Result<f64, String> {
         Err(plain) => return Err(plain),
     };
     if value.abs() > MAX_ABS_AMOUNT || !value.is_finite() {
-        return Err(format!("{label} is too large (maximum 1,000,000,000,000)."));
+        return Err(too_large(label));
     }
     Ok(value)
 }
+
+fn too_large(label: &str) -> String { format!("{label} is too large (maximum 1,000,000,000,000).") }
 
 fn parse_plain_amount(text: &str, label: &str) -> Result<f64, String> {
     let generic = || format!("{label} must be a number, for example 1,250.00.");
@@ -897,11 +936,13 @@ fn parse_plain_amount(text: &str, label: &str) -> Result<f64, String> {
     let cleaned = format!("{}{}", sign.map(String::from).unwrap_or_default(), body.replace(',', ""));
     let value = match cleaned.parse::<f64>() {
         Ok(v) if v.is_finite() => v,
+        // A digit string too long for f64 parses to infinity: that is too large, not malformed.
+        Ok(v) if v.is_infinite() && cleaned.bytes().any(|b| b.is_ascii_digit()) => return Err(too_large(label)),
         _ => return Err(generic()),
     };
     let value = if negate { if sign.is_some() { return Err(generic()); } -value } else { value };
     if value.abs() > MAX_ABS_AMOUNT {
-        return Err(format!("{label} is too large (maximum 1,000,000,000,000)."));
+        return Err(too_large(label));
     }
     Ok(value)
 }
@@ -963,9 +1004,22 @@ fn period_span(p: &Payment) -> i32 {
     }
 }
 fn max_frequency(p: &Payment) -> i32 { period_span(p).max(1) }
+/// The largest repeat interval a saved file keeps: the loader clamps a larger one on reopen (SPEC.md §6).
+const MAX_STORED_FREQUENCY: i32 = 100_000;
+
+/// The loader raises a stored end date to the start date (budget-core `bgt`). The in-memory end date
+/// is raised the same way, so saving and reopening give one end date. A date end is never moved:
+/// the editor refuses an end before the start instead.
+pub(crate) fn align_end_date(p: &mut Payment) {
+    if p.end_mode() != END_MODE_DATE { p.end_date = p.end_date.max(p.start_date); }
+}
+
 pub(crate) fn validate_schedule_bounds(p: &Payment) -> Result<(), String> {
     if p.frequency <= 0 || p.frequency > max_frequency(p) {
         return Err("Frequency would exceed the supported calendar range (through year 9999).".into());
+    }
+    if p.frequency > MAX_STORED_FREQUENCY {
+        return Err("Repeat every cannot exceed 100,000: a larger interval would change when the budget is reopened.".into());
     }
     // The engine's numbered-weekday recurrence is monthly regardless of its stored interval.
     let frequency = if p.freq_type == 'W' { 1 } else { p.frequency };
@@ -976,7 +1030,14 @@ pub(crate) fn validate_schedule_bounds(p: &Payment) -> Result<(), String> {
         }
         END_MODE_LOAN_PAID => {
             let sum: f64 = p.opt.iter().filter(|o| !o.deleted).map(|o| o.amount).sum();
-            let remaining = (p.loan_amount.abs() - if p.amount < 0.0 { -sum } else { sum }).max(0.0);
+            let paid = if p.amount < 0.0 { -sum } else { sum };
+            // The scheduler subtracts every saved payment from the principal up front, so more than the
+            // principal would overpay the loan silently. Every edit path refuses it, naming the principal.
+            if !paid.is_finite() || paid > p.loan_amount.abs() + 0.005 {
+                return Err(format!("The saved payments would exceed the loan principal of {}, custom payments included. Lower a payment or raise the principal.",
+                    budget_core::numfmt::format_frac2(p.loan_amount.abs())));
+            }
+            let remaining = p.loan_amount.abs() - paid;
             // Every exception can displace one regular payment. This conservative upper bound
             // prevents a huge/near-zero loan from locking the scheduler or overflowing dates.
             let count = (remaining / p.amount.abs()).ceil() + p.opt.len() as f64;
@@ -1711,4 +1772,179 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn loan_principal_below_the_amounts_already_paid_is_refused_by_the_editor() {
+        // Saved payments of 50 and 250 total 300; lowering the principal to 200 would overpay.
+        let mut db = db();
+        let mut p = Payment::new(20260101); p.description = "Car loan".into(); p.amount = -100.0; p.freq_type = 'm';
+        p.set_end_mode(END_MODE_LOAN_PAID); p.loan_amount = 300.0;
+        p.set_custom_amount(20260101, -50.0); p.set_custom_amount(20260201, -250.0);
+        let i = db.add(p);
+        let mut e = PaymentEditor::edit(&db.payments[i]);
+        e.loan_amount = "200".into();
+        let err = e.build(&db).unwrap_err();
+        assert!(err.contains("principal"), "{err}");
+        e.loan_amount = "300".into();
+        assert!(e.build(&db).is_ok());
+    }
+
+    #[test]
+    fn a_typed_plus_sign_under_expense_is_refused_like_a_minus_under_income() {
+        let db = db();
+        let mut e = valid_editor(); // Expense
+        e.amount = "+42.25".into();
+        let err = e.build(&db).unwrap_err();
+        assert!(err.contains("plus sign") && err.contains("Expense is selected"), "{err}");
+        let mut tx = TransactionEditor::new(&Payment::new(20261027), 20261027, 42.25);
+        tx.amount_kind = AmountKind::Expense; tx.amount = "+5".into();
+        assert!(tx.values().is_err());
+        let mut e = valid_editor(); e.amount_kind = AmountKind::Income; e.amount = "+42.25".into();
+        assert_eq!(e.build(&db).unwrap().amount, 42.25);
+    }
+
+    #[test]
+    fn zero_amounts_open_as_expense_like_the_original() {
+        let mut p = Payment::new(20261027); p.description = "Zero".into(); p.amount = 0.0;
+        assert_eq!(PaymentEditor::edit(&p).amount_kind, AmountKind::Expense);
+        assert_eq!(TransactionEditor::new(&p, 20261027, 0.0).amount_kind, AmountKind::Expense);
+        assert_eq!(TransactionEditor::new(&p, 20261027, -0.0).amount_kind, AmountKind::Expense);
+        assert_eq!(TransactionEditor::new(&p, 20261027, 1.0).amount_kind, AmountKind::Income);
+    }
+
+    #[test]
+    fn a_negative_amount_refusal_names_the_polarity_already_selected() {
+        let db = db();
+        let mut e = valid_editor(); // Expense
+        for text in ["(50)", "-0"] {
+            e.amount = text.into();
+            let err = e.build(&db).unwrap_err();
+            assert!(err.contains("Expense is selected") && !err.contains("choose Expense or Income"), "{text}: {err}");
+        }
+        let mut e = valid_editor(); e.amount_kind = AmountKind::Income;
+        e.amount = "(50)".into();
+        let err = e.build(&db).unwrap_err();
+        assert!(err.contains("Income is selected"), "{err}");
+    }
+
+    #[test]
+    fn a_last_weekday_start_snaps_only_when_the_repeat_is_last_weekday() {
+        let db = db();
+        let mut p = Payment::new(20261027); p.description = "Last Tuesday".into(); p.amount = -25.5; p.freq_type = 'L';
+        p.set_end_mode(END_MODE_INDEFINITE);
+        let mut e = PaymentEditor::edit(&p);
+        assert_eq!(e.recurrence, Recurrence::LastWeekday);
+        e.start_date = "2026-10-13".into(); // a Tuesday outside the last week of October
+        assert_eq!(e.build(&db).unwrap().start_date, 20261027);
+        e.recurrence = Recurrence::Once;
+        let once = e.build(&db).unwrap();
+        assert_eq!((once.start_date, once.n_pays, once.end_mode()), (20261013, 1, END_MODE_N_PAYS));
+    }
+
+    #[test]
+    fn daily_and_weekly_repeats_above_the_stored_limit_are_refused() {
+        // The loader clamps stored frequencies to 100,000, so a larger one would change on reopen.
+        let db = db();
+        for recurrence in [Recurrence::Days, Recurrence::Weeks] {
+            let mut e = valid_editor(); e.recurrence = recurrence; e.end_mode = END_MODE_INDEFINITE;
+            e.frequency = "150000".into();
+            let err = e.build(&db).unwrap_err();
+            assert!(err.contains("100,000"), "{recurrence:?}: {err}");
+            e.frequency = "100000".into();
+            assert_eq!(e.build(&db).unwrap().frequency, 100000);
+        }
+        // Monthly repeats from year 1000 can reach 107,988 months, so the same limit applies.
+        let mut e = valid_editor(); e.recurrence = Recurrence::Months; e.end_mode = END_MODE_INDEFINITE;
+        e.start_date = "1000-01-01".into(); e.frequency = "100001".into();
+        assert!(e.build(&db).unwrap_err().contains("100,000"));
+    }
+
+    #[test]
+    fn moving_an_indefinite_start_later_saves_the_end_date_the_file_reopens_with() {
+        let mut db = db();
+        let mut p = Payment::new(20260101); p.description = "Gym".into(); p.amount = -40.0;
+        p.set_end_mode(END_MODE_INDEFINITE); p.end_date = 20260630; // stale, left from an earlier end date
+        let i = db.add(p);
+        let id = db.payments[i].id;
+        let mut e = PaymentEditor::edit(&db.payments[i]);
+        e.start_date = "2026-10-01".into();
+        let built = e.build(&db).unwrap();
+        crate::document::put_payment(&mut db, built, Some(id)).unwrap();
+        let saved = db.payments[db.get_by_id(id).unwrap()].clone();
+        let loaded = bgt::load_str(&db.to_text(None).unwrap(), 20261027, None).unwrap();
+        assert_eq!(loaded.payments[0].start_date, 20261001);
+        assert_eq!(loaded.payments[0].end_date, saved.end_date, "reopened end date");
+    }
+
+    #[test]
+    fn an_nth_weekday_repeat_validates_only_the_fields_it_shows() {
+        // The "Every" box is hidden for the numbered-weekday repeat, so its text must not block a save.
+        let db = db();
+        let mut p = Payment::new(20261027); p.description = "Second Tuesday".into(); p.amount = -25.5; p.freq_type = 'W';
+        p.set_end_mode(END_MODE_INDEFINITE);
+        let mut e = PaymentEditor::edit(&p);
+        assert_eq!(e.recurrence, Recurrence::NthWeekday);
+        e.frequency = "abc".into();
+        let built = e.build(&db).unwrap();
+        assert_eq!((built.freq_type, built.frequency), ('W', p.frequency));
+        e.frequency = "0".into();
+        assert!(e.build(&db).is_ok());
+        let mut e = valid_editor(); e.recurrence = Recurrence::NthWeekday; e.frequency = "abc".into();
+        assert_eq!(e.build(&db).unwrap().frequency, 1);
+    }
+
+    #[test]
+    fn a_literal_beyond_the_amount_range_is_reported_as_too_large() {
+        let overflow = format!("1{}", "0".repeat(400));
+        for text in ["1e999", "-1e999", overflow.as_str()] {
+            let err = parse_amount(text, "Amount").unwrap_err();
+            assert!(err.contains("too large"), "{text}: {err}");
+        }
+        for text in ["NaN", "inf", "-inf"] {
+            let err = parse_amount(text, "Amount").unwrap_err();
+            assert!(err.contains("must be a number") && !err.contains("too large"), "{text}: {err}");
+        }
+        let mut tx = TransactionEditor::new(&Payment::new(20261027), 20261027, 1.0);
+        tx.amount = "1e999".into();
+        assert!(tx.values().unwrap_err().contains("too large"));
+    }
+
+    fn payment_frame(ctx: &egui::Context, t: &Tokens, editor: &mut PaymentEditor, size: egui::Vec2) -> egui::FullOutput {
+        ctx.run(egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, size)), ..Default::default() },
+            |ctx| { let _ = editor.show(ctx, t, &db(), true, 20261027); })
+    }
+
+    fn has_label(output: &egui::FullOutput, label: &str) -> bool {
+        output.shapes.iter().any(|shape| matches!(&shape.shape, egui::Shape::Text(text) if text.galley.job.text == label))
+    }
+
+    #[test]
+    fn enabled_sits_under_the_amount_and_the_captions_match_the_form() {
+        let size = egui::vec2(1200.0, 1000.0);
+        let (ctx, t) = transaction_context();
+        let mut e = PaymentEditor::edit(&monthly_rent());
+        for _ in 0..3 { payment_frame(&ctx, &t, &mut e, size); }
+        let output = payment_frame(&ctx, &t, &mut e, size);
+        let amount = transaction_label(&output, "Amount").center().y;
+        let enabled = transaction_label(&output, "Enabled in calendar").center().y;
+        let category = transaction_label(&output, "Category (optional)").center().y;
+        assert!(amount < enabled && enabled < category, "{amount} {enabled} {category}");
+        assert!(!has_label(&output, "Category · Optional"));
+        // The repeat caption is the last row inside the scroll area at this size; the unit beside
+        // the number and the disclosure are below it, so only the caption is checked on screen.
+        assert!(has_label(&output, "Repeat every"));
+    }
+
+    #[test]
+    fn the_more_options_title_counts_the_hidden_options_that_are_set() {
+        let mut e = PaymentEditor::edit(&monthly_rent());
+        assert_eq!(e.more_options_title(), "More schedule options");
+        e.reminder = true; e.sticky = true;
+        assert_eq!(e.more_options_title(), "More schedule options (2 set)");
+        e.grace = " 5 ".into();
+        assert_eq!(e.more_options_title(), "More schedule options (3 set)");
+        e.grace = "0".into();
+        assert_eq!(e.more_options_title(), "More schedule options (2 set)");
+    }
+
 }
