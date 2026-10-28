@@ -4,6 +4,7 @@
 //! a temporary `bgt-report-*.html` (in the system temp folder, never next to the budget) and hands it
 //! to Windows: the default browser, or for the two Excel variants the program registered for `.xls`
 //! (else `.xlsx`). The original also wrote HTML for those and ran its `.xls` program on it (06 §1.12).
+//! The files this run wrote are deleted when the app exits, as the original's were.
 //!
 //! The dialog state lives in egui memory rather than in `App`, so the main window only needs the
 //! menu call, the dialog call and a keyboard guard.
@@ -92,7 +93,33 @@ pub trait Shell {
     /// Whether a program is registered for `.xls` or `.xlsx` (the original disabled its Excel items otherwise).
     fn spreadsheet_available(&self) -> bool;
     fn open(&self, path: &Path, viewer: Viewer) -> Result<(), String>;
+    /// A report file was written: remember it, to delete it when the app exits.
+    fn created(&self, path: &Path);
 }
+
+/// Report files written by this run. The original's temporary reports were deleted when it exited
+/// (`File.deleteOnExit`); only these exact files are, never anything else in the folder.
+#[derive(Default)]
+pub struct TempReports(std::sync::Mutex<Vec<PathBuf>>);
+
+impl TempReports {
+    const fn new() -> TempReports { TempReports(std::sync::Mutex::new(Vec::new())) }
+
+    fn track(&self, path: &Path) { self.0.lock().unwrap_or_else(|e| e.into_inner()).push(path.to_path_buf()); }
+
+    /// Deletes the tracked files (one already gone is skipped) and forgets them. Returns how many
+    /// were deleted.
+    fn delete_all(&self) -> usize {
+        let paths = std::mem::take(&mut *self.0.lock().unwrap_or_else(|e| e.into_inner()));
+        paths.iter().filter(|path| std::fs::remove_file(path).is_ok()).count()
+    }
+}
+
+/// The reports this run wrote to the system's temporary folder.
+static CREATED: TempReports = TempReports::new();
+
+/// Deletes the report files this run wrote (when the app exits).
+pub fn delete_created_reports() { CREATED.delete_all(); }
 
 /// The real system: temp folder, default browser, `.xls` program.
 struct System;
@@ -109,6 +136,7 @@ impl Shell for System {
             },
         }
     }
+    fn created(&self, path: &Path) { CREATED.track(path); }
 }
 
 /// `.xls`, else `.xlsx`, whichever has a registered program (`Program.findProgram`), looked up once.
@@ -386,6 +414,7 @@ fn run_named(db: &mut BudgetDb, cfg: &BudgetConfig, req: &Request, name: &str, s
         .map_err(|e| format!("Couldn't create \u{201c}{name}\u{201d}: {e}"))?;
     let path = write_report(&shell.report_dir(), &html)
         .map_err(|e| format!("Couldn't save \u{201c}{name}\u{201d} in the temporary folder: {e}"))?;
+    shell.created(&path);
     shell.open(&path, req.kind.viewer())
         .map_err(|e| format!("Couldn't open \u{201c}{name}\u{201d}: {e} The report was saved as {}.", path.display()))?;
     Ok(match req.kind.viewer() {
@@ -641,7 +670,7 @@ mod tests {
     static NEXT: AtomicUsize = AtomicUsize::new(0);
 
     /// Records what would have been opened; launches nothing.
-    struct FakeShell { dir: PathBuf, spreadsheet: bool, opened: RefCell<Vec<(PathBuf, Viewer)>> }
+    struct FakeShell { dir: PathBuf, spreadsheet: bool, opened: RefCell<Vec<(PathBuf, Viewer)>>, created: TempReports }
 
     impl Shell for FakeShell {
         fn report_dir(&self) -> PathBuf { self.dir.clone() }
@@ -650,6 +679,7 @@ mod tests {
             self.opened.borrow_mut().push((path.to_path_buf(), viewer));
             Ok(())
         }
+        fn created(&self, path: &Path) { self.created.track(path); }
     }
 
     impl Drop for FakeShell {
@@ -660,7 +690,7 @@ mod tests {
     fn shell(spreadsheet: bool) -> FakeShell {
         let dir = std::path::absolute(Path::new(env!("CARGO_MANIFEST_DIR")).join("../target/report-tests")).unwrap()
             .join(format!("{}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed)));
-        FakeShell { dir, spreadsheet, opened: RefCell::new(Vec::new()) }
+        FakeShell { dir, spreadsheet, opened: RefCell::new(Vec::new()), created: TempReports::default() }
     }
 
     fn files(dir: &Path) -> Vec<PathBuf> {
@@ -1018,6 +1048,41 @@ mod tests {
     #[test]
     fn system_reports_go_to_the_temp_folder() {
         assert_eq!(System.report_dir(), std::env::temp_dir());
+    }
+
+    #[test]
+    fn the_reports_this_run_wrote_are_deleted_at_exit_and_nothing_else() {
+        let cfg = BudgetConfig::default();
+        let shell = shell(false);
+        let mut db = fixture();
+        run(&mut db, &cfg, &req(ReportKind::Print, 20260601, 20260601, 0), &shell).unwrap();
+        print_this_month(&mut db, &cfg, &month(20260601), &shell).unwrap();
+        // Another run's report and an unrelated file in the same folder stay.
+        let (other, notes) = (shell.dir.join("bgt-report-other-run.html"), shell.dir.join("notes.txt"));
+        std::fs::write(&other, "x").unwrap();
+        std::fs::write(&notes, "x").unwrap();
+        let written: Vec<PathBuf> = shell.opened.borrow().iter().map(|(path, _)| path.clone()).collect();
+        assert!(written.iter().all(|path| path.exists()));
+        assert_eq!(shell.created.delete_all(), 2);
+        assert!(written.iter().all(|path| !path.exists()));
+        let mut left = files(&shell.dir);
+        left.sort();
+        assert_eq!(left, [other, notes]);
+        assert_eq!(shell.created.delete_all(), 0, "each file is deleted once");
+    }
+
+    #[test]
+    fn reports_written_to_the_system_temp_folder_are_deleted_at_exit() {
+        // The real shell tracks what this run wrote; the exit clean-up deletes exactly that.
+        let dir = shell(false).dir.with_extension("system");
+        std::fs::create_dir_all(&dir).unwrap();
+        let (written, kept) = (dir.join("bgt-report-1.html"), dir.join("bgt-report-2.html"));
+        std::fs::write(&written, "x").unwrap();
+        std::fs::write(&kept, "x").unwrap();
+        System.created(&written);
+        delete_created_reports();
+        assert!(!written.exists() && kept.exists());
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     /// Checks the Windows binding without launching anything: the struct matches SHELLEXECUTEINFOW,

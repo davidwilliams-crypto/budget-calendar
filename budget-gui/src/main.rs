@@ -1759,6 +1759,8 @@ impl App {
                 self.dialogs.pending = Some(PendingAction::Close);
             } else {
                 self.save_config();
+                // The app is closing: its temporary report files go with it, as in the original.
+                reports::delete_created_reports();
             }
         }
         if self.title_dirty {
@@ -1911,12 +1913,15 @@ fn main() -> eframe::Result {
             .with_icon(icon.unwrap_or_default()),
         ..Default::default()
     };
-    eframe::run_native("Budget Calendar", options, Box::new(|cc| {
+    let result = eframe::run_native("Budget Calendar", options, Box::new(|cc| {
         theme::install_fonts(&cc.egui_ctx);
         let app = App::new(cli);
         theme::apply(&cc.egui_ctx, &app.t);
         Ok(Box::new(app))
-    }))
+    }));
+    // However the window ended, this run's report files do not outlive it.
+    reports::delete_created_reports();
+    result
 }
 
 #[cfg(test)]
