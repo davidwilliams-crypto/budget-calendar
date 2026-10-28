@@ -2,6 +2,7 @@
 //! Reads plain, Blowfish (`#db*encrypted`) and legacy XOR files; saves plain or Blowfish.
 
 use crate::crypto::{xor_line, LineCipher, HEADER_BLOWFISH, HEADER_XOR};
+use crate::date::DATE_MAX;
 use crate::javafmt::{java_double, parse_double, parse_int};
 use crate::model::*;
 use std::path::Path;
@@ -10,12 +11,11 @@ const EOD_PREFIX: &str = "## END-OF-DATA; line_no=";
 const EOD_TRAILER: &str = " ##";
 /// Upper bound for a loaded payment count (a daily schedule up to year 9999).
 const MAX_N_PAYS: i32 = 4_000_000;
-/// Upper bound for a loaded date (the last day of year 9999).
-const LOAD_DATE_MAX: i32 = 99991231;
 
-/// Deliberate deviation: clamp a loaded date so the calendar arithmetic cannot overflow.
+/// Deliberate deviation: clamp a loaded date to `0..=DATE_MAX` so the calendar arithmetic cannot
+/// overflow.
 fn clamp_date(v: i32, name: &str, log: &mut String, line_no: i32) -> i32 {
-    let c = v.clamp(0, LOAD_DATE_MAX);
+    let c = v.clamp(0, DATE_MAX);
     if c != v { log.push_str(&format!("({line_no}): {name} {v} out of range, using {c}\n")); }
     c
 }
@@ -123,7 +123,7 @@ fn parse_options(p: &mut Payment, toks: &[&str]) -> Result<(), String> {
         let head = tok.get(..8).ok_or_else(|| format!("invalid option: '{tok}'"))?;
         let date = parse_int(head)?;
         // Deliberate deviation: a negative/huge date would overflow the calendar arithmetic.
-        if !(0..=LOAD_DATE_MAX).contains(&date) { return Err(format!("invalid option: '{tok}'")); }
+        if !(0..=DATE_MAX).contains(&date) { return Err(format!("invalid option: '{tok}'")); }
         if n == 8 { p.add_no_transaction(date); continue; }
         let c = tok[8..].chars().next().unwrap();
         let rest = &tok[8 + c.len_utf8()..];

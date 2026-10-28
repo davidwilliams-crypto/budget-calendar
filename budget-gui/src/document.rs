@@ -1,11 +1,10 @@
 //! Editing operations and optimistic disk-change checks, independent of the UI.
+use budget_core::date::{is_calendar_date, DATE_MAX, YEAR_MAX};
 use budget_core::{add_period, bgt, calendar_field, BudgetDb, Cal, Field, Payment,
     END_MODE_DATE, END_MODE_INDEFINITE, END_MODE_LOAN_PAID, END_MODE_N_PAYS};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
-/// Last representable date; schedule walks stop here.
-const LAST_DATE: i32 = 99_991_231;
 /// How many occurrences a split may look ahead for a date that keeps a month-end or numbered
 /// weekday anchor (a 29 February start needs at most eight years).
 const MAX_ANCHOR_RUN: usize = 1000;
@@ -121,7 +120,7 @@ pub fn change_future_transactions(db: &mut BudgetDb, id: i32, date: i32, amount:
     // Far enough ahead to cover a 29 February anchor's next leap day.
     let mut horizon = Cal::from_int(date);
     horizon.add(Field::Year, 9);
-    let horizon = if horizon.year() > 9999 { LAST_DATE } else { horizon.get() };
+    let horizon = if horizon.year() > YEAR_MAX { DATE_MAX } else { horizon.get() };
     let before = schedule_snapshot(today, std::slice::from_ref(&original), from, horizon)?;
     if !before.contains_key(&date) { return Err("This transaction no longer exists.".into()); }
     let regular = regular_dates(&original, cut.boundary, last_option_date(&original, cut.boundary));
@@ -290,7 +289,7 @@ fn nominal_slots(p: &Payment, mut visit: impl FnMut(i32, i32) -> bool) {
             END_MODE_DATE => n > 0 && date > p.end_date,
             _ => n >= p.n_pays.max(1),
         };
-        if ended || date > LAST_DATE || !visit(n, date) { return; }
+        if ended || date > DATE_MAX || !visit(n, date) { return; }
         n += 1;
         add_period(&mut c, field, p.frequency, p.start_date, n);
     }
@@ -502,7 +501,7 @@ fn schedule_snapshot(today: i32, payments: &[Payment], from: i32, to: i32) -> Re
     // A window shorter than two months would start at the payments' history instead of `from`.
     let mut end = Cal::from_int(from);
     end.add(Field::Month, 3);
-    let end = end.get().max(to).min(LAST_DATE);
+    let end = end.get().max(to).min(DATE_MAX);
     // Bound the work before allocating native BudgetDay storage for legacy files
     // with millennia of daily history. Rejection leaves the live budget intact.
     if Cal::diff_int(from, end) > 366_000 {
@@ -615,7 +614,7 @@ pub fn set_balance(db: &mut BudgetDb, date: i32, amount: Option<f64>) -> Result<
 }
 
 fn valid_date(date: i32) -> Result<(), String> {
-    if !(10000101..=99991231).contains(&date) || Cal::from_int(date).get() != date {
+    if !is_calendar_date(date) {
         return Err("Enter a valid calendar date between years 1000 and 9999.".into());
     }
     Ok(())
@@ -741,7 +740,7 @@ fn preserve_future_amount(db: &mut BudgetDb, i: usize, date: i32, proposed: &mut
     let mut last_changed = date;
     while scheduled >= 0 {
         let actual = actual_date(original, scheduled);
-        if actual > 99991231 { return Err("This occurrence cannot be changed without extending beyond year 9999.".into()); }
+        if actual > DATE_MAX { return Err("This occurrence cannot be changed without extending beyond year 9999.".into()); }
         // Several daily weekend occurrences can land on one business day. The
         // scheduler adds their amounts, then applies the date's explicit option.
         let mut slots = vec![scheduled];

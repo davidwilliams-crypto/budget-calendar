@@ -1,13 +1,12 @@
 //! Schedule generation: `calendarField`, `addPeriod`, `calcLoanSchedule`, `update(Payment, boolean)`,
 //! and the regular-date enumerations.
 
-use crate::date::{Cal, Field, SATURDAY, SUNDAY};
+use crate::date::{Cal, Field, DATE_MAX, SATURDAY, SUNDAY};
 use crate::db::BudgetDb;
 use crate::model::*;
 
-/// Last representable date: every schedule enumeration stops here, so absurd frequency × count
-/// combinations cannot hang a load (or overflow the year).
-const LAST_DATE: i32 = 99_991_231;
+// Every schedule enumeration stops after `DATE_MAX`, so absurd frequency × count combinations
+// cannot hang a load (or overflow the year).
 
 pub fn calendar_field(freq_type: char) -> Field {
     match freq_type {
@@ -73,7 +72,7 @@ impl BudgetDb {
             if mode == END_MODE_INDEFINITE && c.gt(&self.end_date) { return false; }
             let v = c.get();
             if v == date { return true; }
-            if v > date || v > LAST_DATE { return false; }
+            if v > date || v > DATE_MAX { return false; }
             n += 1;
             add_period(&mut c, field, p.frequency, p.start_date, n);
         }
@@ -118,7 +117,7 @@ impl BudgetDb {
         loop {
             if mode != END_MODE_INDEFINITE && n >= p.n_pays { return -1; }
             if c.get() > date { return c.get(); }
-            if c.get() > LAST_DATE { return -1; }
+            if c.get() > DATE_MAX { return -1; }
             n += 1;
             add_period(&mut c, field, p.frequency, p.start_date, n);
         }
@@ -135,7 +134,7 @@ impl BudgetDb {
             loop {
                 if mode != END_MODE_INDEFINITE && n >= p.n_pays { break; }
                 if mode == END_MODE_INDEFINITE && c.gt(&self.end_date) { break; }
-                if c.gt(to) || c.get() > LAST_DATE { break; }
+                if c.gt(to) || c.get() > DATE_MAX { break; }
                 if c.ge(from) { count += 1; }
                 n += 1;
                 add_period(&mut c, field, p.frequency, p.start_date, n);
@@ -191,7 +190,7 @@ impl BudgetDb {
         // Half-a-cent tolerance absorbs floating-point residue when the principal is an exact multiple.
         while remaining >= 0.005 {
             // Bound the schedule at the last representable year so absurd loans cannot hang the app.
-            if c.get() > LAST_DATE { break; }
+            if c.get() > DATE_MAX { break; }
             ls.n_pays += 1;
             if !self.is_modified_on(i, &c) {
                 if remaining <= abs_amt + 0.005 {
@@ -227,7 +226,7 @@ impl BudgetDb {
         let mut n = 1;
         loop {
             add_period(&mut c, field, p.frequency, p.start_date, n);
-            if c.gt(&end) || c.get() > LAST_DATE { break; }
+            if c.gt(&end) || c.get() > DATE_MAX { break; }
             n += 1;
         }
         self.payments[i].n_pays = n;
@@ -243,7 +242,7 @@ impl BudgetDb {
                 let mut c = Cal::from_int(p.start_date);
                 let mut n = 0;
                 for k in 0..p.n_pays.max(1) {
-                    if c.get() > LAST_DATE { break; }
+                    if c.get() > DATE_MAX { break; }
                     if c.get() >= v { n += 1; }
                     add_period(&mut c, field, p.frequency, p.start_date, k + 1);
                 }
@@ -254,7 +253,7 @@ impl BudgetDb {
                 let mut c = Cal::from_int(p.start_date);
                 let mut n = 0;
                 let mut k = 0;
-                while !c.gt(&end) && c.get() <= LAST_DATE {
+                while !c.gt(&end) && c.get() <= DATE_MAX {
                     if c.get() >= v { n += 1; }
                     k += 1;
                     add_period(&mut c, field, p.frequency, p.start_date, k);
@@ -286,7 +285,7 @@ impl BudgetDb {
                 while n + 1 < p.n_pays {
                     let mut next = c;
                     add_period(&mut next, field, frequency, start_date, n + 1);
-                    if next.get() > LAST_DATE { break; }
+                    if next.get() > DATE_MAX { break; }
                     c = next;
                     n += 1;
                 }
@@ -321,7 +320,7 @@ impl BudgetDb {
             if mode != END_MODE_INDEFINITE && n >= n_pays { break; }
             if mode == END_MODE_INDEFINITE && c.gt(&self.end_date) { break; }
             let cv = c.get();
-            if cv > LAST_DATE { break; }
+            if cv > DATE_MAX { break; }
             let mut amt = amount;
             if mode == END_MODE_LOAN_PAID && n + 1 == n_pays {
                 amt = last_payment_amount;

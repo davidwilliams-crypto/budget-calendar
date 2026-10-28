@@ -1,5 +1,6 @@
 //! Payment and transaction drafts. Dialogs return values without mutating the database.
-use budget_core::{date::sdate, BudgetDb, Cal, Field, Payment, END_MODE_DATE, END_MODE_INDEFINITE,
+use budget_core::date::{sdate, DATE_MAX, DATE_MIN, YEAR_MAX, YEAR_MIN};
+use budget_core::{BudgetDb, Cal, Field, Payment, END_MODE_DATE, END_MODE_INDEFINITE,
     END_MODE_LOAN_PAID, END_MODE_MASK, END_MODE_N_PAYS, FLAG_IMPORTANT, FLAG_NONE, FLAG_PAID};
 use eframe::egui::{self, ComboBox, Grid, RichText, ScrollArea, TextEdit};
 use egui_phosphor::regular as ph;
@@ -58,7 +59,7 @@ impl DatePicker {
     fn leading_blanks(&self) -> i32 { (self.month.day_of_week() + 7 - self.first_weekday()) % 7 }
     fn shift_month(&mut self, delta: i32) {
         let mut month = self.month; month.add(Field::Month, delta);
-        if (1000..=9999).contains(&month.year()) { self.month = month; }
+        if (YEAR_MIN..=YEAR_MAX).contains(&month.year()) { self.month = month; }
     }
     fn choose(&self, day: i32) -> Option<i32> {
         (1..=self.month.max_day()).contains(&day)
@@ -803,11 +804,11 @@ fn date_picker(ui: &mut egui::Ui, picker: &mut DatePicker, selected: &str, t: &T
     ui.spacing_mut().item_spacing = egui::vec2(4.0, 5.0);
     let mut chosen = None;
     ui.horizontal(|ui| {
-        if ui.add_enabled(picker.month.get() > 10000101, egui::Button::new("‹")).on_hover_text("Previous month").clicked() {
+        if ui.add_enabled(picker.month.ym() > Cal::from_int(DATE_MIN).ym(), egui::Button::new("‹")).on_hover_text("Previous month").clicked() {
             picker.shift_month(-1);
         }
         ui.add_sized([190.0, 34.0], egui::Label::new(RichText::new(format!("{} {}", MONTHS[picker.month.month() as usize], picker.month.year())).strong()));
-        if ui.add_enabled(picker.month.get() < 99991201, egui::Button::new("›")).on_hover_text("Next month").clicked() {
+        if ui.add_enabled(picker.month.ym() < Cal::from_int(DATE_MAX).ym(), egui::Button::new("›")).on_hover_text("Next month").clicked() {
             picker.shift_month(1);
         }
     });
@@ -921,9 +922,9 @@ fn last_same_weekday_of_month(date: i32) -> i32 {
     }
 }
 
-/// The calendar range the editors accept. The loader clamps stored dates into `0..=99991231`
-/// (SPEC.md §6); the editors refuse anything outside the years the calendar can show, so a typed
-/// date is never silently changed on the next load.
+/// The calendar range the editors accept (`YEAR_MIN..=YEAR_MAX`). The loader clamps stored dates
+/// into `0..=DATE_MAX` (SPEC.md §6); the editors refuse anything outside the years the calendar can
+/// show, so a typed date is never silently changed on the next load.
 const YEAR_RANGE_ERROR: &str = "Use a year from 1000 to 9999.";
 
 fn parse_iso_date(text: &str) -> Result<i32, String> {
@@ -940,7 +941,7 @@ fn parse_iso_date(text: &str) -> Result<i32, String> {
         return Err("Use YYYY-MM-DD.".into());
     }
     let year = match year_text.parse::<i64>() {
-        Ok(year) if (1000..=9999).contains(&year) && year_text.len() == 4 => year as i32,
+        Ok(year) if (YEAR_MIN as i64..=YEAR_MAX as i64).contains(&year) && year_text.len() == 4 => year as i32,
         _ => return Err(YEAR_RANGE_ERROR.into()),
     };
     let month: i32 = month_text.parse().map_err(|_| "Invalid month.")?;
@@ -957,10 +958,10 @@ fn parse_iso_date(text: &str) -> Result<i32, String> {
 fn period_span(p: &Payment) -> i32 {
     let start = Cal::from_int(p.start_date);
     match p.freq_type {
-        'd' => Cal::diff(&start, &Cal::from_int(99991231)),
-        'w' => Cal::diff(&start, &Cal::from_int(99991231)) / 7,
-        'y' => 9999 - start.year(),
-        _ => (9999 - start.year()) * 12 + 11 - start.month(),
+        'd' => Cal::diff(&start, &Cal::from_int(DATE_MAX)),
+        'w' => Cal::diff(&start, &Cal::from_int(DATE_MAX)) / 7,
+        'y' => YEAR_MAX - start.year(),
+        _ => (YEAR_MAX - start.year()) * 12 + 11 - start.month(),
     }
 }
 fn max_frequency(p: &Payment) -> i32 { period_span(p).max(1) }
