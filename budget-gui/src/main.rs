@@ -19,11 +19,12 @@ mod view;
 mod version;
 
 use budget_core::config::BudgetConfig;
-use budget_core::filter::Filter;
+use budget_core::filter::{Filter, Haystacks};
 use budget_core::{bgt, BudgetDb, Cal, Field};
 use eframe::egui::{self, Align, Align2, Button, Frame, Key, Layout, Margin, Modifiers, RichText, Sense, Stroke, StrokeKind, TextEdit, Vec2};
 use egui_phosphor::regular as ph;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 
@@ -179,7 +180,14 @@ struct App {
     filter_text: String,
     filter: Option<Filter>,
     filter_error: Option<String>,
+    /// Counts the budgets opened, so a cache never mistakes a new budget for the previous one.
+    generation: u64,
+    /// The month on screen without a search (rebuilt when the document, month or settings change)...
+    month: Option<view::Month>,
+    /// ...narrowed to the search text: what the calendar and summary draw.
     view: Option<MonthView>,
+    /// The search text of every payment for the document revision it was made from.
+    haystacks: Option<((u64, i32), Arc<Haystacks>)>,
     pw_prompt: Option<(PathBuf, String, String)>,
     toast: Option<Toast>,
     /// Persistent error until dismissed.
@@ -212,7 +220,8 @@ impl App {
             balance_editor: None, drag_month_hover: None,
             show_payments: false, payment_list: payment_list::PaymentList::default(),
             day_dialog: None, confirm_delete: None, pending_action: None, allow_close: false,
-            filter_text: String::new(), filter: None, filter_error: None, view: None, pw_prompt: None, toast: None, banner: None,
+            filter_text: String::new(), filter: None, filter_error: None, generation: 0, month: None, view: None, haystacks: None,
+            pw_prompt: None, toast: None, banner: None,
             screenshot: cli.screenshot, frames: 0, dark: cli.dark, show_summary: true, show_about: false, show_legend: false, show_shortcuts: false, focus_filter: false, title_dirty: true, t,
         };
         if let Some(m) = cli.month { app.cur = Cal::from_int(m); app.cur.set_day_one(); }
@@ -326,6 +335,7 @@ impl App {
         match parsed {
             Ok((db, bytes)) => {
                 self.db = Some(db);
+                self.generation += 1;
                 self.file = Some(path.to_path_buf());
                 self.password = password.map(str::to_string);
                 self.saved_bytes = Some(bytes);
@@ -458,11 +468,25 @@ impl App {
         theme::apply(ctx, &self.t);
     }
 
+    /// Brings the month view up to date. A keystroke in the search box reuses the month and the
+    /// payments' prepared search text; only a document, month or setting change rebuilds them.
     fn ensure_view(&mut self) {
-        let Some(db) = &mut self.db else { self.view = None; return };
-        let key = (self.cur.get(), self.filter_text.clone(), db.update_count as u64);
-        if self.view.as_ref().is_some_and(|v| v.key == key) { return; }
-        self.view = Some(view::build(db, &self.cfg, &self.cur, self.today, self.filter.as_ref(), key));
+        let Some(db) = &mut self.db else { (self.view, self.month) = (None, None); return };
+        let key = view::MonthKey { revision: (self.generation, db.update_count), month: self.cur.get(), today: self.today,
+            decimals: self.cfg.show_decimals_in_cv, sunday_first: self.cfg.first_day_of_week_is_sunday,
+            min_balance: self.cfg.min_balance_4_max_saving };
+        if self.view.as_ref().is_some_and(|v| v.key.month == key && v.key.search == self.filter_text) { return; }
+        if self.month.as_ref().is_none_or(|m| m.key != key) {
+            self.month = Some(view::month(db, &self.cfg, &self.cur, self.today, key.clone()));
+        }
+        if let Some(filter) = &mut self.filter {
+            if self.haystacks.as_ref().is_none_or(|(revision, _)| *revision != key.revision) {
+                self.haystacks = Some((key.revision, Arc::new(Haystacks::new(&db.payments))));
+            }
+            filter.set_haystacks(self.haystacks.as_ref().map(|(_, hay)| hay.clone()));
+        }
+        let Some(month) = &self.month else { return };
+        self.view = Some(view::view(month, db, &self.cur, self.filter.as_ref(), &self.filter_text));
     }
 
     // ---------- header ----------
@@ -1800,7 +1824,8 @@ mod lifecycle_tests {
             balance_editor: None, drag_month_hover: None,
             show_payments: false, payment_list: payment_list::PaymentList::default(), day_dialog: None,
             confirm_delete: None, pending_action: None, allow_close: false, cur, today: 20261027,
-            filter_text: String::new(), filter: None, filter_error: None, view: None, pw_prompt: None, toast: None, banner: None,
+            filter_text: String::new(), filter: None, filter_error: None, generation: 0, month: None, view: None, haystacks: None,
+            pw_prompt: None, toast: None, banner: None,
             screenshot: None, frames: 0, dark: false, show_summary: true, show_about: false, show_legend: false, show_shortcuts: false, focus_filter: false, title_dirty: true, t,
         };
         (app, dir)
@@ -2373,6 +2398,44 @@ mod lifecycle_tests {
     }
 
     #[test]
+    fn typing_a_search_reuses_the_month_and_an_edit_or_another_budget_rebuilds_it() {
+        let (mut app, dir) = fixture();
+        app.ensure_view();
+        let row = |app: &App| app.view.as_ref().unwrap().cells.iter().flat_map(|c| &c.rows).next().cloned();
+        let before = row(&app).unwrap();
+        for text in ["fix", "fixture", "fixture zz"] {
+            app.filter_text = text.into();
+            app.set_filter();
+            app.ensure_view();
+            assert!(app.view.as_ref().unwrap().filtered);
+        }
+        assert!(row(&app).is_none(), "\"fixture zz\" matches nothing");
+        app.filter_text = "fixture".into();
+        app.set_filter();
+        app.ensure_view();
+        assert!(std::rc::Rc::ptr_eq(&before, &row(&app).unwrap()), "keystrokes reuse the month's rows instead of rebuilding them");
+        let id = app.db.as_ref().unwrap().payments[0].id;
+        document::change_transaction(app.db.as_mut().unwrap(), id, 20261027, -13.0, "", budget_core::FLAG_NONE).unwrap();
+        app.changed();
+        app.ensure_view();
+        let edited = row(&app).unwrap();
+        assert!(!std::rc::Rc::ptr_eq(&before, &edited) && edited.value == -13.0, "an edit rebuilds the month");
+        // Another budget is never served from the previous one's month, even at the same engine count.
+        let count = app.db.as_ref().unwrap().update_count;
+        let mut other = BudgetDb::new(&app.cur, 12, false);
+        let mut p = budget_core::Payment::new(20261027); p.description = "Fixture other".into(); p.amount = -99.0;
+        other.add(p);
+        let path = dir.join("other.bgt");
+        bgt::save_file(&path, &other.to_text(None).unwrap()).unwrap();
+        app.dirty = false;
+        app.load(&path, None);
+        app.db.as_mut().unwrap().update_count = count;
+        app.ensure_view();
+        assert_eq!(row(&app).unwrap().value, -99.0);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
     fn clicking_a_description_with_an_ampersand_filters_to_it() {
         let (mut app, dir) = fixture();
         app.db.as_mut().unwrap().payments[0].description = "AT&T".into();
@@ -2836,6 +2899,24 @@ mod lifecycle_tests {
         }
         report("keystroke: month view rebuild", view);
         report("keystroke: full frame", frames);
+        {
+            let mut f = Filter::new("payment 01 g", app.today).unwrap();
+            f.set_haystacks(Some(Arc::new(Haystacks::new(&app.db.as_ref().unwrap().payments))));
+            let db = app.db.as_mut().unwrap();
+            let mut n = 0;
+            let started = Instant::now();
+            for date in 20261001..=20261031 {
+                let trans = db.get_day(&Cal::from_int(date)).unwrap().transactions.clone();
+                for t in trans { n += 1; std::hint::black_box(f.is_match(&db.payments[t.pmt], t.amount, date)); }
+            }
+            println!("PERF {n} is_match: {:.2} ms", ms(started.elapsed()));
+            let started = Instant::now();
+            std::hint::black_box(budget_core::stats::calc_statistics(db, &app.cur, 1, false, Some(&f)));
+            println!("PERF filtered stats: {:.2} ms", ms(started.elapsed()));
+            let started = Instant::now();
+            std::hint::black_box(budget_core::stats::calc_statistics(db, &app.cur, 1, false, None));
+            println!("PERF unfiltered stats: {:.2} ms", ms(started.elapsed()));
+        }
         let mut idle = Vec::new();
         for _ in 0..20 { let started = Instant::now(); wide_frame(&mut app, &ctx); idle.push(ms(started.elapsed())); }
         report("idle frame with a search", idle);

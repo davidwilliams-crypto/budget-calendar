@@ -3,11 +3,87 @@
 
 use crate::model::*;
 use crate::numfmt::{format_frac2, sdate_dmy, to_double};
+use std::borrow::Cow;
+use std::sync::Arc;
 
 const NBSPACE: char = '\u{2029}';
 
 /// The Java app stored '&' as the fullwidth U+FF06 (SWT mnemonics); match both spellings alike.
 fn amp(s: &str) -> String { s.replace('\u{ff06}', "&") }
+fn lower(s: &str) -> String { amp(&s.to_lowercase()) }
+
+/// A payment's search text, lower-cased once. The `all` haystack is
+/// `"{start} {description} {category} {amount} {note}"` lower-cased; its parts are joined by
+/// spaces, which no lower-casing rule (not even the Greek final sigma) looks across, so
+/// lower-casing the parts separately gives the same text.
+#[derive(Debug)]
+struct PaymentHay {
+    date: String,
+    desc: String,
+    cat: Option<String>,
+    /// `"{start} {description} {category} "`, the fixed start of the `all` haystack.
+    head: String,
+    /// The payment's own amount (as bits) and its whole `all` haystack without a note: most
+    /// transactions are exactly that.
+    amount: u64,
+    plain: String,
+    /// The description or category contains a `.`.
+    dots: bool,
+}
+
+/// `format_frac2` is ASCII apart from the uncased infinity sign, so only "NaN" changes case.
+fn money(amount: f64) -> String {
+    let mut money = format_frac2(amount);
+    money.make_ascii_lowercase();
+    money
+}
+
+impl PaymentHay {
+    fn new(p: &Payment) -> PaymentHay {
+        let date = sdate_dmy(p.start_date).to_lowercase();
+        let desc = lower(&p.description);
+        let cat = p.category.as_deref().map(lower);
+        let head = format!("{date} {desc} {} ", cat.as_deref().unwrap_or(""));
+        let plain = format!("{head}{} ", money(p.amount));
+        let dots = desc.contains('.') || cat.as_deref().is_some_and(|c| c.contains('.'));
+        PaymentHay { date, desc, cat, head, amount: p.amount.to_bits(), plain, dots }
+    }
+
+    /// The `all` haystack of one transaction.
+    fn all(&self, amount: f64, note: &str) -> Cow<'_, str> {
+        match (amount.to_bits() == self.amount, note.is_empty()) {
+            (true, true) => Cow::Borrowed(&self.plain),
+            (true, false) => Cow::Owned(format!("{}{note}", self.plain)),
+            (false, _) => Cow::Owned(format!("{}{} {note}", self.head, money(amount))),
+        }
+    }
+}
+
+/// A prepared payment with the values its text was made from: a payment changed since is never
+/// matched against stale text. (The amount needs no check: `PaymentHay::all` compares it.)
+#[derive(Debug)]
+struct Prepared { id: i32, description: String, category: Option<String>, start_date: i32, hay: PaymentHay }
+
+/// Search text of every payment, prepared once per document change and shared with each
+/// [`Filter`] through [`Filter::set_haystacks`]: typing a search then matches without formatting
+/// and lower-casing every transaction's payment again.
+#[derive(Debug, Default)]
+pub struct Haystacks { by_id: Vec<Prepared> }
+
+impl Haystacks {
+    pub fn new(payments: &[Payment]) -> Haystacks {
+        let mut by_id: Vec<Prepared> = payments.iter().map(|p| Prepared {
+            id: p.id, description: p.description.clone(), category: p.category.clone(), start_date: p.start_date, hay: PaymentHay::new(p),
+        }).collect();
+        by_id.sort_by_key(|e| e.id);
+        Haystacks { by_id }
+    }
+
+    fn get(&self, p: &Payment) -> Option<&PaymentHay> {
+        let e = &self.by_id[self.by_id.binary_search_by_key(&p.id, |e| e.id).ok()?];
+        (e.start_date == p.start_date && e.description == p.description && e.category == p.category).then_some(&e.hay)
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Name { Unknown, All, Cat, Desc, Date, Lt, Eq, Gt, Note, Range, Flag }
@@ -45,6 +121,7 @@ pub struct Filter {
     /// `yyyymmdd` used by `range:` (the original reads the clock; set it explicitly for tests).
     pub today: i32,
     elms: Vec<Elm>,
+    hay: Option<Arc<Haystacks>>,
 }
 
 impl Filter {
@@ -56,7 +133,7 @@ impl Filter {
         let or_mode = t.starts_with('|');
         if or_mode { t.remove(0); }
         let t = amp(&t.to_lowercase()).replace("\\ ", &NBSPACE.to_string());
-        let mut f = Filter { or_mode, deleted, filter: text.to_string(), today, elms: Vec::new() };
+        let mut f = Filter { or_mode, deleted, filter: text.to_string(), today, elms: Vec::new(), hay: None };
         let parts: Vec<&str> = t.split(' ').collect();
         if parts.first().is_none_or(|p| p.is_empty()) { return Ok(f); }
         for part in parts {
@@ -84,26 +161,36 @@ impl Filter {
 
     pub fn is_empty(&self) -> bool { self.elms.is_empty() }
 
+    /// Match against prepared search text (see [`Haystacks`]). Payments it does not hold, or that
+    /// changed since it was made, are prepared on the fly as without it.
+    pub fn set_haystacks(&mut self, hay: Option<Arc<Haystacks>>) { self.hay = hay; }
+
     /// `isMatch(pmt, amount, date)`: `date` is the occurrence day, `0` (payments list) or `-1` (planned pass).
     pub fn is_match(&self, pmt: &Payment, amount: f64, date: i32) -> bool {
         if self.elms.is_empty() { return true; }
-        let cat = pmt.category.as_deref().unwrap_or("");
-        let note = pmt.get_note(date).unwrap_or_default();
-        let all_hay = amp(&format!("{} {} {} {} {}", sdate_dmy(pmt.start_date), pmt.description, cat, format_frac2(amount), note).to_lowercase());
+        let fresh;
+        let ph = match self.hay.as_deref().and_then(|h| h.get(pmt)) {
+            Some(prepared) => prepared,
+            None => { fresh = PaymentHay::new(pmt); &fresh }
+        };
+        // The occurrence's note and the whole `all` haystack are made only when an element needs them.
+        let (note_cell, all_cell) = (std::cell::OnceCell::new(), std::cell::OnceCell::new());
+        let note = || note_cell.get_or_init(|| pmt.get_note(date).map(|n| lower(&n))).as_deref();
+        let all = || all_cell.get_or_init(|| ph.all(amount, note().unwrap_or(""))).as_ref();
         let mut count = 0;
         for e in &self.elms {
-            let mut hay: Option<String> = None;
+            let mut hay: Option<&str> = None;
             let mut boolean = false;
             let mut matched = false;
             match e.name {
-                Name::All => hay = Some(all_hay.clone()),
-                Name::Cat => hay = pmt.category.as_ref().map(|c| amp(&c.to_lowercase())),
-                Name::Desc => hay = Some(amp(&pmt.description.to_lowercase())),
-                Name::Date => hay = Some(sdate_dmy(pmt.start_date).to_lowercase()),
+                Name::All => hay = Some(all()),
+                Name::Cat => hay = ph.cat.as_deref(),
+                Name::Desc => hay = Some(&ph.desc),
+                Name::Date => hay = Some(&ph.date),
                 Name::Lt => { boolean = true; matched = amount < e.val; }
                 Name::Eq => { boolean = true; matched = e.val == amount; }
                 Name::Gt => { boolean = true; matched = amount > e.val; }
-                Name::Note => hay = pmt.get_note(date).map(|n| amp(&n.to_lowercase())),
+                Name::Note => hay = note(),
                 Name::Range => { boolean = true; matched = self.range_match(pmt, e); }
                 Name::Flag | Name::Unknown => {
                     let f = pmt.get_flag(date);
@@ -116,13 +203,15 @@ impl Filter {
                 }
             }
             if !boolean {
-                if let Some(h) = &hay {
+                if let Some(h) = hay {
                     matched = h.contains(&e.exp);
                     if !matched && e.val != 0.0 {
                         matched = amount == e.val;
-                    } else if !matched && !e.is_dots && e.name == Name::All {
-                        let t = amp(&format!("{} {} {}", pmt.description, cat, note).to_lowercase());
-                        if t.contains('.') { matched = t.replace('.', "").contains(&e.exp); }
+                    } else if !matched && !e.is_dots && e.name == Name::All
+                        && (ph.dots || note().is_some_and(|n| n.contains('.'))) {
+                        // "St.John" also matches "stjohn": the text without its dots.
+                        let t = format!("{} {} {}", ph.desc, ph.cat.as_deref().unwrap_or(""), note().unwrap_or(""));
+                        matched = t.replace('.', "").contains(&e.exp);
                     }
                 }
             }
@@ -208,6 +297,124 @@ mod tests {
         assert!(!Filter::new("st.john x", TODAY).unwrap().is_match(&q, -1.0, 0));
         assert!(Filter::new("~", TODAY).is_err());
         assert!(Filter::new("-  cat:x", TODAY).unwrap().is_empty());
+    }
+
+    /// The matcher before haystacks: formats and lower-cases everything on every call.
+    fn reference_is_match(f: &Filter, pmt: &Payment, amount: f64, date: i32) -> bool {
+        if f.elms.is_empty() { return true; }
+        let cat = pmt.category.as_deref().unwrap_or("");
+        let note = pmt.get_note(date).unwrap_or_default();
+        let all_hay = amp(&format!("{} {} {} {} {}", sdate_dmy(pmt.start_date), pmt.description, cat, format_frac2(amount), note).to_lowercase());
+        let mut count = 0;
+        for e in &f.elms {
+            let mut hay: Option<String> = None;
+            let mut boolean = false;
+            let mut matched = false;
+            match e.name {
+                Name::All => hay = Some(all_hay.clone()),
+                Name::Cat => hay = pmt.category.as_ref().map(|c| amp(&c.to_lowercase())),
+                Name::Desc => hay = Some(amp(&pmt.description.to_lowercase())),
+                Name::Date => hay = Some(sdate_dmy(pmt.start_date).to_lowercase()),
+                Name::Lt => { boolean = true; matched = amount < e.val; }
+                Name::Eq => { boolean = true; matched = e.val == amount; }
+                Name::Gt => { boolean = true; matched = amount > e.val; }
+                Name::Note => hay = pmt.get_note(date).map(|n| amp(&n.to_lowercase())),
+                Name::Range => { boolean = true; matched = f.range_match(pmt, e); }
+                Name::Flag | Name::Unknown => {
+                    let fl = pmt.get_flag(date);
+                    match e.exp.as_str() {
+                        "?" | "unpaid" => { boolean = true; matched = fl == FLAG_NONE || fl == FLAG_IMPORTANT; }
+                        "." | "paid" => { boolean = true; matched = fl == FLAG_PAID; }
+                        "!" | "important" => { boolean = true; matched = fl == FLAG_IMPORTANT; }
+                        _ => {}
+                    }
+                }
+            }
+            if !boolean {
+                if let Some(h) = &hay {
+                    matched = h.contains(&e.exp);
+                    if !matched && e.val != 0.0 {
+                        matched = amount == e.val;
+                    } else if !matched && !e.is_dots && e.name == Name::All {
+                        let t = amp(&format!("{} {} {}", pmt.description, cat, note).to_lowercase());
+                        if t.contains('.') { matched = t.replace('.', "").contains(&e.exp); }
+                    }
+                }
+            }
+            if e.inverted { matched = !matched; }
+            if matched { count += 1; } else if !f.or_mode { return false; }
+        }
+        count > 0
+    }
+
+    #[test]
+    fn prepared_haystacks_match_exactly_like_formatting_every_transaction() {
+        let mut payments = Vec::new();
+        for (n, (desc, cat, note)) in [
+            ("Hydro bill", Some("Utils"), None),
+            ("AT\u{ff06}T", Some("R&D"), Some("Paid by A&B")),
+            ("St.John Ambulance", None, Some("Dr. Who")),
+            ("ΟΔΟΣ Σ", Some("ΤΑΞΙΔΙ"), Some("ΣΗΜΕΙΩΣΗ")),
+            ("İstanbul TRIP", Some("Travel"), Some("İ.")),
+            ("NaN tester", None, None),
+            ("", Some(""), Some("")),
+        ].into_iter().enumerate() {
+            let mut q = p();
+            q.id = n as i32 + 1;
+            q.description = desc.into();
+            q.category = cat.map(str::to_string);
+            q.start_date = 20250301 + n as i32;
+            if let Some(note) = note { q.set_note(20261105, Some(note)); }
+            if n % 2 == 0 { q.set_flag(20261105, FLAG_PAID); }
+            payments.push(q);
+        }
+        let hay = Arc::new(Haystacks::new(&payments));
+        let filters = ["hydro", "120", "-120", "120.00", "utils -120", "bill utils", "at&t", "a&b", "r&d", "stjohn", "st.john x",
+            "drwho", "οδος", "οδοσ", "ς", "σ", "ταξιδι", "σημειωση", "istanbul", "i̇stanbul", "i̇.", "nan", "∞", "mar-2025",
+            "01-mar", "desc:hydro", "cat:util", "~cat:util", "note:a&b", "note:who", "date:mar", "date:2025 hydro",
+            "|salary hydro", "|~hydro ~bill", "<-100", ">-100 hydro", "=-120", ":unpaid", "flag:paid", "~flag:!",
+            "range:2026", "range:active nan", "x:y", "hydro\\ bill", "bill  utils", "  "];
+        let mut compared = 0;
+        for text in filters {
+            let plain = Filter::new(text, TODAY).unwrap();
+            let mut prepared = plain.clone();
+            prepared.set_haystacks(Some(hay.clone()));
+            for q in &payments {
+                for amount in [-120.0, 120.0, 0.0, -0.004, 1234.5, f64::NAN, f64::INFINITY] {
+                    for date in [20261105, 0, -1] {
+                        let expected = reference_is_match(&plain, q, amount, date);
+                        assert_eq!(plain.is_match(q, amount, date), expected, "{text:?} on {:?} {amount} {date}", q.description);
+                        assert_eq!(prepared.is_match(q, amount, date), expected, "{text:?} prepared on {:?} {amount} {date}", q.description);
+                        compared += 1;
+                    }
+                }
+            }
+        }
+        assert!(compared > 6000);
+    }
+
+    #[test]
+    fn a_payment_changed_after_preparing_is_matched_on_its_current_text() {
+        let mut q = p();
+        q.id = 7;
+        let hay = Arc::new(Haystacks::new(std::slice::from_ref(&q)));
+        let mut f = Filter::new("water", TODAY).unwrap();
+        f.set_haystacks(Some(hay.clone()));
+        assert!(!f.is_match(&q, -120.0, 0));
+        q.description = "Water bill".into();
+        assert!(f.is_match(&q, -120.0, 0), "a renamed payment must not be matched by its old text");
+        let mut by_cat = Filter::new("cat:home", TODAY).unwrap();
+        by_cat.set_haystacks(Some(hay.clone()));
+        q.category = Some("Home".into());
+        assert!(by_cat.is_match(&q, -120.0, 0));
+        let mut by_date = Filter::new("date:2024", TODAY).unwrap();
+        by_date.set_haystacks(Some(hay.clone()));
+        q.start_date = 20240101;
+        assert!(by_date.is_match(&q, -120.0, 0));
+        let mut by_amount = Filter::new("77.00", TODAY).unwrap();
+        by_amount.set_haystacks(Some(hay));
+        q.amount = 77.0;
+        assert!(by_amount.is_match(&q, 77.0, 0) && !by_amount.is_match(&q, -120.0, 0));
     }
 
     #[test]
