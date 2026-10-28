@@ -2,7 +2,7 @@
 
 use budget_core::config::BudgetConfig;
 use budget_core::filter::Filter;
-use budget_core::numfmt::{format_frac0, format_frac2};
+use budget_core::numfmt::{balance_display, format_frac0, format_frac2};
 use budget_core::{stats, BudgetDb, Cal, Field, FLAG_IMPORTANT, FLAG_PAID};
 use eframe::egui::Color32;
 use egui_phosphor::regular as ph;
@@ -21,17 +21,22 @@ pub fn pct_text(p: f64) -> String {
     format!("{:.0}", if r == 0.0 { 0.0 } else { r }).replacen('-', "\u{2212}", 1)
 }
 
+/// A brief-summary share, `?` when it has no base (05 §13).
+#[cfg(test)]
+pub fn pct_cell(p: Option<f64>) -> String { p.map_or_else(|| "?".to_string(), pct_text) }
+
+/// The summary panel's share column: an unsigned magnitude with a `%` unit (`29%`), so it
+/// never reads like a second amount. `signed` keeps U+2212 for the disposable-income row;
+/// `?` when there is no base.
+pub fn share_cell(p: Option<f64>, signed: bool) -> String {
+    p.map_or_else(|| "?".to_string(), |p| format!("{}%", pct_text(if signed { p } else { p.abs() })))
+}
+
 /// The original's `isNegative(x, decimals)`: `x < -0.01` with decimals, else `(long)x < 0`.
 pub fn is_negative(v: f64, decimals: bool) -> bool {
     if decimals { v < -0.01 } else { (v as i64) < 0 }
 }
 
-/// Balance as shown: exact with decimals, else nudged by `0.05f` and truncated toward zero.
-pub fn balance_display(v: f64, decimals: bool) -> f64 {
-    if decimals { return v; }
-    let nudge = 0.05f32 as f64;
-    if v > 0.0 { ((v + nudge) as i64) as f64 } else { ((v - nudge) as i64) as f64 }
-}
 
 /// Day-balance classification in the original's precedence: low, then min, then max.
 pub fn balance_kind(closing: f64, min: f64, max: f64, threshold: f64) -> BalKind {
@@ -66,9 +71,24 @@ pub struct TranRow {
     pub disabled: bool,
     pub filter: String,
     pub tip: Tip,
+    /// Days on which this occurrence may be paid (grace period or tentative period), for hover highlighting.
+    pub valid_days: Vec<i32>,
 }
 
-pub struct Balance { pub text: String, pub value: f64, pub kind: BalKind, pub adjusted: bool }
+/// `adjustment` is the reconciliation difference (closing minus the computed balance), 0 when not adjusted.
+pub struct Balance { pub text: String, pub value: f64, pub kind: BalKind, pub adjusted: bool, pub adjustment: f64 }
+
+impl Balance {
+    /// The strip text: the balance, then `′` on an adjusted day, followed by `(diff)` when |diff| >= 1 (analysis/05 §1.7).
+    pub fn strip_text(&self, decimals: bool) -> String {
+        let mut txt = self.text.clone();
+        if self.adjusted {
+            txt.push('\u{2032}');
+            if self.adjustment.abs() >= 1.0 { txt.push_str(&format!("({})", money(balance_display(self.adjustment, decimals), decimals))); }
+        }
+        txt
+    }
+}
 
 pub struct CellData {
     pub day: i32,
@@ -79,12 +99,14 @@ pub struct CellData {
     pub rows: Vec<TranRow>,
     pub balance: Option<Balance>,
     pub note: Option<String>,
-    pub restorable: bool,
+    /// Payments with a deleted or moved-away occurrence on this day: (payment id, short description).
+    pub restorable: Vec<(i32, String)>,
 }
 
 pub struct QuickStats { pub opening: f64, pub closing: f64, pub min: f64, pub max: f64, pub avg: f64, pub income: f64, pub expenses: f64 }
 
-pub struct BriefRow { pub desc: String, pub amount: f64, pub pct: f64, pub diff: Option<f64>, pub total: bool, pub filter: String }
+/// `pct` is `None` (shown as `?`) when the month has neither income nor expenses.
+pub struct BriefRow { pub desc: String, pub amount: f64, pub pct: Option<f64>, pub diff: Option<f64>, pub total: bool, pub filter: String }
 
 pub struct MonthView {
     pub key: (i32, String, u64),
@@ -94,6 +116,11 @@ pub struct MonthView {
     pub shown: usize,
     pub total: usize,
     pub below_min: bool,
+    /// Brief-summary shares are of total expenses (the month has no income), not of income.
+    pub shares_of_expenses: bool,
+    /// A parsed filter narrows this view. Restoring is gated on this, not on the raw search
+    /// text, so an unapplied (invalid or leading "-") search does not disable Restore.
+    pub filtered: bool,
 }
 
 /// Phosphor glyph for a payment, from its icon file name, then description/category keywords.
@@ -142,13 +169,15 @@ pub fn build(db: &mut BudgetDb, cfg: &BudgetConfig, cur: &Cal, today: i32, filte
         cal.add(Field::Day, i - lead);
         let in_month = i >= lead && i < total_cells;
         let date = cal.get();
-        let mut cell = CellData { day: cal.day(), date, in_month, is_today: date == today, weekend: cal.is_weekend(), rows: Vec::new(), balance: None, note: None, restorable: false };
+        let mut cell = CellData { day: cal.day(), date, in_month, is_today: date == today, weekend: cal.is_weekend(), rows: Vec::new(), balance: None, note: None, restorable: Vec::new() };
         if in_month {
             if let Some(day) = db.get_day(&cal) {
                 let trans: Vec<(usize, f64, f64, char)> = day.transactions.iter().map(|t| (t.pmt, t.amount, t.balance, t.suffix)).collect();
                 let closing = day.closing_balance;
                 let adjusted = day.closing_balance_adjusted;
-                cell.restorable = !day.restorable.is_empty();
+                let adjustment = if adjusted { day.adjustment_diff } else { 0.0 };
+                let restorable = day.restorable.clone();
+                cell.restorable = restorable.into_iter().map(|pi| (db.payments[pi].id, db.payments[pi].short_description().to_string())).collect();
                 cell.note = db.day_note(&cal);
                 for (pi, amount, balance, suffix) in trans {
                     let p = &db.payments[pi];
@@ -161,6 +190,7 @@ pub fn build(db: &mut BudgetDb, cfg: &BudgetConfig, cur: &Cal, today: i32, filte
                     let note = p.get_note(date);
                     // The suffix marker is drawn as a coloured dot by the calendar, not as text.
                     let amt = money(amount, decimals);
+                    let valid_days = if p.grace_period_days > 0 || p.is_tentative() { db.valid_payment_days(pi, date) } else { Vec::new() };
                     cell.rows.push(TranRow {
                         payment_id: p.id,
                         date,
@@ -169,14 +199,16 @@ pub fn build(db: &mut BudgetDb, cfg: &BudgetConfig, cur: &Cal, today: i32, filte
                         amount: amt,
                         value: amount,
                         flag: if flag == FLAG_PAID || flag == FLAG_IMPORTANT { flag } else { '\0' },
-                        hilite: (hi != -1 && !p.disabled).then(|| rgb(hi as u32)),
+                        // 05 §1.6: the highlight applies to disabled payments too; only the text is muted.
+                        hilite: (hi != -1).then(|| rgb(hi as u32)),
                         disabled: p.disabled,
                         filter: format!("desc:{}", esc(p.short_description())),
                         tip: Tip { description: p.description.clone(), category: p.category.clone(), amount, planned: p.amount, balance_after: balance, note, suffix },
+                        valid_days,
                     });
                 }
                 let kind = balance_kind(closing, min, max, cfg.min_balance_4_max_saving);
-                cell.balance = Some(Balance { text: money(balance_display(closing, decimals), decimals), value: closing, kind, adjusted });
+                cell.balance = Some(Balance { text: money(balance_display(closing, decimals), decimals), value: closing, kind, adjusted, adjustment });
             }
         }
         cells.push(cell);
@@ -192,10 +224,14 @@ pub fn build(db: &mut BudgetDb, cfg: &BudgetConfig, cur: &Cal, today: i32, filte
     let closing = db.get_day(&last).map_or(0.0, |d| d.closing_balance);
     let avg = if closings.is_empty() { 0.0 } else { closings.iter().sum::<f64>() / closings.len() as f64 };
     let quick = QuickStats { opening, closing, min, max, avg, income: totals.total_income, expenses: totals.total_expense };
-    // brief summary: rows >= 5% of total income, the rest as "Other…"; income first, then disposable income
-    let pct = |a: f64| if st.total_income != 0.0 { a / st.total_income * 100.0 } else { 0.0 };
-    let threshold = st.total_income.abs() * 0.05;
-    let mut brief = vec![BriefRow { desc: "Total income".into(), amount: st.total_income, pct: pct(st.total_income), diff: None, total: true, filter: ">0".into() }];
+    // brief summary: rows >= 5% of the base, the rest as "Other…"; income first, then disposable income.
+    // 05 §13: shares are of total income, or of total expenses when there is no income, else `?`.
+    let base = if st.total_income != 0.0 { st.total_income } else { st.total_expense };
+    let pct = |a: f64| (base != 0.0).then(|| a / base * 100.0);
+    let threshold = base.abs() * 0.05;
+    let income_diff = st.total_income - st.total_planned_income;
+    let mut brief = vec![BriefRow { desc: "Total income".into(), amount: st.total_income, pct: pct(st.total_income),
+        diff: (income_diff.abs() >= 5.0).then_some(income_diff), total: true, filter: ">0".into() }];
     let mut other = 0.0;
     for r in st.income.iter().chain(st.expense.iter()).filter(|r| !r.is_sub) {
         if r.amount.abs() >= threshold {
@@ -209,7 +245,120 @@ pub fn build(db: &mut BudgetDb, cfg: &BudgetConfig, cur: &Cal, today: i32, filte
     if other != 0.0 { brief.push(BriefRow { desc: "Other…".into(), amount: other, pct: pct(other), diff: None, total: false, filter: String::new() }); }
     let net = st.total_income + st.total_expense;
     brief.push(BriefRow { desc: "Disposable income".into(), amount: net, pct: pct(net), diff: None, total: true, filter: String::new() });
-    MonthView { key, cells, quick, brief, shown, total, below_min: min + 0.05 < cfg.min_balance_4_max_saving && min != max }
+    let shares_of_expenses = st.total_income == 0.0 && st.total_expense != 0.0;
+    MonthView { key, cells, quick, brief, shown, total, below_min: min + 0.05 < cfg.min_balance_4_max_saving && min != max, shares_of_expenses, filtered: filter.is_some() }
+}
+
+#[cfg(test)]
+mod build_tests {
+    use super::*;
+    use budget_core::Payment;
+
+    fn db_with(payments: Vec<Payment>) -> (BudgetDb, Cal) {
+        let cur = Cal::from_int(20261001);
+        let mut db = BudgetDb::new(&cur, 12, false);
+        for p in payments { db.add(p); }
+        crate::document::rebuild(&mut db, &cur, 12, false);
+        (db, cur)
+    }
+
+    fn payment(date: i32, desc: &str, amount: f64) -> Payment {
+        let mut p = Payment::new(date); p.description = desc.into(); p.amount = amount; p
+    }
+
+    fn month(db: &mut BudgetDb, cur: &Cal, filter: Option<&Filter>) -> MonthView {
+        build(db, &BudgetConfig::default(), cur, 20261027, filter, (cur.get(), String::new(), 0))
+    }
+
+    fn cell(view: &MonthView, date: i32) -> &CellData { view.cells.iter().find(|c| c.date == date && c.in_month).unwrap() }
+
+    #[test]
+    fn brief_shares_fall_back_to_expenses_without_income_and_show_unknown_without_either() {
+        // 05 §13: an expense-only (e.g. cat:Auto filtered) month must not read 0% everywhere.
+        let (mut db, cur) = db_with(vec![payment(20261005, "Car loan", -400.0), payment(20261012, "Gasoline", -120.0),
+            payment(20261019, "Car insurance", -80.0)]);
+        let view = month(&mut db, &cur, None);
+        let share = |desc: &str| view.brief.iter().find(|r| r.desc == desc).map(|r| pct_cell(r.pct)).unwrap();
+        assert_eq!((share("Car loan"), share("Gasoline"), share("Car insurance")), ("67".into(), "20".into(), "13".into()));
+        assert_eq!(share("Disposable income"), "100");
+        let (mut empty, cur) = db_with(Vec::new());
+        let view = month(&mut empty, &cur, None);
+        assert!(view.brief.iter().all(|r| r.pct.is_none()));
+        assert_eq!(pct_cell(view.brief[0].pct), "?");
+        assert!(!view.shares_of_expenses);
+    }
+
+    #[test]
+    fn summary_shares_are_unsigned_percentages_except_a_negative_disposable_income() {
+        let (mut db, cur) = db_with(vec![payment(20261001, "Salary", 1000.0), payment(20261005, "Rent", -1250.0)]);
+        let view = month(&mut db, &cur, None);
+        assert!(!view.shares_of_expenses);
+        let row = |desc: &str| view.brief.iter().find(|r| r.desc == desc).unwrap();
+        assert_eq!(share_cell(row("Rent").pct, false), "125%");
+        assert_eq!(share_cell(row("Total income").pct, false), "100%");
+        assert_eq!(share_cell(row("Disposable income").pct, true), "\u{2212}25%");
+        assert_eq!(share_cell(None, false), "?");
+        assert_eq!(share_cell(Some(-0.2), true), "0%");
+        let (mut db, cur) = db_with(vec![payment(20261005, "Car loan", -400.0)]);
+        assert!(month(&mut db, &cur, None).shares_of_expenses);
+    }
+
+    #[test]
+    fn total_income_row_shows_the_difference_from_plan() {
+        let mut salary = payment(20261015, "Salary", 3000.0);
+        salary.set_custom_amount(20261015, 2500.0);
+        let (mut db, cur) = db_with(vec![salary]);
+        let view = month(&mut db, &cur, None);
+        assert_eq!(view.brief[0].desc, "Total income");
+        assert_eq!(view.brief[0].diff, Some(-500.0));
+    }
+
+    #[test]
+    fn disabled_payments_keep_their_highlight_colour() {
+        let mut p = payment(20261015, "Parked", -50.0);
+        p.disabled = true;
+        p.set_default_highlighting(0xFFD700);
+        let (mut db, cur) = db_with(vec![p]);
+        let view = month(&mut db, &cur, None);
+        let row = &cell(&view, 20261015).rows[0];
+        assert!(row.disabled);
+        assert_eq!(row.hilite, Some(rgb(0xFFD700)));
+    }
+
+    #[test]
+    fn adjusted_balance_exposes_the_adjustment_amount() {
+        let (mut db, cur) = db_with(vec![payment(20261015, "Groceries", -12.0)]);
+        let computed = db.get_day(&Cal::from_int(20261015)).unwrap().closing_balance;
+        crate::document::set_balance(&mut db, 20261015, Some(computed + 250.0)).unwrap();
+        let view = month(&mut db, &cur, None);
+        let b = cell(&view, 20261015).balance.as_ref().unwrap();
+        assert!(b.adjusted);
+        assert!((b.adjustment - 250.0).abs() < 1e-9);
+        assert!((b.value - b.adjustment - computed).abs() < 1e-9);
+        assert_eq!(b.strip_text(false), "238\u{2032}(250)");
+        let small = Balance { text: "1,000".into(), value: 1000.0, kind: BalKind::Normal, adjusted: true, adjustment: 0.99 };
+        assert_eq!(small.strip_text(false), "1,000\u{2032}");
+        assert_eq!(Balance { adjustment: -1.0, ..small }.strip_text(true), "1,000\u{2032}(\u{2212}1.00)");
+        assert_eq!(cell(&view, 20261016).balance.as_ref().unwrap().strip_text(false), "238");
+    }
+
+    #[test]
+    fn deleted_occurrences_are_listed_as_restorable_and_restore_brings_them_back() {
+        let (mut db, cur) = db_with(vec![payment(20261015, "Groceries", -12.0)]);
+        let id = db.payments[0].id;
+        crate::document::delete(&mut db, id, Some(20261015)).unwrap();
+        let view = month(&mut db, &cur, None);
+        let c = cell(&view, 20261015);
+        assert!(c.rows.is_empty());
+        assert_eq!(c.restorable, vec![(id, "Groceries".to_string())]);
+        crate::document::restore(&mut db, id, 20261015).unwrap();
+        let view = month(&mut db, &cur, None);
+        let c = cell(&view, 20261015);
+        assert_eq!(c.rows.len(), 1);
+        assert_eq!(c.rows[0].value, -12.0);
+        assert!(c.restorable.is_empty());
+        assert!(db.payments[0].opt.is_empty());
+    }
 }
 
 #[cfg(test)]

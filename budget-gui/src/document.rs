@@ -4,9 +4,14 @@ use std::path::Path;
 
 pub fn save_checked(db: &BudgetDb, path: &Path, password: Option<&str>, expected: Option<&[u8]>) -> Result<Vec<u8>, String> {
     if let Some(expected) = expected {
-        let current = std::fs::read(path).map_err(|e| format!("The budget file changed or is unavailable: {e}. Use Save as to keep your edits in a separate file."))?;
-        if current != expected {
-            return Err("The budget file changed on disk since it was opened. Use Save as to keep your edits in a separate file, or reopen it to load the other changes.".into());
+        match std::fs::read(path) {
+            Ok(current) if current != expected => {
+                return Err("The budget file changed on disk since it was opened. Use Save as to keep your edits in a separate file, or reopen it to load the other changes.".into());
+            }
+            Ok(_) => {}
+            // The file is gone: writing it again cannot overwrite anyone's edits.
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(format!("The budget file is unavailable: {e}. Use Save as to keep your edits in a separate file.")),
         }
     }
     let text = db.to_text(password)?;
@@ -16,8 +21,14 @@ pub fn save_checked(db: &BudgetDb, path: &Path, password: Option<&str>, expected
 
 pub fn put_payment(db: &mut BudgetDb, payment: Payment, id: Option<i32>) -> Result<i32, String> {
     let mut payment = payment;
-    if !crate::editor::amount_in_range(payment.amount) || payment.description.trim().is_empty() {
+    // An existing payment's unchanged legacy amount may lie outside the range; keep it editable.
+    let unchanged_amount = id.and_then(|id| db.get_by_id(id))
+        .is_some_and(|i| db.payments[i].amount.to_bits() == payment.amount.to_bits());
+    if !(unchanged_amount || crate::editor::amount_in_range(payment.amount)) || payment.description.trim().is_empty() {
         return Err("Enter a description and an amount within +/-1,000,000,000,000.".into());
+    }
+    if payment.category.as_deref() == Some(payment.description.as_str()) {
+        return Err(crate::editor::SAME_CATEGORY_ERROR.into());
     }
     if let Some(id) = id {
         let i = db.get_by_id(id).ok_or("This payment no longer exists.")?;
@@ -34,12 +45,18 @@ pub fn put_payment(db: &mut BudgetDb, payment: Payment, id: Option<i32>) -> Resu
 }
 
 pub fn change_transaction(db: &mut BudgetDb, id: i32, date: i32, amount: f64, note: &str, flag: char) -> Result<(), String> {
-    if !crate::editor::amount_in_range(amount) { return Err("Enter an amount within +/-1,000,000,000,000.".into()); }
     let i = db.get_by_id(id).ok_or("This payment no longer exists.")?;
     let current = db.get_day(&Cal::from_int(date)).and_then(|d| d.get(i)).map(|t| t.amount)
         .ok_or("This transaction no longer exists.")?;
+    // An untouched legacy amount outside the range still allows note/status edits.
+    if current.to_bits() != amount.to_bits() && !crate::editor::amount_in_range(amount) {
+        return Err("Enter an amount within +/-1,000,000,000,000.".into());
+    }
     let mut proposed = db.payments[i].clone();
-    if current != amount {
+    // set_pmt_flag: paying a tentative occurrence pins it to this date, so it
+    // stops sliding to the current day once today advances.
+    let freeze = proposed.is_tentative() && flag == budget_core::FLAG_PAID;
+    if current != amount || freeze {
         proposed.set_custom_amount(date, amount);
         validate_loan(&proposed)?;
         preserve_future_amount(db, i, date, &mut proposed)?;
@@ -356,6 +373,21 @@ pub fn delete(db: &mut BudgetDb, id: i32, date: Option<i32>) -> Result<(), Strin
     Ok(())
 }
 
+/// Restore a deleted or moved-away occurrence: the original's `restore_transaction`
+/// (`pmt.clear(date)`, `db.update(pmt)`; analysis/05 §1.5 item 5).
+pub fn restore(db: &mut BudgetDb, id: i32, date: i32) -> Result<(), String> {
+    let i = db.get_by_id(id).ok_or("This payment no longer exists.")?;
+    let mut proposed = db.payments[i].clone();
+    if !proposed.opt.iter().any(|o| o.date == date && o.deleted) {
+        return Err("There is no deleted transaction to restore on this date.".into());
+    }
+    proposed.clear(date);
+    validate_loan(&proposed)?;
+    db.payments[i] = proposed;
+    update_preserving_details(db, i);
+    Ok(())
+}
+
 fn preserve_future_amount(db: &mut BudgetDb, i: usize, date: i32, proposed: &mut Payment) -> Result<(), String> {
     let original = &db.payments[i];
     if !original.is_sticky() { return Ok(()); }
@@ -382,16 +414,19 @@ fn preserve_future_amount(db: &mut BudgetDb, i: usize, date: i32, proposed: &mut
         let actual = actual_date(original, scheduled);
         if actual > 99991231 { return Err("This occurrence cannot be changed without extending beyond year 9999.".into()); }
         // Several daily weekend occurrences can land on one business day. The
-        // scheduler keeps the last one, then applies the date's explicit option.
+        // scheduler adds their amounts, then applies the date's explicit option.
+        let mut slots = vec![scheduled];
         let mut next = db.next_regular_payment_after_date(i, scheduled);
         while next >= 0 && actual_date(original, next) == actual {
             scheduled = next;
+            slots.push(next);
             next = db.next_regular_payment_after_date(i, scheduled);
         }
+        let merged = |p: &Payment| slots.iter().map(|&s| p.amount_before_date(s)).sum::<f64>();
         let original_option = original.option_by_date(actual);
         if actual > date && !original_option.is_some_and(|o| o.deleted) {
-            let desired = original_option.map_or_else(|| original.amount_before_date(scheduled), |o| o.amount);
-            let current = proposed.option_by_date(actual).map_or_else(|| proposed.amount_before_date(scheduled), |o| o.amount);
+            let desired = original_option.map_or_else(|| merged(original), |o| o.amount);
+            let current = proposed.option_by_date(actual).map_or_else(|| merged(proposed), |o| o.amount);
             if current != desired {
                 proposed.set_custom_amount(actual, desired);
                 last_changed = last_changed.max(actual);
@@ -589,12 +624,18 @@ mod tests {
                     while day.get() < selected { previous.push((day.get(), amount(&mut db, day.get()))); day.add_days(1); }
                     change_future_transactions(&mut db, id, selected, -250.0, "", FLAG_NONE).unwrap();
                     for (date, value) in previous { assert_eq!(amount(&mut db, date), value, "sticky={sticky}, early={early}, selected={selected}, date={date}"); }
-                    for date in [selected, 20261012, 20261013, 20261014] { assert_eq!(amount(&mut db, date), Some(-250.0)); }
+                    // Saturday and Sunday occurrences are added to the business day they move to
+                    // (Monday, or Friday with early pay), so a Monday shows three daily amounts.
+                    let monday = if early { -250.0 } else { -750.0 };
+                    assert_eq!(amount(&mut db, selected), Some(-250.0));
+                    assert_eq!(amount(&mut db, 20261012), Some(monday));
+                    for date in [20261013, 20261014] { assert_eq!(amount(&mut db, date), Some(-250.0)); }
                     assert_eq!(amount(&mut db, 20261009), None);
                     let loaded = bgt::load_str(&db.to_text(None).unwrap(), 20261027, None).unwrap();
                     let mut reopened = from_loaded(loaded, &Cal::from_int(20261001), 12, true);
                     assert_eq!(amount(&mut reopened, selected), Some(-250.0));
-                    assert_eq!(amount(&mut reopened, 20261102), Some(-250.0));
+                    assert_eq!(amount(&mut reopened, 20261102), Some(monday));
+                    if early { assert_eq!(amount(&mut reopened, 20261030), Some(-750.0)); }
                 }
             }
         }
@@ -719,7 +760,7 @@ mod tests {
                 let end = db.payments[0].end_date; let count = db.payments[0].n_pays;
                 let mut day = Cal::from_int(20260801); let mut baseline = Vec::new();
                 while day.get() < 20270301 { baseline.push((day.get(), amount(&mut db, day.get()))); day.add_days(1); }
-                let selected = baseline.iter().filter(|(date, value)| *date >= 20261001 && value.is_some()).next().unwrap().0;
+                let selected = baseline.iter().find(|(date, value)| *date >= 20261001 && value.is_some()).unwrap().0;
                 change_future_transactions(&mut db, id, selected, -250.0, "", FLAG_NONE).unwrap();
                 for (date, value) in baseline {
                     assert_eq!(amount(&mut db, date), if date < selected { value } else { value.map(|_| -250.0) }, "mode={mode}, frequency={freq_type}, date={date}");
@@ -1076,7 +1117,10 @@ mod tests {
             rebuild(&mut db, &Cal::from_int(20261001), 12, false);
             // The Friday/Monday group is the selected visible occurrence;
             // the destination is an empty weekend date.
-            let (source, destination, value) = if early { (20261002, 20261003, -100.0) } else { (20261005, 20261003, -80.0) };
+            // The group adds up the business day's own occurrence and the weekend ones moved onto it.
+            let value = amount(&mut db, if early { 20261002 } else { 20261005 }).unwrap();
+            assert!(value < -200.0, "{value}");
+            let (source, destination) = if early { (20261002, 20261003) } else { (20261005, 20261003) };
             let after = amount(&mut db, 20261006);
             assert!(move_transaction(&mut db, id, source, destination, value).unwrap());
             assert_eq!(amount(&mut db, source), None);
@@ -1369,5 +1413,44 @@ mod tests {
         let again = save_checked(&db, &path, None, Some(&snapshot)).unwrap();
         assert_eq!(again, snapshot);
         std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn save_recreates_a_budget_file_that_disappeared_from_disk() {
+        let db = db(false); let path = temp_file();
+        let snapshot = save_checked(&db, &path, None, None).unwrap();
+        std::fs::remove_file(&path).unwrap();
+        let again = save_checked(&db, &path, None, Some(&snapshot)).unwrap();
+        assert_eq!(again, std::fs::read(&path).unwrap());
+        // A missing folder is still a write failure, not a bogus "changed on disk".
+        let gone = path.parent().unwrap().join("missing").join("x.bgt");
+        let err = save_checked(&db, &gone, None, Some(&snapshot)).unwrap_err();
+        assert!(!err.contains("changed on disk"), "{err}");
+        std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
+    }
+
+    #[test]
+    fn marking_a_tentative_occurrence_paid_pins_it_to_that_date() {
+        for sticky in [false, true] {
+            let mut db = db(sticky); db.today = 20261027;
+            db.payments[0].set_tentative(true);
+            rebuild(&mut db, &Cal::from_int(20261001), 12, false);
+            let id = db.payments[0].id;
+            assert_eq!(amount(&mut db, 20261027), Some(-100.0));
+            change_transaction(&mut db, id, 20261027, -100.0, "", FLAG_PAID).unwrap();
+            let option = db.payments[0].option_by_date(20261027).expect("paid tentative occurrence must be pinned");
+            assert!(!option.deleted && option.amount == -100.0);
+            assert!(!db.payments[0].opt.iter().any(|o| o.date != 20261027), "no extra anchors for tentative payments");
+            let text = db.to_text(None).unwrap();
+            let loaded = bgt::load_str(&text, 20261029, None).unwrap();
+            let mut reopened = from_loaded(loaded, &Cal::from_int(20261001), 12, false);
+            reopened.today = 20261029;
+            rebuild(&mut reopened, &Cal::from_int(20261001), 12, false);
+            let day = reopened.get_day(&Cal::from_int(20261027)).unwrap().transactions[0].clone();
+            assert_eq!(day.amount, -100.0);
+            assert_eq!(day.suffix, budget_core::SUFFIX_ADJUSTED);
+            assert_eq!(amount(&mut reopened, 20261029), None);
+            assert_eq!(reopened.payments[0].get_flag(20261027), FLAG_PAID);
+        }
     }
 }

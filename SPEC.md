@@ -34,7 +34,7 @@ Each line gives the feature and the analysis file + section that specifies it ex
 - Encryption: `#db*encrypted` header + Blowfish-ECB per line, hex encoded, zero-padded, 56-byte key cap; legacy `#db*Encrypted` XOR read-only. §2.8
 - Scheduler: stepping primitive `addPeriod` (anchored for monthly/yearly on day > 27 and for Nth-weekday), end-mode synchronisation of `n_pays`/`endDate`, loan pay-off schedule (exact loop, no rounding), weekend shift (+1/+2 or −1/−2 days, `'` suffix), tentative slide-to-today with pay-period logic, sticky amounts, option application pass with two silent clean-ups, `*` last-payment suffix. §3
 - Balance engine: window computation (2 months back from latest adjustment, future N months to 31 Dec), per-day opening/closing, disabled payments excluded, adjustment diff, display rounding `(int)(x ± 0.05f)`. §4
-- Other DB API: ids, sort order, category/description collision rules, categories list, deleted-options set, payments remaining, planned-transaction counts, single-level move undo, day notes (stored in the adjustments payment's notes), cut-off-history (CLI `-C`). §5
+- Other DB API: ids, sort order, category/description collision rules, categories list, deleted-options set, payments remaining, planned-transaction counts, single-level move undo, day notes (stored in the adjustments payment's notes), cut-off-history (CLI `-C`; not ported, see §6). §5
 - `SimpleCalendar`: `yyyymmdd` int dates, normalisation, Nth/last weekday arithmetic, diffs, formats. §6
 
 ### 3.2 Filter language and formula calculator (`analysis/02-filter-and-calculator.md`)
@@ -43,7 +43,7 @@ Each line gives the feature and the analysis file + section that specifies it ex
 - Dead code confirmed: `Expression`, `StockPrice`, `JSONObject`, `SimpleDoubleParser`, `JarVerifier`, `Platform`, `HunspellSpeller`, `QuickPickDialog`, `NotifierDialog`, `Prompt`, `TableKeyNavigation` (library classes never referenced from Budget).
 
 ### 3.3 Startup, configuration, graph, main window (`analysis/03-startup-config-graph-mainwindow.md`)
-- CLI options (`-r -d -D -z -B -Z{0|1|2} -c rcfile -C year,name --version`), crash log, single-instance TCP guard on port 57778. §2–3
+- CLI options (`-r -d -D -z -B -Z{0|1|2} -c rcfile -C year,name --version`; the port replaces them, see §6), crash log, single-instance TCP guard on port 57778. §2–3
 - Startup sequence, password prompt loop, recent files, window placement, 20 s date-change timer, event loop flags. §3
 - `.budgetrc` keys, defaults, encodings. §4 (full table in doc 09)
 - Registration/trial: key lookup order, exact 12-char key checksum algorithm, 30/60-day nag with 20 s countdown. §5
@@ -139,6 +139,17 @@ The analyses mark these as verified behaviour of the original. Decide per item w
 - `saveNewBudget` overwrite confirmation is inverted: answering Yes to "Do you want to overwrite it?" cancels the save (04 §12; verified in regenerated pseudo code: `if (confirmYesNo(...) == false) goto save; return false`).
 - Flag/note/highlight changes from the context menu do not call `db.update`, so they are not reflected until the next rebuild/save (07 note).
 - Balance display rounding uses `0.05f` widened to double (01 §1.9).
+
+Deliberate deviations already taken by the port:
+- The original command line (`-r -d -D -z -B -Z{0|1|2} -c rcfile`) and the EXPERIMENTAL `-C year,name` cut-off-history mode (01 §4.3, 03 §7) are not ported. `budget-core` has no cut-off function; the GUI accepts only its own options (`[file] --month --screenshot --size --dark --today --filter --version --version-json`, docs/ux.md). Revisit only if a user asks to truncate old history.
+- Business-days payments whose Saturday and Sunday occurrences land on the same business day as another occurrence of the same payment (daily or every-2-days repeats) show one transaction carrying the sum of those occurrences. The original kept only the last one while its loan schedule and planned totals counted all of them, so loans looked paid off with principal unscheduled and "vs plan" showed phantom differences.
+- Amount fields (payment, loan, transaction, balance) evaluate calculator formulas but refuse `%n`/`%%n` income percentages, since no income context is passed; the original's payment dialog evaluated them against zero income. Formula results that overflow are errors, not infinity.
+- The original's step-16 prompts on editing a payment from a calendar cell (04 §1.3: schedule-change warning, or "change the FUTURE transactions only" split for amount changes) are replaced by one confirming notice, shown whenever the amount or schedule of a payment that started before today changes; future-only amount changes are made in the transaction editor's "This and all future occurrences" scope. The port's Edit-whole-payment action does not carry the clicked date, so it also warns when opened from the Payments page.
+- A loan installment counts as changed only when an option sits on the date where it is displayed (the weekend-shifted business day). The original also matched the nominal weekend date, so an option there skipped an installment that was still placed, overpaying the loan.
+- `.bgt` text fields round-trip exactly: besides `,` `\n` `\r` and chars >= 128, the saver escapes C0 control characters other than tab (a NUL truncated an encrypted line), leading/trailing spaces and tabs (the loader trims every token) and an `&` that starts an `&#x????;` window (the decoder would consume it). All escapes are `&#xhhhh;`, which the original also decodes; files without such text save byte-identically.
+- Loading: lone-CR line endings are line terminators like `\r\n`/`\n` (the original's `readLine`), in `.bgt` and `.budgetrc`; start/end dates outside `0..=99991231` are clamped and logged like the frequency clamp, and an option date outside that range is an invalid option, so corrupt values cannot overflow the calendar; a highlight colour is kept to 24-bit RGB (`-1` still removes) so a negative value cannot be saved as an unreadable 8-digit hex; Blowfish-decrypted lines are read as ISO-8859-1 like plain files (the legacy `0xFF`/`0xFE` comma/newline bytes survive).
+- `.budgetrc`: characters above U+FFFF are written as a `\uXXXX` surrogate pair (as Java does) and recombined on load; a final line ending in a continuation backslash keeps its entry; a malformed `\u` escape drops only that entry (its default stays) where Java discarded the whole file.
+- The formula calculator rejects more than 64 nested parentheses ("Expression too deeply nested"); the original recursed until a stack overflow, which in the port would abort the process.
 
 ## 7. Consolidated unknowns
 

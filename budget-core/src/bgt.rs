@@ -1,5 +1,5 @@
 //! The `.bgt` file format (loader `BudgetDB.loadFileData`, saver `BudgetDB.save`).
-//! Plain (unencrypted) files only for now; `#db*encrypted` files are rejected with an error.
+//! Reads plain, Blowfish (`#db*encrypted`) and legacy XOR files; saves plain or Blowfish.
 
 use crate::crypto::{xor_line, LineCipher, HEADER_BLOWFISH, HEADER_XOR};
 use crate::javafmt::{java_double, parse_double, parse_int};
@@ -10,6 +10,15 @@ const EOD_PREFIX: &str = "## END-OF-DATA; line_no=";
 const EOD_TRAILER: &str = " ##";
 /// Upper bound for a loaded payment count (a daily schedule up to year 9999).
 const MAX_N_PAYS: i32 = 4_000_000;
+/// Upper bound for a loaded date (the last day of year 9999).
+const LOAD_DATE_MAX: i32 = 99991231;
+
+/// Deliberate deviation: clamp a loaded date so the calendar arithmetic cannot overflow.
+fn clamp_date(v: i32, name: &str, log: &mut String, line_no: i32) -> i32 {
+    let c = v.clamp(0, LOAD_DATE_MAX);
+    if c != v { log.push_str(&format!("({line_no}): {name} {v} out of range, using {c}\n")); }
+    c
+}
 
 /// Result of parsing a file.
 #[derive(Debug, Default)]
@@ -23,20 +32,46 @@ pub struct Loaded {
 }
 
 /// `str2unicodish` + legacy pass: `,` `\n` `\r` and every char >= 128 become `&#xhhhh;`.
+/// Deliberate deviations (all decodable by the original): C0 controls other than tab (a NUL
+/// would truncate an encrypted line), leading/trailing spaces and tabs (the loader trims every
+/// token) and an `&` that starts an `&#x????;` window (it would be decoded on reload) are escaped
+/// too, so every text field round-trips exactly.
 pub fn encode_description(s: &str) -> String {
+    let v: Vec<char> = s.chars().collect();
+    let lead = v.iter().take_while(|c| **c == ' ' || **c == '\t').count();
+    let trail = if lead == v.len() { 0 } else { v.iter().rev().take_while(|c| **c == ' ' || **c == '\t').count() };
     let mut out = String::with_capacity(s.len());
-    for c in s.chars() {
+    for (i, &c) in v.iter().enumerate() {
+        let edge = i < lead || i >= v.len() - trail;
+        let entity = c == '&' && v.len() - i >= 8 && v[i + 1] == '#' && v[i + 2] == 'x' && v[i + 7] == ';';
         if (c as u32) > 0xFFFF {
             // Java works on UTF-16 units: write the surrogate pair
             let mut buf = [0u16; 2];
             for u in c.encode_utf16(&mut buf) { out.push_str(&format!("&#x{:04x};", u)); }
-        } else if (c as u32) >= 128 || c == ',' || c == '\n' || c == '\r' {
+        } else if (c as u32) >= 128 || c == ',' || ((c as u32) < 0x20 && c != '\t') || edge || entity {
             out.push_str(&format!("&#x{:04x};", c as u32));
         } else {
             out.push(c);
         }
     }
     out
+}
+
+/// `BufferedReader.readLine` terminators: `\r\n`, `\n` or a lone `\r`. Like `split('\n')`, the
+/// final unterminated piece (empty after a trailing terminator) is yielded too.
+pub(crate) fn logical_lines(text: &str) -> impl Iterator<Item = &str> {
+    let mut rest = Some(text);
+    std::iter::from_fn(move || {
+        let s = rest?;
+        match s.find(['\n', '\r']) {
+            Some(i) => {
+                let skip = if s[i..].starts_with("\r\n") { 2 } else { 1 };
+                rest = Some(&s[i + skip..]);
+                Some(&s[..i])
+            }
+            None => { rest = None; Some(s) }
+        }
+    })
 }
 
 /// Inverse of `encode_description`, also accepting the legacy U+00FF (`,`) / U+00FE (`\n`) bytes.
@@ -87,6 +122,8 @@ fn parse_options(p: &mut Payment, toks: &[&str]) -> Result<(), String> {
         if n < 8 { return Err(format!("invalid option: '{tok}'")); }
         let head = tok.get(..8).ok_or_else(|| format!("invalid option: '{tok}'"))?;
         let date = parse_int(head)?;
+        // Deliberate deviation: a negative/huge date would overflow the calendar arithmetic.
+        if !(0..=LOAD_DATE_MAX).contains(&date) { return Err(format!("invalid option: '{tok}'")); }
         if n == 8 { p.add_no_transaction(date); continue; }
         let c = tok[8..].chars().next().unwrap();
         let rest = &tok[8 + c.len_utf8()..];
@@ -94,7 +131,12 @@ fn parse_options(p: &mut Payment, toks: &[&str]) -> Result<(), String> {
             ';' | '#' | '^' => p.set_flag(date, c),
             '=' => { let t = rest.trim(); if !t.is_empty() { p.set_note(date, Some(&decode_description(t))); } }
             ':' => p.add_custom_amount(date, parse_double(rest)?),
-            '&' => p.set_hilighting(date, i32::from_str_radix(rest, 16).map_err(|e| e.to_string())?),
+            '&' => {
+                // -1 removes (as in the original); anything else is kept to 24-bit RGB so the
+                // saved `{:x}` stays readable (a negative value would be written as 8 digits).
+                let c = i32::from_str_radix(rest, 16).map_err(|e| e.to_string())?;
+                p.set_hilighting(date, if c == -1 { -1 } else { c & 0xFF_FFFF });
+            }
             _ => return Err(format!("Invalid option: '{tok}'")),
         }
     }
@@ -134,7 +176,7 @@ fn parse_payment(mut first: &str, toks: &[&str], id: i32, today: i32, field: &mu
         }};
     }
     p.description = decode_description(next!("description"));
-    p.start_date = parse_int(next!("start_date"))?;
+    p.start_date = clamp_date(parse_int(next!("start_date"))?, "start_date", log, line_no);
     let mut freq = next!("frequency").to_string();
     if let Some(i) = freq.find(';') {
         p.grace_period_days = parse_int(&freq[i + 1..])?;
@@ -156,7 +198,7 @@ fn parse_payment(mut first: &str, toks: &[&str], id: i32, today: i32, field: &mu
     // A negative count is corrupt: use the default of 1 (not 0, which could read as "indefinite").
     p.n_pays = if n_in < 0 { 1 } else { n_in.min(MAX_N_PAYS) };
     if p.n_pays != n_in { log.push_str(&format!("({line_no}): n_pays {n_in} out of range, using {}\n", p.n_pays)); }
-    p.end_date = parse_int(next!("end_date"))?;
+    p.end_date = clamp_date(parse_int(next!("end_date"))?, "end_date", log, line_no);
     p.end_date = p.end_date.max(p.start_date);
     p.flags = parse_int(next!("flags"))?;
     if p.end_mode() == END_MODE_UNDEFINED {
@@ -172,7 +214,7 @@ fn parse_payment(mut first: &str, toks: &[&str], id: i32, today: i32, field: &mu
 
 /// `isEncrypted`: first line is one of the two encryption headers.
 pub fn is_encrypted_text(text: &str) -> bool {
-    let first = text.split('\n').next().unwrap_or("").trim_end_matches('\r');
+    let first = logical_lines(text).next().unwrap_or("");
     first == HEADER_XOR || first == HEADER_BLOWFISH
 }
 
@@ -181,16 +223,16 @@ pub fn is_decryptable(text: &str, password: &str) -> bool {
     load_str(text, 20000101, Some(password)).is_ok()
 }
 
-enum Mode<'a> { Plain, Xor(&'a str), Blowfish(LineCipher) }
+enum Mode<'a> { Plain, Xor(&'a str), Blowfish(Box<LineCipher>) }
 
 /// Parse the text of a `.bgt` file. `today` seeds new payments' default dates; `password` is used
 /// only when the first line is an encryption header (a plain file ignores it, like the original).
-pub fn load_str(text: &str, today: i32, password: Option<&str>) -> Result<Loaded, Loaded> {
+pub fn load_str(text: &str, today: i32, password: Option<&str>) -> Result<Loaded, Box<Loaded>> {
     let first = load_with(text, today, password, false);
     if first.is_err() {
         // Files saved by earlier builds with a 1-3 byte password used a zero-padded key.
         if let Some(p) = password.filter(|p| !p.is_empty() && p.len() < 4) {
-            if text.split('\n').next().map(|l| l.trim_end_matches('\r')) == Some(HEADER_BLOWFISH) {
+            if logical_lines(text).next() == Some(HEADER_BLOWFISH) {
                 if let ok @ Ok(_) = load_with(text, today, Some(p), true) { return ok; }
             }
         }
@@ -198,15 +240,14 @@ pub fn load_str(text: &str, today: i32, password: Option<&str>) -> Result<Loaded
     first
 }
 
-fn load_with(text: &str, today: i32, password: Option<&str>, legacy_key: bool) -> Result<Loaded, Loaded> {
+fn load_with(text: &str, today: i32, password: Option<&str>, legacy_key: bool) -> Result<Loaded, Box<Loaded>> {
     let mut r = Loaded { version: "1".into(), ..Default::default() };
     let mut adjustments = Payment::new(today);
     let mut errors = 0;
     let mut line_no = 0;
     let mut next_id = 1;
     let mut mode = Mode::Plain;
-    for raw in text.split('\n') {
-        let raw_line = raw.strip_suffix('\r').unwrap_or(raw);
+    for raw_line in logical_lines(text) {
         line_no += 1;
         if line_no == 1 {
             if raw_line == HEADER_XOR {
@@ -215,9 +256,9 @@ fn load_with(text: &str, today: i32, password: Option<&str>, legacy_key: bool) -
             }
             if raw_line == HEADER_BLOWFISH {
                 match password.map(|p| if legacy_key { LineCipher::new_legacy(p) } else { LineCipher::new(p) }) {
-                    Some(Ok(c)) => { mode = Mode::Blowfish(c); continue; }
-                    Some(Err(e)) => { r.log.push_str(&format!("unable to open file.\nException: {e}\nfailed")); return Err(r); }
-                    None => { r.log.push_str("unable to open file.\nException: NullPointerException (no password)\nfailed"); return Err(r); }
+                    Some(Ok(c)) => { mode = Mode::Blowfish(Box::new(c)); continue; }
+                    Some(Err(e)) => { r.log.push_str(&format!("unable to open file.\nException: {e}\nfailed")); return Err(Box::new(r)); }
+                    None => { r.log.push_str("unable to open file.\nException: NullPointerException (no password)\nfailed"); return Err(Box::new(r)); }
                 }
             }
         }
@@ -227,7 +268,7 @@ fn load_with(text: &str, today: i32, password: Option<&str>, legacy_key: bool) -
             Mode::Xor(p) => { decoded = xor_line(raw_line, p); &decoded }
             Mode::Blowfish(c) => match c.decrypt_line(raw_line) {
                 Ok(d) => { decoded = d; &decoded }
-                Err(e) => { r.log.push_str(&format!("unable to open file.\nException: {e}\nfailed")); return Err(r); }
+                Err(e) => { r.log.push_str(&format!("unable to open file.\nException: {e}\nfailed")); return Err(Box::new(r)); }
             },
         };
         if line.is_empty() || line.starts_with('#') {
@@ -274,7 +315,7 @@ fn load_with(text: &str, today: i32, password: Option<&str>, legacy_key: bool) -
     r.adjustments = Some(adjustments);
     if errors != 0 {
         r.log.push_str("failed");
-        return Err(r);
+        return Err(Box::new(r));
     }
     r.log.push_str(&format!("done.\n{} entries loaded.\n", r.payments.len()));
     Ok(r)
@@ -289,10 +330,10 @@ pub fn latin1_encode(s: &str) -> Vec<u8> {
     s.chars().map(|c| if (c as u32) < 256 { c as u8 } else { b'?' }).collect()
 }
 
-pub fn load_file(path: &Path, today: i32, password: Option<&str>) -> Result<Loaded, Loaded> {
+pub fn load_file(path: &Path, today: i32, password: Option<&str>) -> Result<Loaded, Box<Loaded>> {
     match std::fs::read(path) {
         Ok(b) => load_str(&latin1_decode(&b), today, password),
-        Err(e) => Err(Loaded { log: format!("unable to open '{}' file.\nException: {e}\nfailed", path.display()), ..Default::default() }),
+        Err(e) => Err(Box::new(Loaded { log: format!("unable to open '{}' file.\nException: {e}\nfailed", path.display()), ..Default::default() })),
     }
 }
 
@@ -306,7 +347,7 @@ pub fn opts_string(p: &Payment) -> String {
     }
     for f in &p.flag { s.push_str(&format!(", {:08}{}", f.date, f.value)); }
     for n in &p.note { s.push_str(&format!(", {:08}={}", n.date, encode_description(&n.note))); }
-    for h in &p.hilighting { s.push_str(&format!(", {:08}&{:x}", h.date, h.bg_color)); }
+    for h in &p.hilighting { s.push_str(&format!(", {:08}&{:x}", h.date, (h.bg_color as u32) & 0xFF_FFFF)); }
     s
 }
 

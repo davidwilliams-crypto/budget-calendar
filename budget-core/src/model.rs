@@ -25,6 +25,14 @@ pub const SUFFIX_NONE: char = '\0';
 pub const SUFFIX_ADJUSTED: char = '\'';
 pub const SUFFIX_LAST: char = '*';
 
+/// Case-insensitive key for ordering (Unicode lower case, like Java's `toLowerCase`).
+pub fn fold_key(s: &str) -> String { s.to_lowercase() }
+
+/// Unicode case-insensitive equality (Java `equalsIgnoreCase`), consistent with `fold_key`.
+pub fn eq_ignore_case(a: &str, b: &str) -> bool {
+    a.chars().flat_map(char::to_lowercase).eq(b.chars().flat_map(char::to_lowercase))
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct PaymentOption {
     pub date: i32,
@@ -142,7 +150,7 @@ impl Payment {
         let mut best: Option<&PaymentOption> = None;
         for o in &self.opt {
             if o.deleted || o.date >= date { continue; }
-            if best.map_or(true, |b| b.date < o.date) { best = Some(o); }
+            if best.is_none_or(|b| b.date < o.date) { best = Some(o); }
         }
         best.map_or(self.amount, |o| o.amount)
     }
@@ -174,7 +182,6 @@ impl Payment {
         self.opt.retain(|o| o.date <= date);
         self.flag.retain(|f| f.date <= date);
     }
-    pub fn clear_all(&mut self) { self.opt.clear() }
     pub fn has_options_after(&self, date: i32) -> bool { self.opt.iter().any(|o| o.date > date) }
     pub fn first_option_after(&self, date: i32) -> Option<&PaymentOption> {
         self.opt.iter().filter(|o| o.date > date).min_by_key(|o| o.date)

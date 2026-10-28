@@ -4,7 +4,8 @@ use eframe::egui::{self, text::{LayoutJob, TextWrapping}, Align2, Color32, Corne
 use egui_phosphor::regular as ph;
 
 use crate::theme::{self, font, tint, ts, Tokens, CAPTION, DAY, ICON, SECTION, SEMI};
-use crate::view::{balance_display, is_negative, money, BalKind, CellData, MonthView, TranRow};
+use budget_core::numfmt::balance_display;
+use crate::view::{is_negative, money, BalKind, CellData, MonthView, TranRow};
 
 const WDAYS: [&str; 7] = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const HEADER_H: f32 = 26.0;
@@ -111,6 +112,8 @@ fn truncated_line(p: &Painter, pos: Pos2, s: &str, font: FontId, color: Color32,
     aligned_line(p, pos, s, font, color, max_w, line_height, false)
 }
 
+// Leaf text painter: every argument is a distinct paint attribute, so bundling adds no clarity.
+#[allow(clippy::too_many_arguments)]
 fn aligned_line(p: &Painter, pos: Pos2, s: &str, font: FontId, color: Color32, max_w: f32, line_height: Option<f32>, right: bool) -> f32 {
     if max_w < 8.0 { return 0.0; }
     let mut job = LayoutJob::simple_singleline(s.to_string(), font, color);
@@ -128,21 +131,41 @@ fn aligned_line(p: &Painter, pos: Pos2, s: &str, font: FontId, color: Color32, m
 
 /// Small coloured dots that stand in for the old bare apostrophe / asterisk / status markers.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Marker { Paid, Important, Moved, Last }
+pub enum Marker { Paid, Important, Adjusted, Last, Note }
 
 pub const LEGEND: &[(Marker, &str)] = &[
     (Marker::Paid, "Paid: this transaction is marked as paid (dot at the left of the row)"),
     (Marker::Important, "Important: flagged for attention (dot at the left of the row)"),
-    (Marker::Moved, "Moved off a weekend to the nearest business day (dot after the amount)"),
+    (Marker::Adjusted, "Adjusted: the amount or date differs from the regular schedule (changed amount, moved transaction, or moved off a weekend) (dot after the amount)"),
     (Marker::Last, "Last payment of a repeating series (dot after the amount)"),
+    (Marker::Note, "The transaction has a note; hover it to read the note (pencil before the name)"),
 ];
 
 pub fn marker_color(kind: Marker, t: &Tokens) -> Color32 {
-    match kind { Marker::Paid => t.paid, Marker::Important => t.important, Marker::Moved => t.accent, Marker::Last => t.text_muted }
+    match kind { Marker::Paid => t.paid, Marker::Important => t.important, Marker::Adjusted => t.accent, Marker::Last | Marker::Note => t.text_muted }
+}
+
+/// Glyph size of the per-transaction note mark (Phosphor is a fallback of the proportional family).
+const NOTE_GLYPH: f32 = 11.0;
+
+fn paint_note_mark(p: &Painter, pos: Pos2, color: Color32) -> Rect {
+    p.text(pos, Align2::LEFT_CENTER, ph::NOTE_PENCIL, FontId::proportional(NOTE_GLYPH), color)
+}
+
+/// The engine's `'` suffix covers custom amounts, moved transactions and weekend shifts alike
+/// (analysis/05: "custom (adjusted) amount"). Only a differing amount is certain from the row.
+fn suffix_pill(tip: &crate::view::Tip) -> Option<&'static str> {
+    match tip.suffix {
+        '\'' if (tip.planned - tip.amount).abs() >= 0.005 => Some("Adjusted amount"),
+        '\'' => Some("Adjusted"),
+        '*' => Some("Last payment"),
+        _ => None,
+    }
 }
 
 /// A 6px dot with a 1px halo so it stays visible on both light and dark surfaces.
 pub fn paint_marker(p: &Painter, pos: Pos2, kind: Marker, t: &Tokens) {
+    if kind == Marker::Note { paint_note_mark(p, pos - Vec2::new(NOTE_GLYPH / 2.0, 0.0), marker_color(kind, t)); return; }
     paint_dot(p, pos, marker_color(kind, t), t);
 }
 
@@ -153,8 +176,11 @@ fn paint_dot(p: &Painter, pos: Pos2, color: Color32, t: &Tokens) {
 }
 
 fn suffix_marker(suffix: char) -> Option<Marker> {
-    match suffix { '\'' => Some(Marker::Moved), '*' => Some(Marker::Last), _ => None }
+    match suffix { '\'' => Some(Marker::Adjusted), '*' => Some(Marker::Last), _ => None }
 }
+
+const GRACE_DAYS_ID: &str = "calendar-grace-days";
+const ROW_DETAILS_ID: &str = "calendar-row-details";
 
 pub enum Action {
     Filter(String), Add(i32), Day(i32), EditPayment(i32), DeletePayment(i32),
@@ -162,6 +188,8 @@ pub enum Action {
     DeleteTransaction { id: i32, date: i32 },
     MoveTransaction { id: i32, from: i32, to: i32, amount: f64 },
     EditBalance(i32),
+    /// Bring back a deleted or moved-away occurrence (05 §1.5 item 5).
+    Restore { id: i32, date: i32 },
 }
 
 /// Draws the grid and returns a calendar interaction.
@@ -192,20 +220,40 @@ pub fn show(ui: &mut Ui, view: &MonthView, t: &Tokens, sunday_first: bool, today
         let hcol = if weekend { t.text_muted } else { t.text };
         hp.galley(Pos2::new(header_cell.min.x + PAD, header_cell.center().y - g.size().y / 2.0), g, hcol);
     }
+    // Valid payment days of the transaction hovered in the previous frame (01 §3.12, 05 §1.8);
+    // rows re-publish them while they stay hovered.
+    let grace_id = egui::Id::new(GRACE_DAYS_ID);
+    let grace: Vec<i32> = ui.ctx().data_mut(|d| d.remove_temp::<Vec<i32>>(grace_id)).unwrap_or_default();
+    // As in the original, restoring is offered only while no (applied) filter narrows the calendar.
+    let filtered = view.filtered;
+    let dragging = egui::DragAndDrop::has_payload_of_type::<DraggedTransaction>(ui.ctx());
+    let changed = balance_changes(view.cells.iter().map(|c| (c.in_month, c.balance.as_ref().map(|b| b.value))));
     for (i, cell) in view.cells.iter().enumerate() {
         let (r, c) = (i / 7, i % 7);
         let rect = layout.cell(i);
         let last = r + 1 == rows;
         let cr = CornerRadius { nw: 0, ne: 0, sw: if last && c == 0 { theme::RADIUS } else { 0 }, se: if last && c == 6 { theme::RADIUS } else { 0 } };
         let resp = ui.interact(rect, ui.id().with(("cell", cell.date)), Sense::click());
-        if cell.in_month {
+        if cell.in_month && !dragging {
             resp.context_menu(|ui| {
                 if ui.button("Add payment on this date").clicked() { clicked = Some(Action::Add(cell.date)); ui.close_menu(); }
                 if ui.button("View transactions").clicked() { clicked = Some(Action::Day(cell.date)); ui.close_menu(); }
+                if !cell.restorable.is_empty() {
+                    ui.separator();
+                    for (id, desc) in &cell.restorable {
+                        let item = ui.add_enabled(!filtered, egui::Button::new(format!("Restore '{desc}'")))
+                            .on_disabled_hover_text("Clear the search filter to restore transactions.");
+                        if item.clicked() { clicked = Some(Action::Restore { id: *id, date: cell.date }); ui.close_menu(); }
+                    }
+                }
             });
+            // Double-clicking the cell's empty area (rows, the balance strip and the header
+            // buttons sense their own clicks) adds a payment on that date.
+            if resp.double_clicked() { clicked = Some(Action::Add(cell.date)); }
         }
         let fill = if !cell.in_month { t.other_month }
             else if resp.hovered() { t.surface_hover }
+            else if grace.contains(&cell.date) { tint(t.surface, t.important, if t.dark { 0.22 } else { 0.16 }) }
             else if cell.is_today { tint(t.surface, t.today, if t.dark { 0.12 } else { 0.07 }) }
             else if cell.weekend { t.weekend }
             else if cell.date < today { t.past }
@@ -217,8 +265,9 @@ pub fn show(ui: &mut Ui, view: &MonthView, t: &Tokens, sunday_first: bool, today
             p.rect_stroke(rect, cr, Stroke::new(1.0_f32, tint(fill, t.today, 0.85)), StrokeKind::Inside);
             p.rect_filled(Rect::from_min_size(rect.min, Vec2::new(rect.width(), 2.0)), 0, t.today);
         }
-        if let Some(f) = cell_filter(ui, &p.with_clip_rect(rect), cell, rect, t, today, decimals, &resp) { clicked = Some(f); }
+        if let Some(f) = cell_filter(ui, &p.with_clip_rect(rect), cell, rect, t, today, decimals, &resp, changed[i]) { clicked = Some(f); }
     }
+    if ui.ctx().data(|d| d.get_temp::<Vec<i32>>(grace_id)).unwrap_or_default() != grace { ui.ctx().request_repaint(); }
     p.hline(layout.inner.x_range(), layout.grid.min.y - 0.5, hair);
     for r in 1..rows { p.hline(layout.inner.x_range(), layout.cell(r * 7).min.y - 0.5, hair); }
     for c in 1..7 { p.vline(layout.inner.min.x + cw * c as f32 - 0.5, layout.grid.y_range(), hair); }
@@ -253,15 +302,37 @@ pub fn show(ui: &mut Ui, view: &MonthView, t: &Tokens, sunday_first: bool, today
     clicked
 }
 
-fn cell_filter(ui: &mut Ui, p: &Painter, cell: &CellData, rect: Rect, t: &Tokens, today: i32, decimals: bool, resp: &egui::Response) -> Option<Action> {
+/// For each cell, whether its day balance moved from the previous in-month day's balance
+/// (by at least half a cent). The first in-month balance always counts as changed.
+fn balance_changes(cells: impl Iterator<Item = (bool, Option<f64>)>) -> Vec<bool> {
+    let mut prev: Option<f64> = None;
+    cells.map(|(in_month, value)| match (in_month, value) {
+        (true, Some(v)) => {
+            let changed = prev.is_none_or(|p| (v - p).abs() >= 0.005);
+            prev = Some(v);
+            changed
+        }
+        _ => true,
+    }).collect()
+}
+
+// Same parameter set as the sibling cell painters; a context struct would be used by this one only.
+#[allow(clippy::too_many_arguments)]
+fn cell_filter(ui: &mut Ui, p: &Painter, cell: &CellData, rect: Rect, t: &Tokens, today: i32, decimals: bool, resp: &egui::Response, changed: bool) -> Option<Action> {
     let mut clicked = None;
     let layout = CellLayout::new(rect, cell.rows.len());
     let hp = p.with_clip_rect(layout.header);
     // day number
     let day_pos = Pos2::new(rect.min.x + PAD + 8.0, layout.header.center().y);
     if cell.is_today && cell.in_month {
-        hp.circle_filled(day_pos, 10.0, t.today);
-        hp.text(day_pos, Align2::CENTER_CENTER, cell.day.to_string(), bold(font(ui, DAY)), if t.dark { t.bg } else { Color32::WHITE });
+        // A 17px pill fits the 19px header (a circle would be clipped) and widens for two digits.
+        let mut f = bold(font(ui, DAY));
+        f.size = 12.5;
+        let fg = if t.dark { t.bg } else { Color32::WHITE };
+        let g = hp.layout_no_wrap(cell.day.to_string(), f, fg);
+        let pill = Rect::from_min_size(Pos2::new(rect.min.x + PAD - 3.0, day_pos.y - 8.5), Vec2::new(17.0_f32.max(g.size().x + 10.0), 17.0));
+        hp.rect_filled(pill, 9, t.today);
+        hp.galley(pill.center() - g.size() / 2.0, g, fg);
     } else {
         // Light mode lets payment names (14px, full ink) dominate; day numbers recede to muted.
         let col = if !cell.in_month { t.text_faint } else if cell.date < today || !t.dark { t.text_muted } else { t.text };
@@ -290,11 +361,31 @@ fn cell_filter(ui: &mut Ui, p: &Painter, cell: &CellData, rect: Rect, t: &Tokens
         let r = hp.text(Pos2::new(ix, day_pos.y), Align2::RIGHT_CENTER, ph::NOTE_PENCIL, icon.clone(), t.text_muted);
         ix = r.min.x - 4.0;
     }
-    if cell.restorable && ix - 17.0 >= rect.min.x + 35.0 { hp.text(Pos2::new(ix, day_pos.y), Align2::RIGHT_CENTER, ph::ARROW_COUNTER_CLOCKWISE, icon, t.text_faint); }
-    if resp.hovered() && (cell.note.is_some() || cell.restorable) {
+    let restorable = !cell.restorable.is_empty();
+    if restorable && ix - 17.0 >= rect.min.x + 35.0 {
+        let r = hp.text(Pos2::new(ix, day_pos.y), Align2::RIGHT_CENTER, ph::ARROW_COUNTER_CLOCKWISE, icon.clone(), t.text_faint);
+        ix = r.min.x - 4.0;
+    }
+    // A hover-only "+" makes adding a payment on this date discoverable without the context menu.
+    let dragging = egui::DragAndDrop::has_payload_of_type::<DraggedTransaction>(ui.ctx());
+    if !dragging && resp.contains_pointer() && ix - 17.0 >= rect.min.x + 35.0 {
+        let add = Rect::from_center_size(Pos2::new(ix - 8.5, day_pos.y), Vec2::splat(17.0));
+        let date = budget_core::date::sdate(cell.date);
+        let aresp = ui.interact(add, ui.id().with(("add", cell.date)), Sense::click())
+            .on_hover_cursor(egui::CursorIcon::PointingHand)
+            .on_hover_text(format!("Add payment on {date}"));
+        aresp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, format!("Add payment on {date}")));
+        if aresp.hovered() || aresp.has_focus() { hp.rect_filled(add, 4, tint(t.surface, t.accent, 0.08)); }
+        hp.text(add.center(), Align2::CENTER_CENTER, ph::PLUS, icon, t.accent);
+        if aresp.clicked() { clicked = Some(Action::Add(cell.date)); }
+    }
+    if resp.hovered() && (cell.note.is_some() || restorable) {
         resp.clone().on_hover_ui(|ui| {
             if let Some(n) = &cell.note { ui.label(RichTextExt::section(n, ui)); }
-            if cell.restorable { ui.label(RichTextExt::muted("Has deleted or moved transactions that can be restored", ui)); }
+            if restorable {
+                let names: Vec<&str> = cell.restorable.iter().map(|(_, d)| d.as_str()).collect();
+                ui.label(RichTextExt::muted(&format!("Deleted or moved: {}. Right-click the day to restore.", names.join(", ")), ui));
+            }
         });
     }
     // transaction rows
@@ -312,16 +403,20 @@ fn cell_filter(ui: &mut Ui, p: &Painter, cell: &CellData, rect: Rect, t: &Tokens
             BalKind::Max => (t.max.0, t.max.1, Some("Max")),
             BalKind::Min => (t.min.0, t.min.1, Some("Min")),
             BalKind::Low => (t.low.0, t.low.1, Some("Low")),
-            BalKind::Normal => (tint(t.surface, t.bal.0, 0.5), t.text_muted, None),
+            // A repeated balance recedes to faint; a day whose balance moved reads in full ink.
+            BalKind::Normal => (tint(t.surface, t.bal.0, 0.5), if changed { t.text } else { t.text_faint }, None),
         };
         fp.rect_filled(sr, 0, strip_bg);
         fp.hline((sr.min.x + 4.0)..=(sr.max.x - 4.0), sr.min.y, Stroke::new(1.0_f32, tint(t.surface, t.border, 0.7)));
         let cy = sr.center().y;
-        let mut txt = b.text.clone();
-        if b.adjusted { txt.push('\u{2032}'); }
         let fg = if is_negative(b.value, decimals) { t.negative } else { strip_fg };
         let fid = font(ui, CAPTION);
-        let amount = fp.layout_no_wrap(txt, fid.clone(), fg);
+        let amount_fid = if b.kind == BalKind::Normal && changed { bold(fid.clone()) } else { fid.clone() };
+        let mut amount = fp.layout_no_wrap(b.strip_text(decimals), amount_fid.clone(), fg);
+        // The "(adjustment)" part gives way before the balance digits would be clipped.
+        if b.adjusted && sr.max.x - 6.0 - amount.size().x < sr.min.x + 6.0 {
+            amount = fp.layout_no_wrap(format!("{}\u{2032}", b.text), amount_fid, fg);
+        }
         let amount_left = sr.max.x - 6.0 - amount.size().x;
         if let Some(label) = label {
             let label_width = fp.layout_no_wrap(label.to_string(), fid.clone(), strip_fg).size().x;
@@ -337,16 +432,22 @@ fn cell_filter(ui: &mut Ui, p: &Painter, cell: &CellData, rect: Rect, t: &Tokens
         }
         fp.galley(Pos2::new(amount_left, cy - amount.size().y / 2.0), amount, fg);
         let sresp = ui.interact(sr, ui.id().with(("strip", cell.date)), Sense::click());
-        sresp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, format!("Closing balance {} on {}. Right-click to edit balance", money(b.value, true), cell.date)));
-        sresp.context_menu(|ui| {
-            if ui.button("Edit balance").clicked() { clicked = Some(Action::EditBalance(cell.date)); ui.close_menu(); }
-        });
+        sresp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, format!("Closing balance {} on {}{}. Right-click to edit balance", money(b.value, true), cell.date,
+            if b.adjusted { format!(", adjusted by {}", money(b.adjustment, true)) } else { String::new() })));
+        if !egui::DragAndDrop::has_payload_of_type::<DraggedTransaction>(ui.ctx()) {
+            sresp.context_menu(|ui| {
+                if ui.button("Edit balance").clicked() { clicked = Some(Action::EditBalance(cell.date)); ui.close_menu(); }
+            });
+        }
         if sresp.hovered() {
             sresp.on_hover_ui(|ui| {
                 ui.label(RichTextExt::section(&format!("Closing balance {}", money(b.value, true)), ui));
                 let what = match b.kind { BalKind::Max => "Highest balance of the month", BalKind::Min => "Lowest balance of the month", BalKind::Low => "Below your minimum balance", BalKind::Normal => "" };
                 if !what.is_empty() { ui.label(RichTextExt::muted(what, ui)); }
-                if b.adjusted { ui.label(RichTextExt::muted("Reconciled (balance adjustment on this day)", ui)); }
+                if b.adjusted {
+                    ui.label(RichTextExt::muted(&format!("Before adjustment {}", money(b.value - b.adjustment, true)), ui));
+                    ui.label(RichTextExt::muted(&format!("Adjustment {}", money(b.adjustment, true)), ui));
+                }
             });
         }
     }
@@ -360,18 +461,22 @@ fn draw_row(ui: &mut Ui, p: &Painter, row: &TranRow, rr: Rect, t: &Tokens, decim
     if resp.drag_started() {
         ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new("calendar-drag-name"), row.text.clone()));
     }
-    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, format!("{} {}. Click to edit; drag to move transaction", row.text, row.amount)));
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, format!("{} {}{}. Click to edit; drag to move transaction",
+        row.text, row.amount, if row.tip.note.is_some() { ", has a note" } else { "" })));
     let mut action = None;
-    resp.context_menu(|ui| {
+    // A right-click during a transaction drag cancels the drag (egui ends it on any release); it must not
+    // also open the menu of whatever row lies under the pointer.
+    if !egui::DragAndDrop::has_payload_of_type::<DraggedTransaction>(ui.ctx()) { resp.context_menu(|ui| {
         if ui.button("Edit transaction (this date)").clicked() { action = Some(Action::EditTransaction { id:row.payment_id, date:row.date, amount:row.value }); ui.close_menu(); }
         if ui.button("Edit whole payment").clicked() { action = Some(Action::EditPayment(row.payment_id)); ui.close_menu(); }
         if ui.button("Filter this payment").clicked() { action = Some(Action::Filter(row.filter.clone())); ui.close_menu(); }
         ui.separator();
         if ui.button("Delete transaction (this date)").clicked() { action = Some(Action::DeleteTransaction { id:row.payment_id, date:row.date }); ui.close_menu(); }
         if ui.button("Delete whole payment").clicked() { action = Some(Action::DeletePayment(row.payment_id)); ui.close_menu(); }
-    });
+    }); }
     let hovered = resp.hovered();
-    if let Some(h) = row.hilite { p.rect_filled(rr, 4, tint(t.surface, h, 0.14)); }
+    // Disabled rows keep their highlight colour (05 §1.6) at a lighter tint next to the muted text.
+    if let Some(h) = row.hilite { p.rect_filled(rr, 4, tint(t.surface, h, if row.disabled { 0.07 } else { 0.14 })); }
     if hovered { p.rect_filled(rr, 4, tint(t.surface, t.accent, 0.08)); }
     if resp.has_focus() { p.rect_stroke(rr, 4, Stroke::new(1.0_f32, t.accent), StrokeKind::Inside); }
     let name_y = rr.center().y;
@@ -382,8 +487,9 @@ fn draw_row(ui: &mut Ui, p: &Painter, row: &TranRow, rr: Rect, t: &Tokens, decim
     };
     let income = !is_negative(row.value, decimals) && row.value > 0.0;
     let amount_col = if row.disabled { t.disabled } else if is_negative(row.value, decimals) { t.negative } else { t.positive };
-    // A 3px rounded accent bar marks polarity independently of the amount colour.
-    if rr.width() >= 16.0 {
+    // A 3px rounded accent bar marks income rows, so paydays stand out and polarity does not
+    // depend on colour alone (expenses carry the U+2212 minus). Name positions stay fixed.
+    if income && rr.width() >= 16.0 {
         let bar_color = if row.disabled { tint(t.surface, amount_col, 0.4) } else { amount_col };
         let bar = Rect::from_min_max(Pos2::new(rr.min.x, rr.min.y + 3.0), Pos2::new(rr.min.x + 3.0, rr.max.y - 3.0));
         p.rect_filled(bar, 1.5, bar_color);
@@ -393,6 +499,11 @@ fn draw_row(ui: &mut Ui, p: &Painter, row: &TranRow, rr: Rect, t: &Tokens, decim
         let color = if row.disabled { t.disabled } else { color };
         paint_dot(&p, Pos2::new(rr.min.x + 9.0, name_y), color, t);
         x0 += 7.0;
+    }
+    // Notes are discoverable at a glance (05 §1.6 marks them with a `...` prefix).
+    if row.tip.note.is_some() && rr.width() >= 60.0 {
+        let mark = paint_note_mark(&p, Pos2::new(x0, name_y), if row.disabled { t.disabled } else { t.text_muted });
+        x0 = mark.max.x + 3.0;
     }
     let text_col = if row.disabled { t.disabled } else { t.text };
     let right = (rr.max.x - 6.0).max(x0);
@@ -407,27 +518,31 @@ fn draw_row(ui: &mut Ui, p: &Painter, row: &TranRow, rr: Rect, t: &Tokens, decim
     }
     let right = right - marker_w;
     let text_width = (right - x0).max(0.0);
-    // Income reads heavier than expenses (semibold vs regular) so polarity never depends on colour alone.
-    let mut amount_font = if income { font(ui, SEMI) } else { font(ui, CAPTION) };
+    // The amount is the figure people scan for, so it carries the weight; the name is regular.
+    let mut amount_font = font(ui, SEMI);
     amount_font.size = 13.0;
     // Leave a pixel on either side for glyph ink extending beyond its advance.
     let amount_limit = (text_width - 45.0).max(text_width * 0.48);
     let amount_w = (p.layout_no_wrap(row.amount.clone(), amount_font.clone(), amount_col).size().x + 2.0).max(10.0).min(amount_limit);
     let amount_rect = Rect::from_min_max(Pos2::new(right - amount_w, rr.min.y), Pos2::new(right, rr.max.y));
     let name_rect = Rect::from_min_max(Pos2::new(x0, rr.min.y), Pos2::new((amount_rect.min.x - 5.0).max(x0), rr.max.y));
-    let mut name_font = font(ui, SEMI);
-    name_font.size = 14.0;
+    let name_font = egui::TextStyle::Body.resolve(ui.style());
     truncated_line(&p.with_clip_rect(name_rect), Pos2::new(x0, name_y), &row.text, name_font,
         text_col, name_rect.width(), Some(rr.height()));
     aligned_line(&p.with_clip_rect(amount_rect), Pos2::new(right - 1.0, name_y), &row.amount, amount_font,
         amount_col, (amount_rect.width() - 2.0).max(0.0), Some(rr.height()), true);
     if hovered && !ui.input(|i| i.pointer.primary_down()) && !egui::DragAndDrop::has_payload_of_type::<DraggedTransaction>(ui.ctx()) {
         let tip = &row.tip;
+        if !row.valid_days.is_empty() {
+            ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new(GRACE_DAYS_ID), row.valid_days.clone()));
+        }
         resp.clone().on_hover_cursor(egui::CursorIcon::PointingHand);
         let pos = ui.ctx().pointer_latest_pos().unwrap_or(rr.left_bottom()) + Vec2::new(12.0, 12.0);
         // These details contain no controls. Let clicks pass through even when
         // egui constrains a newly sized tooltip over the payment being hovered.
-        egui::Area::new(resp.id.with("details")).order(egui::Order::Tooltip).interactable(false)
+        // One shared id: egui never prunes Area layers, so a per-row id would retain a layer for
+        // every row ever hovered. Only one card is shown at a time.
+        egui::Area::new(egui::Id::new(ROW_DETAILS_ID)).order(egui::Order::Tooltip).interactable(false)
             .fixed_pos(pos).default_size(Vec2::new(280.0, 150.0)).show(ui.ctx(), |ui| {
                 egui::Frame::popup(ui.style()).show(ui, |ui| {
                     ui.set_max_width(280.0);
@@ -442,10 +557,8 @@ fn draw_row(ui: &mut Ui, p: &Painter, row: &TranRow, rr: Rect, t: &Tokens, decim
                             budget_core::FLAG_IMPORTANT => pill(ui, "Important", t.important, t),
                             _ => {}
                         }
-                        match tip.suffix {
-                            '\'' => pill(ui, "Moved off weekend", t.accent, t),
-                            '*' => pill(ui, "Last payment", t.text_muted, t),
-                            _ => {}
+                        if let Some(text) = suffix_pill(tip) {
+                            pill(ui, text, if tip.suffix == '*' { t.text_muted } else { t.accent }, t);
                         }
                     });
                     ui.add_space(4.0);
@@ -455,6 +568,9 @@ fn draw_row(ui: &mut Ui, p: &Painter, row: &TranRow, rr: Rect, t: &Tokens, decim
                     line(ui, "Amount", egui::RichText::new(money(tip.amount, decimals)).strong().color(amount_col));
                     if (tip.planned - tip.amount).abs() >= 0.005 { line(ui, "Planned", egui::RichText::new(money(tip.planned, decimals))); }
                     line(ui, "Balance after", egui::RichText::new(money(balance_display(tip.balance_after, decimals), decimals)));
+                    if let (Some(first), Some(last)) = (row.valid_days.first(), row.valid_days.last()) {
+                        line(ui, "Can be paid", egui::RichText::new(format!("{} to {}", budget_core::date::sdate(*first), budget_core::date::sdate(*last))));
+                    }
                     if let Some(n) = &tip.note { ui.add_space(4.0); ui.label(n); }
                     ui.add_space(4.0);
                     ui.label(RichTextExt::faint("Click to edit. Drag to move this transaction. Right-click for payment actions.", ui));
@@ -502,11 +618,33 @@ impl RichTextExt {
 #[cfg(test)]
 mod tests {
     #[test]
+    fn only_days_whose_balance_moves_are_marked_changed() {
+        // Leading adjacent-month day, then 100, 100, 100.004 (below half a cent), 90, 90, trailing day.
+        let cells = [(false, Some(5.0)), (true, Some(100.0)), (true, Some(100.0)), (true, Some(100.004)),
+            (true, Some(90.0)), (true, None), (true, Some(90.0)), (false, Some(1.0))];
+        assert_eq!(super::balance_changes(cells.into_iter()), [true, true, false, false, true, true, false, true]);
+        assert!(super::balance_changes(std::iter::empty()).is_empty());
+    }
+
+    #[test]
     fn suffix_markers_map_to_dots() {
-        assert_eq!(super::suffix_marker('\''),Some(super::Marker::Moved));
+        assert_eq!(super::suffix_marker('\''),Some(super::Marker::Adjusted));
         assert_eq!(super::suffix_marker('*'), Some(super::Marker::Last));
         assert_eq!(super::suffix_marker(' '), None);
-        assert_eq!(super::LEGEND.len(), 4);
+        assert_eq!(super::LEGEND.len(), 5);
+    }
+
+    #[test]
+    fn adjusted_amounts_are_not_described_as_weekend_moves() {
+        // The engine's `'` also marks every custom amount, e.g. 35 instead of 100 on a Thursday.
+        let tip = |amount: f64, suffix: char| crate::view::Tip { description: String::new(), category: None, amount,
+            planned: -100.0, balance_after: 0.0, note: None, suffix };
+        assert_eq!(super::suffix_pill(&tip(-35.0, '\'')), Some("Adjusted amount"));
+        assert_eq!(super::suffix_pill(&tip(-100.0, '\'')), Some("Adjusted"));
+        assert_eq!(super::suffix_pill(&tip(-100.0, '*')), Some("Last payment"));
+        assert_eq!(super::suffix_pill(&tip(-100.0, '\0')), None);
+        let (_, legend) = super::LEGEND.iter().find(|(m, _)| *m == super::Marker::Adjusted).unwrap();
+        assert!(legend.contains("changed amount") && !legend.starts_with("Moved"), "{legend}");
     }
 
     use super::*;
@@ -518,19 +656,20 @@ mod tests {
             date.add(budget_core::Field::Day, i as i32);
             CellData {
                 day: date.day(), date: date.get(), in_month: true, is_today: false,
-                weekend: false, note: None, restorable: false,
+                weekend: false, note: None, restorable: Vec::new(),
                 rows: (0..payments).map(|n| TranRow {
                     payment_id: n as i32 + 10, date: date.get(), icon: "", text: format!("Payment name {n}"),
                     amount: "123.45".into(), value: 123.45, flag: '\0', hilite: None,
                     disabled: false, filter: String::new(),
                     tip: Tip { description: format!("Payment name {n}"), category: None, amount: 123.45,
                         planned: 123.45, balance_after: 1000.0, note: None, suffix: '\0' },
+                    valid_days: Vec::new(),
                 }).collect(),
-                balance: Some(Balance { text: format!("B{}", date.get()), value: 1000.0, kind: BalKind::Normal, adjusted: false }),
+                balance: Some(Balance { text: format!("B{}", date.get()), value: 1000.0, kind: BalKind::Normal, adjusted: false, adjustment: 0.0 }),
             }
         }).collect();
         MonthView { key: (20261001, String::new(), 0), cells, shown: payments * weeks * 7,
-            total: payments * weeks * 7, brief: Vec::new(), below_min: false,
+            total: payments * weeks * 7, brief: Vec::new(), below_min: false, shares_of_expenses: false, filtered: false,
             quick: QuickStats { opening: 0.0, closing: 0.0, min: 0.0, max: 0.0, avg: 0.0, income: 0.0, expenses: 0.0 } }
     }
 
@@ -971,5 +1110,104 @@ mod tests {
         frame(&ctx, &t, &view, size, vec![button(edit_pos, true)]);
         let (_, action) = frame(&ctx, &t, &view, size, vec![button(edit_pos, false)]);
         assert!(matches!(action, Some(Action::EditBalance(20261001))));
+    }
+
+    fn secondary(pos: Pos2, pressed: bool) -> egui::Event {
+        egui::Event::PointerButton { pos, button: egui::PointerButton::Secondary, pressed, modifiers: egui::Modifiers::NONE }
+    }
+
+    fn right_click_menu(ctx: &egui::Context, t: &Tokens, view: &MonthView, pos: Pos2) -> egui::FullOutput {
+        let size = Vec2::new(860.0, 540.0);
+        frame(ctx, t, view, size, Vec::new());
+        frame(ctx, t, view, size, vec![egui::Event::PointerMoved(pos)]);
+        for pressed in [true, false] { frame(ctx, t, view, size, vec![secondary(pos, pressed)]); }
+        frame(ctx, t, view, size, Vec::new()).0
+    }
+
+    fn click_text(ctx: &egui::Context, t: &Tokens, view: &MonthView, output: &egui::FullOutput, label: &str) -> Option<Action> {
+        let size = Vec2::new(860.0, 540.0);
+        let pos = text_shapes(output).iter().find(|(s, _)| s.galley.job.text == label).unwrap_or_else(|| panic!("{label} must be shown")).0.pos + Vec2::new(10.0, 7.0);
+        frame(ctx, t, view, size, vec![egui::Event::PointerMoved(pos)]);
+        frame(ctx, t, view, size, vec![button(pos, true)]);
+        frame(ctx, t, view, size, vec![button(pos, false)]).1
+    }
+
+    #[test]
+    fn deleted_occurrences_can_be_restored_from_the_day_menu_only_without_a_filter() {
+        let (ctx, t) = context();
+        let mut view = fixture(4, 1);
+        view.cells[0].restorable = vec![(42, "Rent".into())];
+        let output = right_click_menu(&ctx, &t, &view, Pos2::new(70.0, 38.0));
+        assert!(matches!(click_text(&ctx, &t, &view, &output, "Restore 'Rent'"), Some(Action::Restore { id: 42, date: 20261001 })));
+        let (ctx, t) = context();
+        view.key.1 = "rent".into();
+        view.filtered = true;
+        let output = right_click_menu(&ctx, &t, &view, Pos2::new(70.0, 38.0));
+        assert!(click_text(&ctx, &t, &view, &output, "Restore 'Rent'").is_none(), "restoring is disabled while filtered (05 §1.5)");
+    }
+
+    #[test]
+    fn right_click_during_a_drag_opens_no_menu_for_another_row() {
+        let (ctx, t) = context();
+        let view = fixture(4, 1);
+        begin_drag(&ctx, &t, &view);
+        let size = Vec2::new(860.0, 540.0);
+        let other = Pos2::new(205.0, 59.0);
+        frame(&ctx, &t, &view, size, vec![egui::Event::PointerMoved(other)]);
+        for pressed in [true, false] { frame(&ctx, &t, &view, size, vec![secondary(other, pressed)]); }
+        let (output, _) = frame(&ctx, &t, &view, size, Vec::new());
+        assert!(!text_shapes(&output).iter().any(|(s, _)| s.galley.job.text == "Edit transaction (this date)"));
+        assert!(!ctx.memory(|m| m.any_popup_open()));
+    }
+
+    #[test]
+    fn hovering_many_rows_does_not_retain_a_layer_per_row() {
+        let (ctx, t) = context();
+        let view = fixture(4, 1);
+        let size = Vec2::new(860.0, 540.0);
+        let (output, _) = frame(&ctx, &t, &view, size, Vec::new());
+        let rows: Vec<Pos2> = text_shapes(&output).iter().filter(|(s, _)| s.galley.job.text == "Payment name 0").map(|(s, _)| s.pos + Vec2::new(10.0, 7.0)).collect();
+        assert!(rows.len() >= 20);
+        let mut counts = Vec::new();
+        for pos in rows {
+            frame(&ctx, &t, &view, size, vec![egui::Event::PointerMoved(pos)]);
+            frame(&ctx, &t, &view, size, Vec::new());
+            counts.push(ctx.memory(|m| m.layer_ids().len()));
+        }
+        assert_eq!(counts.first(), counts.last(), "layers grew while hovering: {counts:?}");
+    }
+
+    #[test]
+    fn transaction_notes_are_marked_on_the_row() {
+        let (ctx, t) = context();
+        let mut view = fixture(4, 1);
+        let size = Vec2::new(860.0, 540.0);
+        let (plain, _) = frame(&ctx, &t, &view, size, Vec::new());
+        let name_x = |o: &egui::FullOutput| text_shapes(o).iter().find(|(s, _)| s.galley.job.text == "Payment name 0").unwrap().0.pos.x;
+        let before = name_x(&plain);
+        view.cells[0].rows[0].tip.note = Some("Paid by cheque #123".into());
+        let (noted, _) = frame(&ctx, &t, &view, size, Vec::new());
+        assert_eq!(text_shapes(&noted).iter().filter(|(s, _)| s.galley.job.text == ph::NOTE_PENCIL).count(), 1);
+        assert!(name_x(&noted) > before + 5.0, "the name makes room for the note mark");
+    }
+
+    #[test]
+    fn adjusted_balance_strip_shows_the_adjustment_and_hover_lists_it() {
+        let (ctx, t) = context();
+        let mut view = fixture(4, 1);
+        view.cells[0].balance = Some(Balance { text: "1,250".into(), value: 1250.0, kind: BalKind::Normal, adjusted: true, adjustment: 250.0 });
+        let size = Vec2::new(860.0, 540.0);
+        let (output, _) = frame(&ctx, &t, &view, size, Vec::new());
+        assert!(text_shapes(&output).iter().any(|(s, _)| s.galley.job.text == "1,250\u{2032}(250.00)"));
+        let pos = Pos2::new(65.0, 143.0);
+        frame(&ctx, &t, &view, size, vec![egui::Event::PointerMoved(pos)]);
+        let mut texts = Vec::new();
+        for _ in 0..90 {
+            let (o, _) = frame(&ctx, &t, &view, size, Vec::new());
+            texts = text_shapes(&o).iter().map(|(s, _)| s.galley.job.text.clone()).collect::<Vec<_>>();
+            if texts.iter().any(|s| s.starts_with("Adjustment")) { break; }
+        }
+        assert!(texts.iter().any(|s| s == "Before adjustment 1,000.00"), "{texts:?}");
+        assert!(texts.iter().any(|s| s == "Adjustment 250.00"));
     }
 }

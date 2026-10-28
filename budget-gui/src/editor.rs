@@ -2,9 +2,18 @@
 use budget_core::{date::sdate, BudgetDb, Cal, Field, Payment, END_MODE_DATE, END_MODE_INDEFINITE,
     END_MODE_LOAN_PAID, END_MODE_MASK, END_MODE_N_PAYS, FLAG_IMPORTANT, FLAG_NONE, FLAG_PAID};
 use eframe::egui::{self, ComboBox, Grid, RichText, ScrollArea, TextEdit};
+use egui_phosphor::regular as ph;
 use crate::theme::{self, Tokens};
 
-pub enum PaymentAction { None, Cancel, Apply(Payment) }
+/// Gap between a field's caption and its control, and between one field and the next.
+const LABEL_GAP: f32 = 4.0;
+const FIELD_GAP: f32 = 12.0;
+/// Extra space before a form section (on top of `FIELD_GAP`, giving 16px).
+const SECTION_GAP: f32 = 4.0;
+/// The transaction editor's destructive footer action.
+const DELETE_OCCURRENCE: &str = "Delete occurrence…";
+
+pub enum PaymentAction { None, Cancel, Apply(Box<Payment>) }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TransactionScope { Occurrence, Future }
 pub enum TransactionAction { None, Cancel, Apply { amount: f64, note: String, flag: char, scope: TransactionScope }, Delete }
@@ -22,14 +31,26 @@ impl AmountKind {
     }
 }
 
-struct DatePicker { month: Cal }
+/// Seed text for an amount box: the grouped 2-decimal magnitude, as the original shows it.
+fn amount_seed(amount: f64) -> String { budget_core::numfmt::format_frac2(amount.abs()) }
+
+const WEEKDAY_HEADERS: [&str; 7] = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
+
+struct DatePicker { month: Cal, sunday_first: bool }
 impl DatePicker {
-    fn new(text: &str, fallback: i32) -> Self {
+    fn new(text: &str, fallback: i32, sunday_first: bool) -> Self {
         let date = parse_iso_date(text).or_else(|_| parse_iso_date(&sdate(fallback)))
             .unwrap_or_else(|_| Cal::today().get());
         let mut month = Cal::from_int(date); month.set_day_one();
-        Self { month }
+        Self { month, sunday_first }
     }
+    fn first_weekday(&self) -> i32 { if self.sunday_first { 0 } else { 1 } }
+    /// Column headers starting at the configured first day of the week, like the calendar grid.
+    fn headers(&self) -> [&'static str; 7] {
+        std::array::from_fn(|i| WEEKDAY_HEADERS[(self.first_weekday() as usize + i) % 7])
+    }
+    /// Blank cells before the 1st of the month.
+    fn leading_blanks(&self) -> i32 { (self.month.day_of_week() + 7 - self.first_weekday()) % 7 }
     fn shift_month(&mut self, delta: i32) {
         let mut month = self.month; month.add(Field::Month, delta);
         if (1000..=9999).contains(&month.year()) { self.month = month; }
@@ -93,7 +114,14 @@ pub struct PaymentEditor {
     tentative: bool,
     reminder: bool,
     sticky: bool,
+    grace: String,
+    // Seeded amount/loan texts: applying them unchanged keeps the exact loaded values.
+    amount_seed: String,
+    loan_seed: String,
     error: Option<String>,
+    // A built payment the user was warned rewrites past occurrences; applying it again confirms.
+    confirm_past: Option<Payment>,
+    notice: Option<String>,
     focus_description: bool,
 }
 
@@ -115,21 +143,46 @@ impl PaymentEditor {
         // Start empty so the "0.00" hint shows and a forgotten amount is caught on save.
         editor.amount.clear();
         editor.loan_amount.clear();
+        editor.amount_seed.clear();
+        editor.loan_seed.clear();
         editor
     }
 
     pub fn edit(payment: &Payment) -> Self {
+        let amount_seed = amount_seed(payment.amount);
+        let loan_seed = budget_core::numfmt::format_frac2(payment.loan_amount);
         Self {
             payment_id: Some(payment.id), original: payment.clone(), description: payment.description.clone(),
-            amount: payment.amount.abs().to_string(), amount_kind: AmountKind::from_amount(payment.amount),
+            amount: amount_seed.clone(), amount_kind: AmountKind::from_amount(payment.amount),
             category: payment.category.clone().unwrap_or_default(),
             start_date: sdate(payment.start_date), start_picker: None, recurrence: Recurrence::from_payment(payment),
             recurring_end_initialized: Recurrence::from_payment(payment) != Recurrence::Once,
             frequency: payment.frequency.to_string(), end_mode: payment.end_mode(), end_date: sdate(payment.end_date), end_picker: None,
-            count: payment.n_pays.to_string(), loan_amount: payment.loan_amount.to_string(), enabled: !payment.disabled,
+            count: payment.n_pays.to_string(), loan_amount: loan_seed.clone(), enabled: !payment.disabled,
             no_weekends: payment.is_no_weekends(), early_pay: payment.is_early_pay(), tentative: payment.is_tentative(),
-            reminder: payment.is_reminder(), sticky: payment.is_sticky(), error: None, focus_description: true,
+            reminder: payment.is_reminder(), sticky: payment.is_sticky(), grace: payment.grace_period_days.to_string(),
+            amount_seed, loan_seed, error: None, confirm_past: None, notice: None, focus_description: true,
         }
+    }
+
+    /// The end condition the form will store (a single payment always ends after one payment).
+    fn effective_end_mode(&self) -> i32 {
+        if self.recurrence == Recurrence::Once { END_MODE_N_PAYS } else { self.end_mode }
+    }
+    /// Original enable rules (analysis/04 §1.2 items 6 and 9): a loan payment cannot be tentative,
+    /// and a tentative payment can neither end when a loan is paid nor move off weekends.
+    fn tentative_enabled(&self) -> bool { self.effective_end_mode() != END_MODE_LOAN_PAID }
+    fn loan_end_enabled(&self) -> bool { !self.tentative }
+    fn weekend_options_enabled(&self) -> bool { !self.tentative }
+
+    /// A warning when applying `p` rewrites occurrences before `today` (amount or schedule changed).
+    fn past_change_warning(&self, p: &Payment, today: i32) -> Option<String> {
+        let changed = p.amount.to_bits() != self.original.amount.to_bits() || !self.original.is_same_schedule(p);
+        (self.payment_id.is_some() && self.original.start_date < today && changed).then(|| format!(
+            "This payment already has transactions. Applying changes the amount or schedule of every occurrence \
+             since {}, including past months (manually adjusted dates keep their amounts). To change only from a \
+             date onward, click that date's transaction and choose \u{201c}This and all future occurrences\u{201d}. \
+             Click Apply to all occurrences to continue.", sdate(self.original.start_date)))
     }
 
     fn build(&self, db: &BudgetDb) -> Result<Payment, String> {
@@ -143,10 +196,18 @@ impl PaymentEditor {
             0.0
         } else if self.amount.trim().is_empty() {
             return Err("Enter an amount.".into());
+        } else if self.amount == self.amount_seed {
+            // Untouched: keep the exact loaded value (not the rounded display text, and never
+            // re-validated, so a legacy out-of-range amount does not block other edits).
+            if self.amount_kind == AmountKind::from_amount(self.original.amount) { self.original.amount } else { -self.original.amount }
         } else { self.amount_kind.signed(&self.amount)? };
         // Preserve Some("") and whitespace in existing categories when untouched.
         if self.category != self.original.category.as_deref().unwrap_or("") {
             p.category = if self.category.trim().is_empty() { None } else { Some(self.category.trim().to_string()) };
+        }
+        // The loader would silently rename such a category (analysis/04 §1.3 step 12).
+        if p.category.as_deref() == Some(p.description.as_str()) {
+            return Err(SAME_CATEGORY_ERROR.into());
         }
         let except = self.payment_id.and_then(|id| db.get_by_id(id));
         if !db.is_valid_description(&p.description, except) {
@@ -186,7 +247,7 @@ impl PaymentEditor {
                 }
                 END_MODE_N_PAYS => { p.n_pays = positive_integer(&self.count, "Number of payments")?; }
                 END_MODE_LOAN_PAID => {
-                    p.loan_amount = finite_number(&self.loan_amount, "Loan amount")?;
+                    if self.loan_amount != self.loan_seed { p.loan_amount = finite_number(&self.loan_amount, "Loan amount")?; }
                     if p.loan_amount <= 0.0 { return Err("Loan amount must be greater than zero.".into()); }
                     if p.amount == 0.0 { return Err("A loan needs a nonzero payment amount.".into()); }
                 }
@@ -196,18 +257,50 @@ impl PaymentEditor {
         p.disabled = !self.enabled;
         p.set_no_weekends(self.no_weekends); p.set_early_pay(self.early_pay);
         p.set_tentative(self.tentative); p.set_reminder(self.reminder); p.set_sticky(self.sticky);
+        // The scheduler places a tentative payment's full amount and never its loan remainder, so the
+        // original dialog made these exclusive. A legacy payment that already has both is kept as is.
+        let legacy_pair = self.original.is_tentative() && self.original.end_mode() == END_MODE_LOAN_PAID;
+        if p.is_tentative() && p.end_mode() == END_MODE_LOAN_PAID && !legacy_pair {
+            return Err("A loan payment cannot be tentative. Clear Tentative or choose another end condition.".into());
+        }
+        // An untouched value is kept as loaded; a typed one must be a whole number of days.
+        if self.grace.trim() != self.original.grace_period_days.to_string() {
+            p.grace_period_days = match self.grace.trim() {
+                "" => 0,
+                s => s.parse::<i32>().ok().filter(|g| (0..=366).contains(g))
+                    .ok_or("Grace period must be a whole number of days from 0 to 366.")?,
+            };
+        }
         validate_schedule_bounds(&p)?;
         Ok(p)
     }
 
-    pub fn show(&mut self, ctx: &egui::Context, t: &Tokens, db: &BudgetDb) -> PaymentAction {
+    /// Build and, when the change rewrites past occurrences, ask for one confirming Apply first.
+    fn apply(&mut self, db: &BudgetDb, today: i32) -> PaymentAction {
+        match self.build(db) {
+            Err(e) => { self.error = Some(e); self.notice = None; self.confirm_past = None; PaymentAction::None }
+            Ok(p) => match self.past_change_warning(&p, today) {
+                Some(warning) if self.confirm_past.as_ref() != Some(&p) => {
+                    self.error = None;
+                    self.notice = Some(warning);
+                    self.confirm_past = Some(p);
+                    PaymentAction::None
+                }
+                _ => PaymentAction::Apply(Box::new(p)),
+            },
+        }
+    }
+
+    /// `sunday_first` lays out the date pickers like the calendar grid; `today` decides whether
+    /// an edit rewrites past occurrences and needs confirming.
+    pub fn show(&mut self, ctx: &egui::Context, t: &Tokens, db: &BudgetDb, sunday_first: bool, today: i32) -> PaymentAction {
         if dialog_escape(ctx) { return PaymentAction::Cancel; }
         let mut action = PaymentAction::None;
         let mut enter = false;
         let mut apply = false;
         egui::Modal::new(egui::Id::new("payment_editor")).frame(t.card()).show(ctx, |ui| {
             ui.set_width(560.0_f32.min((ctx.screen_rect().width() - 64.0).max(240.0)));
-            ui.spacing_mut().item_spacing = egui::vec2(8.0, 10.0);
+            ui.spacing_mut().item_spacing = egui::vec2(8.0, FIELD_GAP);
             ui.heading(if self.payment_id.is_some() { "Edit payment" } else { "Add payment" });
             ui.label(RichText::new(if self.payment_id.is_some() {
                 "Payment schedule · All occurrences"
@@ -223,28 +316,30 @@ impl PaymentEditor {
                     if self.focus_description { response.request_focus(); self.focus_description = false; }
                     let response = amount_field(ui, &mut self.amount, &mut self.amount_kind, t);
                     enter |= submitted(ui, &response);
-                    let label = field_label(ui, "Category · Optional", t);
-                    ui.horizontal(|ui| {
-                        let width = (ui.available_width() - 110.0).max(100.0);
-                        let response = ui.add(TextEdit::singleline(&mut self.category).desired_width(width).hint_text("e.g. Home")).labelled_by(label.id);
-                        enter |= submitted(ui, &response);
-                        ComboBox::from_id_salt("payment_category_picker").selected_text("Choose…").width(92.0).show_ui(ui, |ui| {
-                            ui.selectable_value(&mut self.category, String::new(), "No category");
-                            for category in db.categories() { ui.selectable_value(&mut self.category, category.clone(), category); }
-                        }).response.labelled_by(label.id);
+                    field(ui, "Category · Optional", t, |ui, label| {
+                        ui.horizontal(|ui| {
+                            let width = (ui.available_width() - 110.0).max(100.0);
+                            let response = ui.add(TextEdit::singleline(&mut self.category).desired_width(width).hint_text("e.g. Home")).labelled_by(label);
+                            enter |= submitted(ui, &response);
+                            ComboBox::from_id_salt("payment_category_picker").selected_text("Choose…").width(92.0).show_ui(ui, |ui| {
+                                ui.selectable_value(&mut self.category, String::new(), "No category");
+                                for category in db.categories() { ui.selectable_value(&mut self.category, category.clone(), category); }
+                            }).response.labelled_by(label);
+                        });
                     });
                 });
-                ui.add_space(4.0);
+                ui.add_space(SECTION_GAP);
                 form_section(ui, "Schedule", t, |ui| {
-                    enter |= date_field(ui, "Start date", "payment_start_date", &mut self.start_date, &mut self.start_picker, self.original.start_date, t);
-                    let label = field_label(ui, "Repeat", t);
+                    enter |= date_field(ui, "Start date", "payment_start_date", &mut self.start_date, &mut self.start_picker, self.original.start_date, sunday_first, t);
                     let mut recurrence = self.recurrence;
-                    ComboBox::from_id_salt("payment_recurrence").width(ui.available_width())
-                        .selected_text(recurrence.label()).show_ui(ui, |ui| {
-                        for candidate in [Recurrence::Once, Recurrence::Days, Recurrence::Weeks, Recurrence::Months, Recurrence::Years, Recurrence::NthWeekday, Recurrence::LastWeekday] {
-                            ui.selectable_value(&mut recurrence, candidate, candidate.label());
-                        }
-                    }).response.labelled_by(label.id);
+                    field(ui, "Repeat", t, |ui, label| {
+                        ComboBox::from_id_salt("payment_recurrence").width(ui.available_width())
+                            .selected_text(recurrence.label()).show_ui(ui, |ui| {
+                            for candidate in [Recurrence::Once, Recurrence::Days, Recurrence::Weeks, Recurrence::Months, Recurrence::Years, Recurrence::NthWeekday, Recurrence::LastWeekday] {
+                                ui.selectable_value(&mut recurrence, candidate, candidate.label());
+                            }
+                        }).response.labelled_by(label);
+                    });
                     if recurrence != self.recurrence { self.select_recurrence(recurrence); }
                     if self.recurrence != Recurrence::Once {
                         if self.recurrence == Recurrence::NthWeekday {
@@ -263,14 +358,19 @@ impl PaymentEditor {
                             };
                             ui.label(RichText::new(hint).color(t.text_muted));
                         }
-                        let label = field_label(ui, "Ends", t);
-                        ComboBox::from_id_salt("payment_end_mode").width(ui.available_width()).selected_text(end_label(self.end_mode)).show_ui(ui, |ui| {
-                            for (mode, label) in [(END_MODE_INDEFINITE, "Indefinitely"), (END_MODE_DATE, "On a date"), (END_MODE_N_PAYS, "After a number of payments"), (END_MODE_LOAN_PAID, "When loan is paid")] {
-                                ui.selectable_value(&mut self.end_mode, mode, label);
-                            }
-                        }).response.labelled_by(label.id);
+                        let loan_end_enabled = self.loan_end_enabled();
+                        field(ui, "Ends", t, |ui, label| {
+                            ComboBox::from_id_salt("payment_end_mode").width(ui.available_width()).selected_text(end_label(self.end_mode)).show_ui(ui, |ui| {
+                                for (mode, text) in [(END_MODE_INDEFINITE, "Indefinitely"), (END_MODE_DATE, "On a date"), (END_MODE_N_PAYS, "After a number of payments"), (END_MODE_LOAN_PAID, "When loan is paid")] {
+                                    ui.add_enabled_ui(mode != END_MODE_LOAN_PAID || loan_end_enabled, |ui| {
+                                        ui.selectable_value(&mut self.end_mode, mode, text)
+                                            .on_disabled_hover_text("Not available for tentative payments.");
+                                    });
+                                }
+                            }).response.labelled_by(label);
+                        });
                         match self.end_mode {
-                            END_MODE_DATE => { enter |= date_field(ui, "End date", "payment_end_date", &mut self.end_date, &mut self.end_picker, self.original.end_date, t); }
+                            END_MODE_DATE => { enter |= date_field(ui, "End date", "payment_end_date", &mut self.end_date, &mut self.end_picker, self.original.end_date, sunday_first, t); }
                             END_MODE_N_PAYS => {
                                 let response = text_field(ui, "Number of payments", &mut self.count, "e.g. 12", t);
                                 enter |= submitted(ui, &response);
@@ -286,34 +386,43 @@ impl PaymentEditor {
                     }
                     ui.checkbox(&mut self.enabled, "Enabled in calendar");
                     ui.collapsing("More schedule options", |ui| {
-                        ui.checkbox(&mut self.no_weekends, "Move weekend payments to a business day");
-                        ui.add_enabled_ui(self.no_weekends, |ui| {
-                            ui.checkbox(&mut self.early_pay, "Use the previous business day");
+                        ui.add_enabled_ui(self.weekend_options_enabled(), |ui| {
+                            ui.checkbox(&mut self.no_weekends, "Move weekend payments to a business day");
+                            ui.add_enabled_ui(self.no_weekends, |ui| {
+                                ui.checkbox(&mut self.early_pay, "Use the previous business day");
+                            });
                         });
-                        ui.checkbox(&mut self.tentative, "Tentative");
-                        if self.tentative {
-                            ui.label(RichText::new("Paid status also updates this period’s unpaid estimates.").color(t.text_muted));
+                        ui.add_enabled_ui(self.tentative_enabled(), |ui| {
+                            ui.checkbox(&mut self.tentative, "Tentative");
+                        });
+                        if !self.tentative_enabled() {
+                            ui.label(RichText::new("Loan payments cannot be tentative.").color(t.text_muted));
                         }
+                        if self.tentative {
+                            ui.label(RichText::new("Paid status also updates this period’s unpaid estimates. Tentative payments slide to today and are not moved off weekends.").color(t.text_muted));
+                        }
+                        // A tentative payment's valid days are its whole period, so grace does not apply.
+                        ui.add_enabled_ui(!self.tentative, |ui| {
+                            let response = text_field(ui, "Grace period · days", &mut self.grace, "0", t)
+                                .on_hover_text("Days after the due date on which paying still counts as on time; highlighted when you hover the payment. 0 turns it off.");
+                            enter |= submitted(ui, &response);
+                        });
                         ui.checkbox(&mut self.reminder, "Reminder");
                         ui.checkbox(&mut self.sticky, "Carry changed amounts forward");
                     });
                 });
             });
             if let Some(error) = &self.error { form_error(ui, error, t); }
+            if let Some(notice) = &self.notice { form_notice(ui, notice, t); }
             ui.add_space(4.0);
             ui.separator();
-            ui.horizontal(|ui| {
-                if theme::secondary_button(ui, "Cancel", t).clicked() { action = PaymentAction::Cancel; }
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if theme::primary_button(ui, if self.payment_id.is_some() { "Apply changes" } else { "Add payment" }, t).clicked() {
-                        apply = true;
-                    }
-                });
-            });
+            let label = if self.confirm_past.is_some() { "Apply to all occurrences" }
+                else if self.payment_id.is_some() { "Apply changes" } else { "Add payment" };
+            let (applied, cancelled, _) = dialog_footer(ui, label, None, t);
+            if applied { apply = true; }
+            if cancelled { action = PaymentAction::Cancel; }
         });
-        if apply || enter {
-            match self.build(db) { Ok(p) => action = PaymentAction::Apply(p), Err(e) => self.error = Some(e) }
-        }
+        if (apply || enter) && matches!(action, PaymentAction::None) { action = self.apply(db, today); }
         // Clicking the backdrop retains the draft; Escape and Cancel discard it (all editors alike).
         action
     }
@@ -327,25 +436,31 @@ pub struct TransactionEditor {
     tentative_payment: bool,
     amount: String,
     amount_kind: AmountKind,
+    // The seeded text and the exact occurrence amount it stands for.
+    amount_seed: String,
+    seed_value: f64,
     note: String,
     flag: char,
     scope: TransactionScope,
     error: Option<String>,
     focus_amount: bool,
+    guard: ClickGuard,
 }
 impl TransactionEditor {
     pub fn set_error(&mut self, error: String) { self.error = Some(error); }
 
     pub fn new(payment: &Payment, date: i32, amount: f64) -> Self {
-        Self { payment_id: payment.id, date, description: payment.description.clone(), amount: amount.abs().to_string(),
-            amount_kind: AmountKind::from_amount(amount),
+        Self { payment_id: payment.id, date, description: payment.description.clone(), amount: amount_seed(amount),
+            amount_kind: AmountKind::from_amount(amount), amount_seed: amount_seed(amount), seed_value: amount,
             loan_payment: payment.end_mode() == END_MODE_LOAN_PAID,
             tentative_payment: payment.is_tentative(),
             note: payment.get_note(date).unwrap_or_default(), flag: payment.get_flag(date),
-            scope: TransactionScope::Occurrence, error: None, focus_amount: true }
+            scope: TransactionScope::Occurrence, error: None, focus_amount: true, guard: ClickGuard::default() }
     }
     fn values(&self) -> Result<(f64, String, char), String> {
-        let amount = self.amount_kind.signed(&self.amount)?;
+        let amount = if self.amount == self.amount_seed {
+            if self.amount_kind == AmountKind::from_amount(self.seed_value) { self.seed_value } else { -self.seed_value }
+        } else { self.amount_kind.signed(&self.amount)? };
         check_text(&self.note, "Note")?;
         // Unknown legacy flags remain unchanged until the user explicitly chooses a new status.
         Ok((amount, self.note.clone(), self.flag))
@@ -355,9 +470,12 @@ impl TransactionEditor {
         let mut action = TransactionAction::None;
         let mut enter = false;
         let mut apply = false;
+        // A calendar row opens this editor on its first click; a double-click's second click is ignored.
+        let (ignore_pointer, refocus) = self.guard.update(ctx);
         egui::Modal::new(egui::Id::new("transaction_editor")).frame(t.card()).show(ctx, |ui| {
+            if ignore_pointer { ui.disable(); }
             ui.set_width(520.0_f32.min((ctx.screen_rect().width() - 64.0).max(240.0)));
-            ui.spacing_mut().item_spacing = egui::vec2(8.0, 10.0);
+            ui.spacing_mut().item_spacing = egui::vec2(8.0, FIELD_GAP);
             ui.horizontal(|ui| {
                 ui.heading("Edit transaction");
                 ui.label(RichText::new(sdate(self.date)).color(t.text_muted));
@@ -370,25 +488,32 @@ impl TransactionEditor {
                 form_section(ui, "Transaction details", t, |ui| {
                     let response = amount_field(ui, &mut self.amount, &mut self.amount_kind, t);
                     enter |= submitted(ui, &response);
-                    if self.focus_amount { response.request_focus(); self.focus_amount = false; }
-                    let label = field_label(ui, "Apply amount to", t);
-                    ui.radio_value(&mut self.scope, TransactionScope::Occurrence, "Only this occurrence").labelled_by(label.id);
-                    ui.radio_value(&mut self.scope, TransactionScope::Future, "This and all future occurrences").labelled_by(label.id);
-                    let help = match self.scope {
-                        TransactionScope::Occurrence => format!("Change the amount for {} only.", sdate(self.date)),
-                        TransactionScope::Future => format!("Change amounts from {} onward. Earlier dates keep their amounts.", sdate(self.date)),
-                    };
-                    ui.label(RichText::new(help).color(t.text_muted));
+                    if self.focus_amount && !ignore_pointer {
+                        response.request_focus();
+                        select_all(ui, &response, &self.amount);
+                        self.focus_amount = false;
+                    }
+                    field(ui, "Apply amount to", t, |ui, label| {
+                        ui.radio_value(&mut self.scope, TransactionScope::Occurrence, "Only this occurrence").labelled_by(label);
+                        ui.radio_value(&mut self.scope, TransactionScope::Future, "This and all future occurrences").labelled_by(label);
+                        let help = match self.scope {
+                            TransactionScope::Occurrence => format!("Change the amount for {} only.", sdate(self.date)),
+                            TransactionScope::Future => format!("Change amounts from {} onward. Earlier dates keep their amounts.", sdate(self.date)),
+                        };
+                        ui.label(RichText::new(help).color(t.text_muted));
+                    });
                     ui.label(RichText::new(format!("Notes and status apply only to {}.", sdate(self.date))).color(t.text_muted));
-                    let label = field_label(ui, "Status · Selected date only", t);
-                    ComboBox::from_id_salt("transaction_status").width(ui.available_width()).selected_text(flag_label(self.flag)).show_ui(ui, |ui| {
-                        for (flag, label) in [(FLAG_NONE, "None"), (FLAG_PAID, "Paid"), (FLAG_IMPORTANT, "Important")] {
-                            ui.selectable_value(&mut self.flag, flag, label);
-                        }
-                    }).response.labelled_by(label.id);
-                    let label = field_label(ui, "Note · Optional · Selected date only", t);
-                    ui.add(TextEdit::multiline(&mut self.note).desired_width(f32::INFINITY).desired_rows(3)
-                        .hint_text("Add a note for this date")).labelled_by(label.id);
+                    field(ui, "Status · Selected date only", t, |ui, label| {
+                        ComboBox::from_id_salt("transaction_status").width(ui.available_width()).selected_text(flag_label(self.flag)).show_ui(ui, |ui| {
+                            for (flag, text) in [(FLAG_NONE, "None"), (FLAG_PAID, "Paid"), (FLAG_IMPORTANT, "Important")] {
+                                ui.selectable_value(&mut self.flag, flag, text);
+                            }
+                        }).response.labelled_by(label);
+                    });
+                    field(ui, "Note · Optional · Selected date only", t, |ui, label| {
+                        ui.add(TextEdit::multiline(&mut self.note).desired_width(f32::INFINITY).desired_rows(3)
+                            .hint_text("Add a note for this date")).labelled_by(label);
+                    });
                 });
                 if self.loan_payment {
                     ui.label(RichText::new("Amount changes and deletions recalculate the loan payoff and future installments.").color(t.text_muted));
@@ -400,18 +525,13 @@ impl TransactionEditor {
             if let Some(error) = &self.error { form_error(ui, error, t); }
             ui.add_space(4.0);
             ui.separator();
-            ui.horizontal(|ui| {
-                if theme::secondary_button(ui, "Cancel", t).clicked() { action = TransactionAction::Cancel; }
-                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if theme::primary_button(ui, "Apply changes", t).clicked() { apply = true; }
-                });
-            });
-            ui.separator();
-            if ui.add(egui::Button::new(RichText::new("Delete this occurrence…").color(t.negative))
-                .fill(egui::Color32::TRANSPARENT).stroke(egui::Stroke::NONE)).clicked() {
-                action = TransactionAction::Delete;
-            }
+            let (applied, cancelled, deleted) = dialog_footer(ui, "Apply changes", Some(DELETE_OCCURRENCE), t);
+            if applied { apply = true; }
+            if cancelled { action = TransactionAction::Cancel; }
+            if deleted { action = TransactionAction::Delete; }
         });
+        // The ignored press may have taken focus from the amount; give it back so typing replaces the amount.
+        if refocus { self.focus_amount = true; ctx.request_repaint(); }
         if (apply || enter) && matches!(action, TransactionAction::None) {
             match self.values() {
                 Ok((amount, note, flag)) => action = TransactionAction::Apply { amount, note, flag, scope: self.scope },
@@ -433,40 +553,133 @@ fn form_section(ui: &mut egui::Ui, title: &str, t: &Tokens, body: impl FnOnce(&m
 fn field_label(ui: &mut egui::Ui, label: &str, t: &Tokens) -> egui::Response {
     ui.label(RichText::new(label).color(t.text_muted))
 }
+/// A caption and its control(s), kept `LABEL_GAP` apart so the caption reads as belonging to the
+/// control below it rather than the field above (fields themselves are `FIELD_GAP` apart).
+fn field<R>(ui: &mut egui::Ui, label: &str, t: &Tokens, add: impl FnOnce(&mut egui::Ui, egui::Id) -> R) -> R {
+    ui.vertical(|ui| {
+        ui.spacing_mut().item_spacing.y = LABEL_GAP;
+        let label = field_label(ui, label, t);
+        add(ui, label.id)
+    }).inner
+}
 fn text_field(ui: &mut egui::Ui, label: &str, value: &mut String, hint: &str, t: &Tokens) -> egui::Response {
-    let label = field_label(ui, label, t);
-    ui.add(TextEdit::singleline(value).desired_width(f32::INFINITY).hint_text(hint)).labelled_by(label.id)
+    field(ui, label, t, |ui, label| {
+        ui.add(TextEdit::singleline(value).desired_width(f32::INFINITY).hint_text(hint)).labelled_by(label)
+    })
+}
+/// One dialog footer for every form: an optional destructive ghost action on the left, then
+/// (right to left) the primary action and Cancel beside it. Returns `(apply, cancel, destroy)`.
+fn dialog_footer(ui: &mut egui::Ui, primary: &str, destructive: Option<&str>, t: &Tokens) -> (bool, bool, bool) {
+    let (mut apply, mut cancel, mut destroy) = (false, false, false);
+    ui.horizontal(|ui| {
+        if let Some(text) = destructive {
+            let response = ui.add(egui::Button::new(RichText::new(destructive_label(text)).color(t.negative))
+                .fill(egui::Color32::TRANSPARENT).stroke(egui::Stroke::NONE).corner_radius(7)
+                .min_size(egui::vec2(0.0, 36.0)));
+            destroy = response.on_hover_cursor(egui::CursorIcon::PointingHand).clicked();
+        }
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            apply = theme::primary_button(ui, primary, t).clicked();
+            cancel = theme::secondary_button(ui, "Cancel", t).clicked();
+        });
+    });
+    (apply, cancel, destroy)
 }
 /// Escape cancels a dialog, unless a popup (combo box, date picker) is open and should close first.
 pub(crate) fn dialog_escape(ctx: &egui::Context) -> bool {
     !ctx.memory(|m| m.any_popup_open()) && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Escape))
 }
+/// Swallows the second click of the double-click whose first click opened a dialog. Without it the
+/// second click lands on whatever control the modal placed under the pointer (e.g. Delete).
+#[derive(Default)]
+pub(crate) struct ClickGuard { opened_at: Option<f64>, stale: bool }
+
+impl ClickGuard {
+    /// Call once per frame before drawing. Returns `(ignore_pointer, ended)`: while `ignore_pointer`
+    /// the dialog content must be disabled; `ended` is true on the (still ignored) release frame.
+    pub(crate) fn update(&mut self, ctx: &egui::Context) -> (bool, bool) {
+        let delay = ctx.options(|o| o.input_options.max_double_click_delay);
+        let (time, pressed, released, down, since_click) = ctx.input(|i| (i.time, i.pointer.any_pressed(),
+            i.pointer.any_released(), i.pointer.any_down(), i.pointer.time_since_last_click() as f64));
+        let opened_at = *self.opened_at.get_or_insert(time);
+        // The press continues a click that happened when (or before) the dialog opened.
+        if pressed && since_click < delay && time - since_click <= opened_at + 1e-3 { self.stale = true; }
+        let ignore = self.stale;
+        let ended = ignore && released && !down;
+        if ended { self.stale = false; }
+        (ignore, ended)
+    }
+}
+
 /// True when a single-line field just lost focus because Enter was pressed.
 pub(crate) fn submitted(ui: &egui::Ui, response: &egui::Response) -> bool {
     response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter))
 }
 /// Select the whole text when a field gains focus so typing replaces it.
 fn select_all_on_focus(ui: &egui::Ui, response: &egui::Response, text: &str) {
-    if response.gained_focus() {
-        if let Some(mut state) = TextEdit::load_state(ui.ctx(), response.id) {
-            state.cursor.set_char_range(Some(egui::text::CCursorRange::two(
-                egui::text::CCursor::new(0), egui::text::CCursor::new(text.chars().count()),
-            )));
-            state.store(ui.ctx(), response.id);
-        }
+    if response.gained_focus() { select_all(ui, response, text); }
+}
+/// Select the whole text of a field so typing replaces it.
+fn select_all(ui: &egui::Ui, response: &egui::Response, text: &str) {
+    if let Some(mut state) = TextEdit::load_state(ui.ctx(), response.id) {
+        state.cursor.set_char_range(Some(egui::text::CCursorRange::two(
+            egui::text::CCursor::new(0), egui::text::CCursor::new(text.chars().count()),
+        )));
+        state.store(ui.ctx(), response.id);
     }
 }
+/// The trash icon and text of a footer's destructive ghost action.
+fn destructive_label(text: &str) -> String { format!("{}  {text}", ph::TRASH) }
+
+/// Height shared by the amount input, the date input's picker button and the polarity control.
+const CONTROL_HEIGHT: f32 = 34.0;
+
+/// The colour that marks an amount kind: expenses negative, income positive.
+fn kind_color(kind: AmountKind, t: &Tokens) -> egui::Color32 {
+    match kind { AmountKind::Expense => t.negative, AmountKind::Income => t.positive }
+}
+
+/// Expense/Income as a two-segment control styled like the Calendar/Payments tabs.
+fn polarity_control(ui: &mut egui::Ui, kind: &mut AmountKind, label: egui::Id, t: &Tokens) {
+    egui::Frame::new().fill(t.bg).stroke(egui::Stroke::new(1.0_f32, t.border)).corner_radius(8).inner_margin(3).show(ui, |ui| {
+        ui.spacing_mut().item_spacing.x = 2.0;
+        for (candidate, text) in [(AmountKind::Expense, "Expense"), (AmountKind::Income, "Income")] {
+            let selected = *kind == candidate;
+            let (rect, response) = ui.allocate_exact_size(egui::vec2(84.0, CONTROL_HEIGHT - 8.0), egui::Sense::click());
+            let response = response.labelled_by(label).on_hover_cursor(egui::CursorIcon::PointingHand);
+            response.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, selected, text));
+            if response.clicked() { *kind = candidate; }
+            let selected = *kind == candidate;
+            let hovered = response.hovered();
+            let painter = ui.painter();
+            if selected {
+                painter.rect(rect, 6, t.surface, egui::Stroke::new(1.0_f32, t.border), egui::StrokeKind::Inside);
+            } else if hovered {
+                painter.rect_filled(rect, 6, t.surface_hover);
+            }
+            if response.has_focus() {
+                painter.rect_stroke(rect.expand(1.0), 7, egui::Stroke::new(2.0_f32, t.accent), egui::StrokeKind::Outside);
+            }
+            let color = if selected { kind_color(candidate, t) } else if hovered { t.text } else { t.text_muted };
+            let style = if selected { theme::ts(theme::SEMI) } else { egui::TextStyle::Body };
+            painter.text(rect.center(), egui::Align2::CENTER_CENTER, text, style.resolve(ui.style()), color);
+        }
+    });
+}
+
 fn amount_field(ui: &mut egui::Ui, amount: &mut String, kind: &mut AmountKind, t: &Tokens) -> egui::Response {
-    let label = field_label(ui, "Amount", t);
-    ui.horizontal(|ui| {
-        ui.selectable_value(kind, AmountKind::Expense, "Expense").labelled_by(label.id);
-        ui.selectable_value(kind, AmountKind::Income, "Income").labelled_by(label.id);
-        ui.add_space(6.0);
-        let response = ui.add(TextEdit::singleline(amount).desired_width(ui.available_width()).hint_text("0.00")
-            .horizontal_align(egui::Align::RIGHT)).labelled_by(label.id);
-        select_all_on_focus(ui, &response, amount);
-        response
-    }).inner
+    field(ui, "Amount", t, |ui, label| {
+        ui.horizontal(|ui| {
+            polarity_control(ui, kind, label, t);
+            ui.add_space(4.0);
+            // The figure takes the chosen polarity's colour, so the sign is clear before typing.
+            let response = ui.add(TextEdit::singleline(amount).desired_width(ui.available_width()).hint_text("0.00")
+                .min_size(egui::vec2(0.0, CONTROL_HEIGHT)).text_color(kind_color(*kind, t))
+                .vertical_align(egui::Align::Center).horizontal_align(egui::Align::RIGHT)).labelled_by(label);
+            select_all_on_focus(ui, &response, amount);
+            response
+        }).inner
+    })
 }
 fn form_error(ui: &mut egui::Ui, error: &str, t: &Tokens) {
     egui::Frame::new().fill(theme::tint(t.surface, t.negative, 0.08)).corner_radius(6)
@@ -474,18 +687,33 @@ fn form_error(ui: &mut egui::Ui, error: &str, t: &Tokens) {
             ui.label(RichText::new(error).color(t.negative));
         });
 }
-fn date_field(ui: &mut egui::Ui, label: &str, id: &str, value: &mut String, picker: &mut Option<DatePicker>, fallback: i32, t: &Tokens) -> bool {
-    let label = field_label(ui, label, t);
+fn form_notice(ui: &mut egui::Ui, notice: &str, t: &Tokens) {
+    egui::Frame::new().fill(theme::tint(t.surface, t.text_muted, 0.10)).corner_radius(6)
+        .inner_margin(10).show(ui, |ui| {
+            ui.label(RichText::new(notice).color(t.text));
+        });
+}
+#[allow(clippy::too_many_arguments)]
+fn date_field(ui: &mut egui::Ui, label: &str, id: &str, value: &mut String, picker: &mut Option<DatePicker>, fallback: i32, sunday_first: bool, t: &Tokens) -> bool {
     let mut entered = false;
-    let button = ui.horizontal(|ui| {
-        let width = (ui.available_width() - 108.0).max(100.0);
-        let response = ui.add(TextEdit::singleline(value).desired_width(width).hint_text("YYYY-MM-DD")).labelled_by(label.id);
+    let button = field(ui, label, t, |ui, label| ui.horizontal(|ui| {
+        // The icon button is 36px wide, so the input lines up with full-width fields' right edge.
+        // desired_width excludes the TextEdit's own horizontal margins (4px each side).
+        let width = (ui.available_width() - 36.0 - ui.spacing().item_spacing.x - 8.0).max(100.0);
+        let response = ui.add(TextEdit::singleline(value).desired_width(width).hint_text("YYYY-MM-DD")
+            .min_size(egui::vec2(0.0, CONTROL_HEIGHT)).vertical_align(egui::Align::Center)).labelled_by(label);
         entered = submitted(ui, &response);
-        theme::secondary_button(ui, "Pick date", t).labelled_by(label.id)
-    }).inner;
+        let button = ui.add_sized([36.0, CONTROL_HEIGHT], egui::Button::new(RichText::new(ph::CALENDAR_BLANK).color(t.text))
+            .fill(t.surface).stroke(egui::Stroke::new(1.0_f32, t.border_strong)).corner_radius(7));
+        if button.has_focus() {
+            ui.painter().rect_stroke(button.rect.expand(1.0), 8, egui::Stroke::new(2.0_f32, t.accent), egui::StrokeKind::Outside);
+        }
+        button.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Pick date"));
+        button.labelled_by(label).on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text("Pick date")
+    }).inner);
     let popup_id = ui.make_persistent_id(id);
     if button.clicked() {
-        *picker = Some(DatePicker::new(value, fallback));
+        *picker = Some(DatePicker::new(value, fallback, sunday_first));
         ui.memory_mut(|memory| memory.toggle_popup(popup_id));
     }
     egui::popup::popup_below_widget(ui, popup_id, &button, egui::PopupCloseBehavior::CloseOnClickOutside, |ui| {
@@ -513,11 +741,11 @@ fn date_picker(ui: &mut egui::Ui, picker: &mut DatePicker, selected: &str, t: &T
         }
     });
     Grid::new("date_picker_grid").spacing([4.0, 4.0]).show(ui, |ui| {
-        for day in ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"] {
+        for day in picker.headers() {
             ui.add_sized([34.0, 24.0], egui::Label::new(RichText::new(day).color(t.text_muted)));
         }
         ui.end_row();
-        let offset = picker.month.day_of_week();
+        let offset = picker.leading_blanks();
         for cell in 0..42 {
             let day = cell - offset + 1;
             if let Some(date) = picker.choose(day) {
@@ -546,9 +774,39 @@ fn check_text(text: &str, label: &str) -> Result<(), String> {
 pub(crate) const MAX_ABS_AMOUNT: f64 = 1e12;
 pub(crate) fn amount_in_range(v: f64) -> bool { v.is_finite() && v.abs() <= MAX_ABS_AMOUNT }
 
+pub(crate) const SAME_CATEGORY_ERROR: &str = "The category cannot be the same as the payment's description.";
+
+/// True when amount text is a formula rather than a plain number: an operator after the first
+/// character, `*`/`/`, a `%` income percentage, or a `k`/`m`/`b`/`t` multiplier suffix.
+fn looks_like_formula(text: &str) -> bool {
+    let body = text.trim();
+    let tail = body.char_indices().skip(1).map(|(_, c)| c);
+    body.contains(['*', '/', '%']) || tail.clone().any(|c| c == '+' || c == '-')
+        || body.ends_with(['k', 'K', 'm', 'M', 'b', 'B', 't', 'T'])
+}
+
 /// The single amount parser for payment, transaction, loan and balance fields. Accepts an optional
-/// sign, a `$`, well-formed thousands commas ("1,234.50") and accounting parentheses ("(50)" is -50).
+/// sign, a `$`, well-formed thousands commas ("1,234.50") and accounting parentheses ("(50)" is -50),
+/// or a calculator formula (SPEC.md 3.2: `+ - * / ( )`, `k/m/b/t` suffixes). These fields have no
+/// income context, so `%n` income percentages are refused rather than silently evaluating to 0.
 pub(crate) fn parse_amount(text: &str, label: &str) -> Result<f64, String> {
+    let value = match parse_plain_amount(text, label) {
+        Ok(v) => v,
+        Err(_) if looks_like_formula(text) => {
+            if text.contains('%') {
+                return Err(format!("{label} cannot use % of income here. Enter the amount or a formula such as 1200-350."));
+            }
+            budget_core::calc::calculate(text).map_err(|e| format!("{label}: {e}."))?
+        }
+        Err(plain) => return Err(plain),
+    };
+    if value.abs() > MAX_ABS_AMOUNT || !value.is_finite() {
+        return Err(format!("{label} is too large (maximum 1,000,000,000,000)."));
+    }
+    Ok(value)
+}
+
+fn parse_plain_amount(text: &str, label: &str) -> Result<f64, String> {
     let generic = || format!("{label} must be a number, for example 1,250.00.");
     let mut body = text.trim();
     let mut negate = false;
@@ -747,13 +1005,46 @@ mod tests {
     }
 
     #[test]
+    fn second_click_of_the_opening_double_click_activates_nothing_and_keeps_amount_focus() {
+        // A calendar row opens the editor on the first click of a double-click; the second click
+        // must not press "Delete occurrence…" that the modal placed under the pointer.
+        let size = egui::vec2(900.0, 600.0);
+        let payment = Payment::new(20261027);
+        let (probe_ctx, t) = transaction_context();
+        let mut probe = TransactionEditor::new(&payment, 20261027, -150.0);
+        for _ in 0..3 { transaction_frame(&probe_ctx, &t, &mut probe, size, Vec::new()); }
+        let (output, _) = transaction_frame(&probe_ctx, &t, &mut probe, size, Vec::new());
+        let pos = transaction_label(&output, &destructive_label(DELETE_OCCURRENCE)).center();
+        let press = |pressed| egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE };
+        let (ctx, t) = transaction_context();
+        let run = |events: Vec<egui::Event>| { let _ = ctx.run(egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, size)), events, ..Default::default() }, |_| {}).platform_output; };
+        // First click on the calendar row (the editor does not exist yet).
+        run(vec![egui::Event::PointerMoved(pos)]);
+        run(vec![press(true)]);
+        run(vec![press(false)]);
+        let mut editor = TransactionEditor::new(&payment, 20261027, -150.0);
+        for _ in 0..3 { assert!(matches!(transaction_frame(&ctx, &t, &mut editor, size, Vec::new()).1, TransactionAction::None)); }
+        for pressed in [true, false] {
+            assert!(matches!(transaction_frame(&ctx, &t, &mut editor, size, vec![press(pressed)]).1, TransactionAction::None),
+                "the double-click's second click must not delete");
+        }
+        for _ in 0..2 { transaction_frame(&ctx, &t, &mut editor, size, Vec::new()); }
+        transaction_frame(&ctx, &t, &mut editor, size, vec![egui::Event::Text("35".into())]);
+        assert_eq!(editor.amount, "35", "typing still replaces the amount (focus {:?})", ctx.memory(|m| m.focused()));
+        // A later, deliberate click on Delete still works.
+        for _ in 0..30 { transaction_frame(&ctx, &t, &mut editor, size, Vec::new()); }
+        transaction_frame(&ctx, &t, &mut editor, size, vec![press(true)]);
+        assert!(matches!(transaction_frame(&ctx, &t, &mut editor, size, vec![press(false)]).1, TransactionAction::Delete));
+    }
+
+    #[test]
     fn deleting_with_future_amount_selected_still_emits_single_occurrence_delete() {
         let (ctx, t) = transaction_context();
         let size = egui::vec2(900.0, 600.0);
         let mut editor = TransactionEditor::new(&Payment::new(20261027), 20261027, -150.0);
         for _ in 0..3 { transaction_frame(&ctx, &t, &mut editor, size, Vec::new()); }
         click_transaction_label(&ctx, &t, &mut editor, size, "This and all future occurrences");
-        assert!(matches!(click_transaction_label(&ctx, &t, &mut editor, size, "Delete this occurrence…"), TransactionAction::Delete));
+        assert!(matches!(click_transaction_label(&ctx, &t, &mut editor, size, &destructive_label(DELETE_OCCURRENCE)), TransactionAction::Delete));
     }
 
     #[test]
@@ -772,7 +1063,8 @@ mod tests {
                 for _ in 0..3 { transaction_frame(&ctx, &t, &mut editor, size, Vec::new()); }
                 let (output, _) = transaction_frame(&ctx, &t, &mut editor, size, Vec::new());
                 let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, size);
-                for label in ["2026-10-27", "Only this occurrence", "This and all future occurrences", "Cancel", "Apply changes", "Delete this occurrence…"] {
+                let delete = destructive_label(DELETE_OCCURRENCE);
+                for label in ["2026-10-27", "Only this occurrence", "This and all future occurrences", "Cancel", "Apply changes", delete.as_str()] {
                     let rect = transaction_label(&output, label);
                     assert!(screen.contains_rect(rect), "Control {label} outside compact viewport: {rect:?}");
                 }
@@ -780,6 +1072,37 @@ mod tests {
                 assert!(screen.contains_rect(modal), "Compact modal outside viewport (dark={dark}, error={}): {modal:?}", error.is_some());
             }
         }
+    }
+
+    #[test]
+    fn transaction_footer_has_delete_left_and_cancel_beside_apply_on_one_row() {
+        // Delete used to trail below the footer as a separate link.
+        let (ctx, t) = transaction_context();
+        let size = egui::vec2(900.0, 600.0);
+        let mut editor = TransactionEditor::new(&Payment::new(20261027), 20261027, -150.0);
+        for _ in 0..3 { transaction_frame(&ctx, &t, &mut editor, size, Vec::new()); }
+        let (output, _) = transaction_frame(&ctx, &t, &mut editor, size, Vec::new());
+        let delete = transaction_label(&output, &destructive_label(DELETE_OCCURRENCE));
+        let cancel = transaction_label(&output, "Cancel");
+        let apply = transaction_label(&output, "Apply changes");
+        assert!(delete.right() < cancel.left() && cancel.right() < apply.left(), "{delete:?} {cancel:?} {apply:?}");
+        for rect in [delete, cancel] {
+            assert!((rect.center().y - apply.center().y).abs() < 2.0, "footer controls share a row: {rect:?} vs {apply:?}");
+        }
+    }
+
+    #[test]
+    fn polarity_segments_switch_the_amount_sign() {
+        let (ctx, t) = transaction_context();
+        let size = egui::vec2(1200.0, 1000.0);
+        let mut editor = TransactionEditor::new(&Payment::new(20261027), 20261027, -150.0);
+        editor.amount = "40".into();
+        for _ in 0..3 { transaction_frame(&ctx, &t, &mut editor, size, Vec::new()); }
+        click_transaction_label(&ctx, &t, &mut editor, size, "Income");
+        assert_eq!(editor.amount_kind, AmountKind::Income);
+        assert_eq!(editor.values().unwrap().0, 40.0);
+        click_transaction_label(&ctx, &t, &mut editor, size, "Expense");
+        assert_eq!(editor.values().unwrap().0, -40.0);
     }
 
     fn db() -> BudgetDb { BudgetDb::new(&Cal::from_int(20261001), 12, false) }
@@ -896,6 +1219,18 @@ mod tests {
     }
 
     #[test]
+    fn grace_period_is_edited_and_validated() {
+        let db = db();
+        let mut e = valid_editor();
+        assert_eq!(e.build(&db).unwrap().grace_period_days, 0);
+        e.grace = " 5 ".into();
+        assert_eq!(e.build(&db).unwrap().grace_period_days, 5);
+        e.grace = String::new();
+        assert_eq!(e.build(&db).unwrap().grace_period_days, 0);
+        for bad in ["-1", "2.5", "x", "367"] { e.grace = bad.into(); assert!(e.build(&db).is_err(), "{bad}"); }
+    }
+
+    #[test]
     fn once_and_recurring_fields_create_expected_schedule() {
         let db = db();
         let mut e = valid_editor(); e.recurrence = Recurrence::Once;
@@ -999,32 +1334,32 @@ mod tests {
 
     #[test]
     fn picker_uses_typed_month_and_offers_only_real_dates() {
-        let picker = DatePicker::new("2024-02-12", 20261027);
+        let picker = DatePicker::new("2024-02-12", 20261027, true);
         assert_eq!(picker.choose(29), Some(20240229));
         assert_eq!(picker.choose(30), None);
         assert_eq!(picker.choose(0), None);
-        let picker = DatePicker::new("2026-02-29", 20261027);
+        let picker = DatePicker::new("2026-02-29", 20261027, true);
         assert_eq!(picker.choose(1), Some(20261001));
     }
 
     #[test]
     fn picker_month_navigation_crosses_years_within_supported_dates() {
-        let mut picker = DatePicker::new("2026-12-31", 20261231);
+        let mut picker = DatePicker::new("2026-12-31", 20261231, true);
         picker.shift_month(1);
         assert_eq!(picker.choose(1), Some(20270101));
         picker.shift_month(-2);
         assert_eq!(picker.choose(30), Some(20261130));
-        let mut first = DatePicker::new("1000-01-01", 10000101);
+        let mut first = DatePicker::new("1000-01-01", 10000101, true);
         first.shift_month(-1);
         assert_eq!(first.choose(1), Some(10000101));
-        let mut last = DatePicker::new("9999-12-31", 99991231);
+        let mut last = DatePicker::new("9999-12-31", 99991231, true);
         last.shift_month(1);
         assert_eq!(last.choose(31), Some(99991231));
     }
 
     #[test]
     fn picker_with_an_unset_legacy_end_date_still_opens_on_a_valid_month() {
-        let picker = DatePicker::new("0000-00-00", 0);
+        let picker = DatePicker::new("0000-00-00", 0, true);
         let chosen = picker.choose(1).unwrap();
         assert!(parse_iso_date(&sdate(chosen)).is_ok());
     }
@@ -1091,7 +1426,125 @@ mod tests {
         let mut e = PaymentEditor::new(20261027);
         let mut action = PaymentAction::None;
         let _ = ctx.run(egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, size)),
-            events: key(egui::Key::Escape), ..Default::default() }, |ctx| { action = e.show(ctx, &t, &db()); });
+            events: key(egui::Key::Escape), ..Default::default() }, |ctx| { action = e.show(ctx, &t, &db(), true, 20261027); });
         assert!(matches!(action, PaymentAction::Cancel));
+    }
+
+    fn loan_editor() -> PaymentEditor {
+        let mut e = PaymentEditor::new(20261001);
+        e.description = "Car loan".into(); e.amount = "300".into();
+        e.select_recurrence(Recurrence::Months);
+        e.end_mode = END_MODE_LOAN_PAID; e.loan_amount = "1000".into();
+        e
+    }
+
+    #[test]
+    fn a_new_loan_payment_cannot_be_tentative() {
+        // The scheduler places a tentative payment's full amount, overpaying the loan's last installment.
+        let mut e = loan_editor();
+        assert!(e.build(&db()).is_ok());
+        assert!(!e.tentative_enabled() || !e.tentative, "a loan end disables Tentative");
+        e.tentative = true;
+        assert!(!e.loan_end_enabled() && !e.weekend_options_enabled());
+        let err = e.build(&db()).unwrap_err();
+        assert!(err.contains("cannot be tentative"), "{err}");
+        // A single payment never stores the loan end, so Tentative is available again.
+        e.recurrence = Recurrence::Once;
+        assert!(e.tentative_enabled() && e.build(&db()).is_ok());
+        let mut e = loan_editor();
+        assert!(!e.tentative_enabled());
+        e.end_mode = END_MODE_INDEFINITE;
+        assert!(e.tentative_enabled());
+    }
+
+    #[test]
+    fn a_legacy_tentative_loan_can_still_be_edited_unchanged() {
+        let mut p = Payment::new(20261001); p.description = "Old loan".into(); p.amount = -300.0;
+        p.freq_type = 'm'; p.set_end_mode(END_MODE_LOAN_PAID); p.loan_amount = 1000.0; p.set_tentative(true);
+        let mut e = PaymentEditor::edit(&p);
+        e.description = "Old loan (renamed)".into();
+        assert!(e.build(&db()).is_ok());
+    }
+
+    #[test]
+    fn category_equal_to_the_description_is_rejected() {
+        // The loader would otherwise rename the category to "Rent-" on the next open.
+        let mut e = PaymentEditor::new(20261027);
+        e.description = "Rent".into(); e.category = " Rent ".into(); e.amount = "1100".into();
+        assert_eq!(e.build(&db()).unwrap_err(), SAME_CATEGORY_ERROR);
+        e.category = "Home".into();
+        assert_eq!(e.build(&db()).unwrap().category.as_deref(), Some("Home"));
+    }
+
+    #[test]
+    fn picker_columns_follow_the_first_day_of_the_week() {
+        // 2026-10-01 is a Thursday; 2026-11-01 is a Sunday.
+        let sunday = DatePicker::new("2026-10-15", 0, true);
+        let monday = DatePicker::new("2026-10-15", 0, false);
+        assert_eq!((sunday.leading_blanks(), monday.leading_blanks()), (4, 3));
+        assert_eq!(sunday.headers()[0], "Su");
+        assert_eq!(monday.headers(), ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"]);
+        assert_eq!(DatePicker::new("2026-11-15", 0, true).leading_blanks(), 0);
+        assert_eq!(DatePicker::new("2026-11-15", 0, false).leading_blanks(), 6);
+    }
+
+    #[test]
+    fn amount_boxes_show_two_decimals_and_keep_the_exact_untouched_value() {
+        let mut p = Payment::new(20261027); p.description = "Rent".into(); p.amount = -1100.0;
+        assert_eq!(PaymentEditor::edit(&p).amount, "1,100.00");
+        p.amount = -49.99000000000001;
+        let e = PaymentEditor::edit(&p);
+        assert_eq!(e.amount, "49.99");
+        assert_eq!(e.build(&db()).unwrap().amount.to_bits(), p.amount.to_bits());
+        let mut e = PaymentEditor::edit(&p);
+        e.amount = "49.990".into();
+        assert_eq!(e.build(&db()).unwrap().amount, -49.99);
+        let tx = TransactionEditor::new(&p, 20261027, -49.99000000000001);
+        assert_eq!(tx.amount, "49.99");
+        assert_eq!(tx.values().unwrap().0.to_bits(), (-49.99000000000001f64).to_bits());
+    }
+
+    #[test]
+    fn an_untouched_legacy_amount_beyond_the_maximum_does_not_block_other_edits() {
+        let mut db = db();
+        let mut p = Payment::new(20261027); p.description = "Huge".into(); p.amount = -2e12;
+        let i = db.add(p);
+        let mut e = PaymentEditor::edit(&db.payments[i]);
+        e.description = "Huge (renamed)".into();
+        let built = e.build(&db).unwrap();
+        assert_eq!(built.amount.to_bits(), (-2e12f64).to_bits());
+        let id = db.payments[i].id;
+        crate::document::put_payment(&mut db, built, Some(id)).unwrap();
+        e.amount = "3000000000000".into();
+        assert!(e.build(&db).unwrap_err().contains("too large"));
+    }
+
+    #[test]
+    fn amount_fields_evaluate_calculator_formulas() {
+        for (text, expected) in [("1200-350", 850.0), ("2.5k", 2500.0), ("(100+20)*3", 360.0), ("$1,200.50 - 200", 1000.5)] {
+            assert_eq!(parse_amount(text, "Amount").unwrap(), expected, "{text}");
+        }
+        assert!(parse_amount("%10", "Amount").unwrap_err().contains("% of income"));
+        assert!(parse_amount("1e308*10", "Amount").is_err());
+        assert!(parse_amount("2t", "Amount").unwrap_err().contains("too large"));
+        assert!(parse_amount("5+", "Amount").is_err());
+        let mut e = valid_editor(); e.amount = "100+20".into();
+        assert_eq!(e.build(&db()).unwrap().amount, -120.0);
+    }
+
+    #[test]
+    fn changing_a_payment_with_past_occurrences_asks_once_before_applying() {
+        let mut p = Payment::new(20250101); p.description = "Rent".into(); p.amount = -1100.0; p.freq_type = 'm';
+        let mut e = PaymentEditor::edit(&p);
+        e.amount = "1200".into();
+        assert!(matches!(e.apply(&db(), 20261027), PaymentAction::None));
+        assert!(e.notice.as_deref().unwrap().contains("2025-01-01"));
+        assert!(matches!(e.apply(&db(), 20261027), PaymentAction::Apply(ref q) if q.amount == -1200.0));
+        // Renaming changes no occurrence; a payment that has not started yet has no past.
+        let mut e = PaymentEditor::edit(&p); e.description = "Home rent".into();
+        assert!(matches!(e.apply(&db(), 20261027), PaymentAction::Apply(_)));
+        let mut e = PaymentEditor::edit(&p); e.amount = "1200".into();
+        assert!(matches!(e.apply(&db(), 20250101), PaymentAction::Apply(_)));
+        assert!(matches!(PaymentEditor::new(20200101).apply(&db(), 20261027), PaymentAction::None));
     }
 }

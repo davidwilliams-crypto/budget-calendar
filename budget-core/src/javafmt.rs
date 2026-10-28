@@ -59,6 +59,5 @@ mod tests {
         assert_eq!(java_double(0.001), "0.001");
         assert_eq!(parse_double("1.0E7").unwrap(), 1e7);
         for bad in ["NaN", "Infinity", "-Infinity", "1e999"] { assert!(parse_double(bad).is_err(), "{bad}"); }
-        for bad in ["NaN", "Infinity", "-Infinity", "1e999"] { assert!(parse_double(bad).is_err(), "{bad}"); }
     }
 }
