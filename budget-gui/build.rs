@@ -11,12 +11,21 @@ fn main() {
     let files = source_inputs(root).expect("read build inputs");
 
     // File watches catch edits, while directory watches also catch additions and removals.
-    for directory in ["budget-gui", "budget-core", "vendor/webbrowser", "scripts"] {
+    for directory in [
+        "budget-gui",
+        "budget-core",
+        "vendor/webbrowser",
+        "scripts",
+        "installer",
+    ] {
         println!("cargo:rerun-if-changed={}", root.join(directory).display());
     }
     for file in &files {
         println!("cargo:rerun-if-changed={}", root.join(file).display());
     }
+    // Every input is read exactly once. The build ID and the manifest are both derived from
+    // these snapshots, so an edit made during the build cannot make them disagree.
+    let inputs = read_inputs(root, &files).expect("read build inputs");
 
     let rustc = env::var_os("RUSTC").unwrap_or_else(|| "rustc".into());
     let compiler = Command::new(rustc)
@@ -50,9 +59,8 @@ fn main() {
         .iter()
         .map(|(key, value)| (key.as_str(), value.as_str()))
         .collect::<Vec<_>>();
-    let build_id = fingerprint(root, &files, &metadata).expect("fingerprint build inputs");
-    let manifest = build_manifest(root, &files, &build_id, &target, &profile, compiler.trim())
-        .expect("record build inputs");
+    let build_id = fingerprint(&inputs, &metadata);
+    let manifest = build_manifest(&inputs, &build_id, &target, &profile, compiler.trim());
     let output = PathBuf::from(env::var_os("OUT_DIR").expect("Cargo output directory"));
     fs::write(
         output.join(format!("build-inputs-{build_id}.json")),
@@ -92,6 +100,7 @@ fn source_inputs(root: &Path) -> io::Result<Vec<PathBuf>> {
         ("budget-core/tests", &["rs"][..]),
         ("vendor/webbrowser/src", &["rs"][..]),
         ("scripts", &["ps1"][..]),
+        ("installer", &["nsi", "ps1"][..]),
     ] {
         collect_inputs(root, Path::new(directory), extensions, &mut files)?;
     }
@@ -163,15 +172,54 @@ fn relative_name(path: &Path) -> String {
         .replace('\\', "/")
 }
 
-fn fingerprint(root: &Path, files: &[PathBuf], metadata: &[(&str, &str)]) -> io::Result<String> {
+/// One source input as this build read it. `identity` holds the bytes that the build ID and the
+/// manifest describe: text is line-ending normalised, binary files are exactly as stored.
+struct Input {
+    path: PathBuf,
+    identity: Vec<u8>,
+}
+
+fn read_inputs(root: &Path, files: &[PathBuf]) -> io::Result<Vec<Input>> {
+    let mut paths = files.to_vec();
+    paths.sort_by_key(|path| relative_name(path));
+    paths.dedup_by(|a, b| relative_name(a) == relative_name(b));
+    paths
+        .into_iter()
+        .map(|path| {
+            let bytes = fs::read(root.join(&path))?;
+            Ok(Input {
+                path,
+                identity: identity_bytes(bytes),
+            })
+        })
+        .collect()
+}
+
+/// Git stores text under `text=auto` with LF line endings, and a Windows checkout turns them into
+/// CRLF. Hashing the LF form makes one commit give one build ID on every checkout. A NUL byte marks
+/// a binary file, which is hashed exactly as stored, matching git's own text/binary split.
+fn identity_bytes(bytes: Vec<u8>) -> Vec<u8> {
+    if bytes.contains(&0) {
+        return bytes;
+    }
+    let mut identity = Vec::with_capacity(bytes.len());
+    for (index, byte) in bytes.iter().enumerate() {
+        if *byte == b'\r' && bytes.get(index + 1) == Some(&b'\n') {
+            continue;
+        }
+        identity.push(*byte);
+    }
+    identity
+}
+
+fn fingerprint(inputs: &[Input], metadata: &[(&str, &str)]) -> String {
     let mut hash = 0xcbf29ce484222325u64;
     hash_field(&mut hash, b"budget-calendar-build-id-v1");
-    let mut files = files.to_vec();
-    files.sort_by_key(|path| relative_name(path));
-    files.dedup();
-    for file in files {
-        hash_field(&mut hash, relative_name(&file).as_bytes());
-        hash_field(&mut hash, &fs::read(root.join(file))?);
+    let mut inputs = inputs.iter().collect::<Vec<_>>();
+    inputs.sort_by_key(|input| relative_name(&input.path));
+    for input in inputs {
+        hash_field(&mut hash, relative_name(&input.path).as_bytes());
+        hash_field(&mut hash, &input.identity);
     }
     let mut metadata = metadata.to_vec();
     metadata.sort_unstable();
@@ -179,7 +227,7 @@ fn fingerprint(root: &Path, files: &[PathBuf], metadata: &[(&str, &str)]) -> io:
         hash_field(&mut hash, key.as_bytes());
         hash_field(&mut hash, value.as_bytes());
     }
-    Ok(format!("{hash:016x}"))
+    format!("{hash:016x}")
 }
 
 fn hash_field(hash: &mut u64, bytes: &[u8]) {
@@ -190,36 +238,36 @@ fn hash_field(hash: &mut u64, bytes: &[u8]) {
 }
 
 fn build_manifest(
-    root: &Path,
-    files: &[PathBuf],
+    inputs: &[Input],
     build_id: &str,
     target: &str,
     profile: &str,
     compiler: &str,
-) -> io::Result<String> {
-    let mut files = files.to_vec();
-    files.sort_by_key(|path| relative_name(path));
-    files.dedup();
-    let inputs = files
+) -> String {
+    let mut inputs = inputs.iter().collect::<Vec<_>>();
+    inputs.sort_by_key(|input| relative_name(&input.path));
+    let entries = inputs
         .iter()
-        .map(|path| {
-            let digest = content_hash(&fs::read(root.join(path))?);
-            Ok(format!(
-                "{{\"path\":{},\"fnv1a\":\"{digest}\"}}",
-                json_string(&relative_name(path))
-            ))
+        .map(|input| {
+            format!(
+                "{{\"path\":{},\"fnv1a\":\"{}\"}}",
+                json_string(&relative_name(&input.path)),
+                content_hash(&input.identity)
+            )
         })
-        .collect::<io::Result<Vec<_>>>()?;
-    Ok(format!(
+        .collect::<Vec<_>>();
+    format!(
         "{{\"build_id\":{},\"target\":{},\"profile\":{},\"compiler\":{},\"inputs\":[{}]}}",
         json_string(build_id),
         json_string(target),
         json_string(profile),
         json_string(compiler),
-        inputs.join(",")
-    ))
+        entries.join(",")
+    )
 }
 
+/// FNV-1a is kept for input digests. SHA-256 would need a sha2 dependency, which is in neither
+/// Cargo.lock nor the offline Cargo cache; the release archive records SHA-256 for every file it keeps.
 fn content_hash(bytes: &[u8]) -> String {
     let hash = bytes.iter().fold(0xcbf29ce484222325u64, |hash, byte| {
         (hash ^ u64::from(*byte)).wrapping_mul(0x100000001b3)
@@ -253,13 +301,30 @@ mod tests {
 
     static NEXT_FIXTURE: AtomicU64 = AtomicU64::new(0);
 
+    /// Fixtures live beside this test executable (target/ per AGENTS.md), never in the system temp directory.
+    fn fixture_base() -> PathBuf {
+        env::current_exe()
+            .expect("test executable path")
+            .parent()
+            .expect("test executable directory")
+            .join("build-id-fixtures")
+    }
+
+    /// Text inputs have several lines so line-ending tests mean something; icons hold NUL bytes like real images.
+    fn fixture_bytes(path: &str) -> Vec<u8> {
+        if path.ends_with(".png") || path.ends_with(".ico") {
+            b"\x89PNG\r\n\x1a\n\0fixture binary".to_vec()
+        } else {
+            format!("{path}\nfixture line\n").into_bytes()
+        }
+    }
+
     struct Fixture(PathBuf);
 
     impl Fixture {
         fn new() -> Self {
             let id = NEXT_FIXTURE.fetch_add(1, Ordering::Relaxed);
-            let root =
-                std::env::temp_dir().join(format!("budget-build-id-{}-{id}", std::process::id()));
+            let root = fixture_base().join(format!("budget-build-id-{}-{id}", std::process::id()));
             fs::create_dir_all(&root).unwrap();
             let fixture = Self(root);
             for path in [
@@ -282,7 +347,7 @@ mod tests {
                 "vendor/webbrowser/Cargo.toml",
                 "vendor/webbrowser/src/lib.rs",
             ] {
-                fixture.write(path, path.as_bytes());
+                fixture.write(path, &fixture_bytes(path));
             }
             fixture
         }
@@ -294,15 +359,19 @@ mod tests {
         }
 
         fn id(&self, metadata: &[(&str, &str)]) -> String {
-            fingerprint(&self.0, &source_inputs(&self.0).unwrap(), metadata).unwrap()
+            fingerprint(&self.inputs(), metadata)
+        }
+
+        fn inputs(&self) -> Vec<Input> {
+            read_inputs(&self.0, &source_inputs(&self.0).unwrap()).unwrap()
         }
     }
 
     impl Drop for Fixture {
         fn drop(&mut self) {
             let root = self.0.canonicalize().unwrap();
-            let temp = std::env::temp_dir().canonicalize().unwrap();
-            assert!(root.starts_with(temp));
+            let base = fixture_base().canonicalize().unwrap();
+            assert!(root.starts_with(base));
             assert!(root
                 .file_name()
                 .unwrap()
@@ -317,6 +386,8 @@ mod tests {
         let fixture = Fixture::new();
         fixture.write("budget-core/tests/new_contract.rs", b"test source");
         fixture.write("budget-gui/assets/new/icon.svg", b"asset");
+        fixture.write("installer/budget.nsi", b"installer script");
+        fixture.write("installer/build-installer.ps1", b"installer wrapper");
         for path in [
             "target/generated.rs",
             "budget-gui/target/generated.rs",
@@ -355,6 +426,8 @@ mod tests {
             "budget-gui/assets/new/icon.svg",
             "vendor/webbrowser/Cargo.toml",
             "vendor/webbrowser/src/lib.rs",
+            "installer/budget.nsi",
+            "installer/build-installer.ps1",
         ] {
             assert!(
                 paths.iter().any(|path| path == expected),
@@ -363,7 +436,7 @@ mod tests {
         }
         assert_eq!(
             paths.len(),
-            20,
+            22,
             "unexpected generated or local input: {paths:?}"
         );
         assert!(paths.windows(2).all(|pair| pair[0] < pair[1]));
@@ -399,11 +472,14 @@ mod tests {
             ("target", "example-target"),
             ("profile", "release"),
         ];
-        let mut files = source_inputs(&first.0).unwrap();
-        let original = fingerprint(&first.0, &files, &metadata).unwrap();
-        files.reverse();
-        assert_eq!(original, fingerprint(&first.0, &files, &metadata).unwrap());
-        first.write("budget-core/src/lib.rs", b"budget-core/src/lib.rs");
+        let mut inputs = first.inputs();
+        let original = fingerprint(&inputs, &metadata);
+        inputs.reverse();
+        assert_eq!(original, fingerprint(&inputs, &metadata));
+        first.write(
+            "budget-core/src/lib.rs",
+            &fixture_bytes("budget-core/src/lib.rs"),
+        );
         assert_eq!(original, first.id(&metadata));
         assert_eq!(original, second.id(&metadata));
         assert_eq!(original.len(), 16);
@@ -457,25 +533,123 @@ mod tests {
                 metadata[index].0
             );
         }
+        let cargo_toml = read_inputs(&fixture.0, &[PathBuf::from("Cargo.toml")]).unwrap();
+        let cargo_lock = read_inputs(&fixture.0, &[PathBuf::from("Cargo.lock")]).unwrap();
+        assert_ne!(fingerprint(&cargo_toml, &[]), fingerprint(&cargo_lock, &[]));
+    }
+
+    /// Rewrites every text input the way a core.autocrlf=true Windows checkout stores it.
+    fn checkout_with_crlf(fixture: &Fixture) {
+        for file in source_inputs(&fixture.0).unwrap() {
+            let path = fixture.0.join(&file);
+            let bytes = fs::read(&path).unwrap();
+            if bytes.contains(&0) {
+                continue;
+            }
+            let text = String::from_utf8(bytes).unwrap();
+            fs::write(&path, text.replace('\n', "\r\n")).unwrap();
+        }
+    }
+
+    #[test]
+    fn crlf_and_lf_checkouts_of_the_same_source_have_one_build_id() {
+        let lf = Fixture::new();
+        let crlf = Fixture::new();
+        checkout_with_crlf(&crlf);
         assert_ne!(
-            fingerprint(&fixture.0, &[PathBuf::from("Cargo.toml")], &[]).unwrap(),
-            fingerprint(&fixture.0, &[PathBuf::from("Cargo.lock")], &[]).unwrap()
+            fs::read(lf.0.join("budget-core/src/lib.rs")).unwrap(),
+            fs::read(crlf.0.join("budget-core/src/lib.rs")).unwrap(),
+            "fixture did not get CRLF line endings"
         );
+        assert_eq!(
+            lf.id(&[]),
+            crlf.id(&[]),
+            "line endings changed the build identity"
+        );
+        assert_eq!(
+            build_manifest(&lf.inputs(), "one-id", "t", "release", "rustc"),
+            build_manifest(&crlf.inputs(), "one-id", "t", "release", "rustc"),
+            "line endings changed the manifest"
+        );
+    }
+
+    #[test]
+    fn text_line_endings_are_normalised_but_binary_and_lone_carriage_returns_are_not() {
+        assert_eq!(identity_bytes(b"a\r\nb\r\n".to_vec()), b"a\nb\n");
+        assert_eq!(identity_bytes(b"a\rb\n".to_vec()), b"a\rb\n");
+        assert_eq!(identity_bytes(b"\0\r\n".to_vec()), b"\0\r\n");
+        // Known answer shared with scripts/tests/archive-release.Tests.ps1, which must digest the same text alike.
+        assert_eq!(
+            content_hash(&identity_bytes(b"a\r\nb\r\n".to_vec())),
+            "78ed6781f136a14e"
+        );
+        assert_eq!(
+            content_hash(&identity_bytes(b"\0\r\n".to_vec())),
+            content_hash(b"\0\r\n")
+        );
+    }
+
+    #[test]
+    fn binary_inputs_are_hashed_exactly_so_their_bytes_still_count() {
+        let original = Fixture::new();
+        let changed = Fixture::new();
+        changed.write(
+            "budget-gui/assets/icon.png",
+            b"\x89PNG\n\x1a\n\0fixture binary",
+        );
+        assert_ne!(original.id(&[]), changed.id(&[]));
+    }
+
+    #[test]
+    fn fixtures_are_written_beside_the_test_executable_not_in_the_system_temp_directory() {
+        let fixture = Fixture::new();
+        let executable_directory = env::current_exe()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .canonicalize()
+            .unwrap();
+        let root = fixture.0.canonicalize().unwrap();
+        assert!(
+            root.starts_with(&executable_directory),
+            "fixture {} is outside {}",
+            root.display(),
+            executable_directory.display()
+        );
+        assert!(!root.starts_with(env::temp_dir().canonicalize().unwrap()));
+    }
+
+    #[test]
+    fn build_inputs_are_read_once_and_the_manifest_uses_that_snapshot() {
+        let fixture = Fixture::new();
+        let inputs = fixture.inputs();
+        let build_id = fingerprint(&inputs, &[]);
+        // Once the snapshot exists, neither the build ID nor the manifest may touch the disk again.
+        fs::remove_dir_all(&fixture.0).unwrap();
+        let manifest = build_manifest(&inputs, &build_id, "t", "release", "rustc");
+        let expected = content_hash(&fixture_bytes("budget-core/src/lib.rs"));
+        assert!(
+            manifest.contains(&format!(
+                "\"path\":\"budget-core/src/lib.rs\",\"fnv1a\":\"{expected}\""
+            )),
+            "manifest was not built from the snapshot: {manifest}"
+        );
+        assert_eq!(fingerprint(&inputs, &[]), build_id);
+        fs::create_dir_all(&fixture.0).unwrap();
     }
 
     #[test]
     fn build_manifest_records_identity_and_verifiable_source_content() {
         let fixture = Fixture::new();
         fixture.write("budget-core/src/lib.rs", b"foobar");
+        let inputs = read_inputs(&fixture.0, &[PathBuf::from("budget-core/src/lib.rs")]).unwrap();
         let manifest = build_manifest(
-            &fixture.0,
-            &[PathBuf::from("budget-core/src/lib.rs")],
+            &inputs,
             "0123456789abcdef",
             "fixture-target",
             "release",
             "rustc fixture",
-        )
-        .unwrap();
+        );
         assert_eq!(manifest, "{\"build_id\":\"0123456789abcdef\",\"target\":\"fixture-target\",\"profile\":\"release\",\"compiler\":\"rustc fixture\",\"inputs\":[{\"path\":\"budget-core/src/lib.rs\",\"fnv1a\":\"85944171f73967e8\"}]}");
         assert_eq!(content_hash(b""), "cbf29ce484222325");
         assert_eq!(content_hash(b"a"), "af63dc4c8601ec8c");
