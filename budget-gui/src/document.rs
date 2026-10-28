@@ -1318,9 +1318,9 @@ mod tests {
                 5 => { db.payments[0].set_end_mode(budget_core::END_MODE_LOAN_PAID); db.payments[0].loan_amount = 1e20; }
                 _ => { db.payments[0].start_date = 10000101; }
             }
-            let before = db.to_text(None).unwrap(); let updates = db.update_count;
+            let before = db.to_text(None); let updates = db.update_count;
             assert!(change_future_transactions(&mut db, id, 20261001, -250.0, "", FLAG_NONE).is_err(), "kind={kind}");
-            assert_eq!(db.to_text(None).unwrap(), before); assert_eq!(db.update_count, updates);
+            assert_eq!(db.to_text(None), before); assert_eq!(db.update_count, updates);
         }
     }
 
