@@ -87,6 +87,21 @@ impl Payment {
             c: Cal::from_int(self.start_date), n: -1 }
     }
 
+    /// The pay period containing `date`: `(slot, next slot − 1)` for the last slot on or before it.
+    /// `None` before the first slot.
+    pub fn period_containing(&self, date: i32) -> Option<(i32, i32)> {
+        let mut prev: Option<Cal> = None;
+        for c in self.slots() {
+            if c.get() > date {
+                let mut last = c;
+                last.add(Field::Day, -1);
+                return prev.map(|first| (first.get(), last.get()));
+            }
+            prev = Some(c);
+        }
+        None
+    }
+
     /// Where the regular occurrence scheduled on `c` is shown: a business-days payment moves a
     /// weekend date to a business day (`weekend_shift`), except a tentative one, which slides
     /// within its pay period instead.

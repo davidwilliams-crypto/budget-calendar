@@ -437,7 +437,14 @@ impl App {
     /// Reads (unless `bytes` are given) and builds `path` in the background. Opening the budget
     /// already being read changes nothing; another one replaces it.
     fn start_opening(&mut self, path: &Path, bytes: Option<Vec<u8>>, password: Option<String>, quiet: bool) {
-        if bytes.is_none() && self.opening.as_ref().is_some_and(|o| o.path == path) { return; }
+        if bytes.is_none() {
+            if let Some(opening) = self.opening.as_mut().filter(|o| o.path == path) {
+                // Already being read. This request has passed the unsaved-changes prompt, so edits
+                // made meanwhile must not make the finished open ask again.
+                opening.edits = self.edits;
+                return;
+            }
+        }
         let settings = self.load_settings();
         let (job_path, job_password) = (path.to_path_buf(), password.clone());
         let task = self.files.spawn(move |read| load_budget(read, &job_path, bytes, job_password.as_deref(), settings));
@@ -490,6 +497,8 @@ impl App {
                 self.dialogs.payment_editor = None;
                 self.dialogs.transaction_editor = None;
                 self.dialogs.balance_editor = None;
+                // A pending confirmation names a payment of the replaced budget by id.
+                self.dialogs.confirm_delete = None;
                 self.drag_month_hover = None;
                 self.payment_list.selected = None;
                 self.dialogs.day = None;
@@ -716,7 +725,7 @@ impl App {
                     ui.separator();
                     if menu_item(ui, "Keyboard shortcuts", "F1").clicked() { self.dialogs.shortcuts = true; ui.close_menu(); }
                 });
-                if let Some(result) = reports::menu(ui, &t, self.db.as_mut(), &self.cur, &self.cfg) {
+                if let Some(result) = reports::menu(ui, &t, self.db.as_mut(), &self.cur, &self.cfg, self.generation) {
                     match result { Ok(done) => self.notify(done), Err(e) => self.fail(e) }
                 }
             });
@@ -1847,7 +1856,7 @@ impl App {
         }
         // The report range dialog waits behind a save/close prompt (Reports is unreachable under other dialogs).
         if !self.has_modal() {
-            if let Some(result) = reports::dialog(ctx, &t, self.db.as_mut(), &self.cfg) {
+            if let Some(result) = reports::dialog(ctx, &t, self.db.as_mut(), &self.cfg, self.generation) {
                 match result { Ok(done) => self.notify(done), Err(e) => self.fail(e) }
             }
         }
@@ -3029,6 +3038,61 @@ mod lifecycle_tests {
         assert_eq!(app.file.as_deref(), Some(path.as_path()));
         assert!(app.toast.as_ref().is_some_and(|t| t.text == "Opened Home.bgt"));
         assert_eq!(gate.calls.load(Ordering::SeqCst), 1, "a second click on the opening card does not read it again");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A budget saved beside the fixture with one payment, read through a gate the test opens.
+    fn other_budget(app: &mut App, dir: &Path) -> (PathBuf, file_probe::tests::Gate) {
+        let other = dir.join("other.bgt");
+        let mut db = BudgetDb::new(&app.cur, 12, false);
+        let mut p = budget_core::Payment::new(20261027); p.description = "Other payment".into(); p.amount = -5.0;
+        db.add(p);
+        bgt::save_file(&other, &db.to_text(None).unwrap()).unwrap();
+        let (gate, probes) = file_probe::tests::Gate::reads();
+        app.files = probes;
+        (other, gate)
+    }
+
+    #[test]
+    fn a_budget_opened_in_the_background_closes_dialogs_about_the_replaced_one() {
+        let (mut app, dir) = fixture();
+        app.dirty = false;
+        let (other, gate) = other_budget(&mut app, &dir);
+        let ctx = gui(&app);
+        frame(&mut app, &ctx, vec![], false);
+        app.open(&other);
+        // While it is read, ask to delete a payment of the current budget.
+        let id = app.db.as_ref().unwrap().payments[0].id;
+        app.dialogs.confirm_delete = Some(DeleteTarget { id, date: None });
+        frame(&mut app, &ctx, vec![], false);
+        gate.open();
+        settle(&mut app, &ctx, |app| app.opening.is_none());
+        assert_eq!(app.file.as_deref(), Some(other.as_path()));
+        assert!(app.dialogs.confirm_delete.is_none(), "the confirmation named a payment of the replaced budget");
+        assert_eq!(app.db.as_ref().unwrap().payments.len(), 1, "nothing was deleted");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn asking_again_for_the_budget_being_read_answers_the_prompt_once() {
+        let (mut app, dir) = fixture();
+        app.dirty = false;
+        let (other, gate) = other_budget(&mut app, &dir);
+        let ctx = gui(&app);
+        frame(&mut app, &ctx, vec![], false);
+        app.open(&other);
+        let id = app.db.as_ref().unwrap().payments[0].id;
+        document::change_transaction(app.db.as_mut().unwrap(), id, 20261027, -20.0, "", budget_core::FLAG_NONE).unwrap();
+        app.changed();
+        app.open(&other);
+        assert!(matches!(&app.dialogs.pending, Some(PendingAction::Open(p)) if *p == other), "the edit is asked about");
+        app.dialogs.pending = None; // Discard changes
+        app.perform_pending(PendingAction::Open(other.clone()), &ctx);
+        gate.open();
+        settle(&mut app, &ctx, |app| app.opening.is_none());
+        assert!(app.dialogs.pending.is_none(), "the answered prompt is not shown again");
+        assert_eq!(app.file.as_deref(), Some(other.as_path()));
+        assert_eq!(gate.calls.load(Ordering::SeqCst), 1, "the budget is read once");
         std::fs::remove_dir_all(dir).unwrap();
     }
 

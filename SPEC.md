@@ -154,7 +154,9 @@ Deliberate deviations already taken by the port:
 - `.budgetrc`: characters above U+FFFF are written as a `\uXXXX` surrogate pair (as Java does) and recombined on load; a final line ending in a continuation backslash keeps its entry; a malformed `\u` escape drops only that entry (its default stays) where Java discarded the whole file.
 - The formula calculator rejects more than 64 nested parentheses ("Expression too deeply nested"); the original recursed until a stack overflow, which in the port would abort the process.
 - Reports: Monthly Detailed and Monthly Excel include the To month (the GUI passes the month after To to the generator, whose loop stops before its end month), and the HTML Totals row shows the expenses total in the Expenses cell instead of repeating income. Other report quirks (unclosed tags, formula row offsets) are kept.
-- Backups: the original deleted `.bak` after a successful save. The port keeps the previous version as `.bak`, `.bak.1`, … with numbering that continues upward, and after each successful save removes all but the newest 10 backup files (`bgt::MAX_BACKUPS`).
+- Backups: the original deleted `.bak` after a successful save. The port keeps the previous version as `.bak`, `.bak.1`, … with numbering that continues upward, and after each successful save removes all but the newest 10 backup files (`bgt::MAX_BACKUPS`). On Windows backup names are matched ignoring case, like the file system, so every spelling of a budget's path shares one numbering and cap.
+- The schedule window ends no later than 31 December 9999 (`date::DATE_MAX`); the original computed December of the year `futureMonths` ahead even when that passed the calendar.
+- Restoring a deleted tentative occurrence clears the deletion anywhere in its pay period: the port's scheduler shows the period's deletion on today without moving the stored date, where the original moved the stored marker itself (01 §3.7).
 
 ## 7. Consolidated unknowns
 

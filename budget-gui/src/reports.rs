@@ -434,8 +434,13 @@ fn print_this_month(db: &mut BudgetDb, cfg: &BudgetConfig, cur: &Cal, shell: &dy
 
 /// The header's Reports menu, disabled while no budget is open. "Print this month" runs at once
 /// (its result is returned); the other items open the range dialog shown by [`dialog`].
-pub fn menu(ui: &mut egui::Ui, t: &Tokens, db: Option<&mut BudgetDb>, cur: &Cal, cfg: &BudgetConfig) -> Option<Result<String, String>> {
-    menu_with(ui, t, db, cur, cfg, &System)
+/// `budget` identifies the open budget (the app's load generation): the range dialog belongs to
+/// it and closes if another budget replaces it, e.g. when a background open finishes.
+pub fn menu(ui: &mut egui::Ui, t: &Tokens, db: Option<&mut BudgetDb>, cur: &Cal, cfg: &BudgetConfig, budget: u64) -> Option<Result<String, String>> {
+    let was_open = is_open(ui.ctx());
+    let outcome = menu_with(ui, t, db, cur, cfg, &System);
+    if !was_open && is_open(ui.ctx()) { ui.ctx().data_mut(|d| d.insert_temp(budget_id(), budget)); }
+    outcome
 }
 
 fn menu_with(ui: &mut egui::Ui, t: &Tokens, db: Option<&mut BudgetDb>, cur: &Cal, cfg: &BudgetConfig, shell: &dyn Shell) -> Option<Result<String, String>> {
@@ -479,6 +484,11 @@ fn menu_with(ui: &mut egui::Ui, t: &Tokens, db: Option<&mut BudgetDb>, cur: &Cal
 // ---------------------------------------------------------------------------------------------
 
 fn draft_id() -> egui::Id { egui::Id::new("report_range_draft") }
+fn budget_id() -> egui::Id { draft_id().with("budget") }
+
+fn close(ctx: &egui::Context) {
+    ctx.data_mut(|d| { d.remove::<Draft>(draft_id()); d.remove::<u64>(budget_id()); });
+}
 
 /// Whether the range dialog is showing (the main window then ignores its own shortcuts).
 pub fn is_open(ctx: &egui::Context) -> bool { ctx.data(|d| d.get_temp::<Draft>(draft_id()).is_some()) }
@@ -637,21 +647,26 @@ fn month_field(ui: &mut egui::Ui, t: &Tokens, label: &str, id: &str, value: &mut
 
 /// Shows the range dialog while one is open. Returns the outcome once a report was created
 /// (`Ok` confirmation or `Err` for the banner); validation problems stay in the dialog.
-pub fn dialog(ctx: &egui::Context, t: &Tokens, db: Option<&mut BudgetDb>, cfg: &BudgetConfig) -> Option<Result<String, String>> {
+pub fn dialog(ctx: &egui::Context, t: &Tokens, db: Option<&mut BudgetDb>, cfg: &BudgetConfig, budget: u64) -> Option<Result<String, String>> {
+    if !belongs_to(ctx, budget) { close(ctx); return None; }
     dialog_with(ctx, t, db, cfg, &System)
+}
+
+/// Whether a showing range dialog was opened for `budget` (its months come from that budget).
+fn belongs_to(ctx: &egui::Context, budget: u64) -> bool {
+    !is_open(ctx) || ctx.data(|d| d.get_temp::<u64>(budget_id())) == Some(budget)
 }
 
 fn dialog_with(ctx: &egui::Context, t: &Tokens, db: Option<&mut BudgetDb>, cfg: &BudgetConfig, shell: &dyn Shell) -> Option<Result<String, String>> {
     let mut draft = ctx.data(|d| d.get_temp::<Draft>(draft_id()))?;
-    let close = || ctx.data_mut(|d| d.remove::<Draft>(draft_id()));
-    let Some(db) = db else { close(); return None };
+    let Some(db) = db else { close(ctx); return None };
     match draft.show(ctx, t) {
         DraftAction::None => {}
-        DraftAction::Cancel => { close(); return None; }
+        DraftAction::Cancel => { close(ctx); return None; }
         DraftAction::Create => {
             let req = draft.request();
             match validate(&req, draft.min, draft.max) {
-                Ok(()) => { close(); return Some(run(db, cfg, &req, shell)); }
+                Ok(()) => { close(ctx); return Some(run(db, cfg, &req, shell)); }
                 Err(e) => draft.error = Some(e),
             }
         }
@@ -859,6 +874,18 @@ mod tests {
         d.cover(shift(d.cur, -11), d.cur);
         assert_eq!((d.from.get(), d.to.get()), (20260701, 20270601));
         assert!(covers(&d.request()).unwrap().starts_with("Covers July 2026 to June 2027 (12 months)."));
+    }
+
+    #[test]
+    fn the_range_dialog_closes_when_another_budget_replaces_its_own() {
+        let (ctx, t) = gui();
+        let mut db = fixture();
+        let (min, max) = months_available(&db);
+        ctx.data_mut(|d| { d.insert_temp(draft_id(), Draft::new(ReportKind::Print, &month(20260601), min, max)); d.insert_temp(budget_id(), 1_u64); });
+        let _ = ctx.run(input(Vec::new()), |ctx| { dialog(ctx, &t, Some(&mut db), &BudgetConfig::default(), 1); });
+        assert!(is_open(&ctx), "still the budget it was opened for");
+        let _ = ctx.run(input(Vec::new()), |ctx| { assert!(dialog(ctx, &t, Some(&mut db), &BudgetConfig::default(), 2).is_none()); });
+        assert!(!is_open(&ctx), "a background open replaced the budget");
     }
 
     // ---------- UI ----------

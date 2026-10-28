@@ -103,6 +103,25 @@ fn repeated_changes_keep_all_prior_versions() {
     assert_eq!(dir.entries(), ["budget.bgt", "budget.bgt.bak", "budget.bgt.bak.1"]);
 }
 
+/// Windows names ignore case, so saving through another spelling of the same file continues the
+/// same backup numbering and keeps the same cap.
+#[cfg(windows)]
+#[test]
+fn backups_made_through_another_spelling_share_one_numbering_and_cap() {
+    let dir = TestDir::new();
+    fs::write(dir.file("Home.bgt"), b"v0").unwrap();
+    for n in 1..=8 { bgt::save_file(&dir.file("Home.bgt"), &format!("v{n}")).unwrap(); }
+    for n in 9..=13 { bgt::save_file(&dir.file("HOME.BGT"), &format!("v{n}")).unwrap(); }
+
+    let backups: Vec<String> = dir.entries().into_iter().filter(|e| e.to_lowercase().contains(".bgt.bak")).collect();
+    assert_eq!(backups.len(), bgt::MAX_BACKUPS, "{backups:?}");
+    // v3..v12 survive whichever spelling made them; v0..v2 (the oldest) were pruned.
+    for index in 3..=12 {
+        assert_eq!(fs::read(dir.file(&format!("home.bgt.bak.{index}"))).unwrap(), format!("v{index}").as_bytes());
+    }
+    assert_eq!(fs::read(dir.file("home.bgt")).unwrap(), b"v13");
+}
+
 #[test]
 fn only_the_newest_backups_are_kept_and_numbering_continues() {
     let dir = TestDir::new();

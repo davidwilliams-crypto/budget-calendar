@@ -483,7 +483,7 @@ fn existing_backups(path: &Path) -> Vec<(u64, std::path::PathBuf)> {
     let Ok(entries) = std::fs::read_dir(dir) else { return Vec::new() };
     let mut found: Vec<(u64, std::path::PathBuf)> = entries.flatten().filter_map(|entry| {
         let file_name = entry.file_name();
-        let rest = file_name.to_str()?.strip_prefix(&prefix)?;
+        let rest = strip_file_name_prefix(file_name.to_str()?, &prefix)?;
         let index = if rest.is_empty() { 0 } else {
             let digits = rest.strip_prefix('.')?;
             if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) { return None }
@@ -493,6 +493,17 @@ fn existing_backups(path: &Path) -> Vec<(u64, std::path::PathBuf)> {
     }).collect();
     found.sort();
     found
+}
+
+/// `name` without `prefix`, matched the way the file system matches names: ignoring case on
+/// Windows, so `HOME.BGT.bak.3` is a backup of `Home.bgt` whichever spelling saved it.
+fn strip_file_name_prefix<'a>(name: &'a str, prefix: &str) -> Option<&'a str> {
+    if !cfg!(windows) { return name.strip_prefix(prefix); }
+    let mut rest = name.chars();
+    for p in prefix.chars() {
+        if !rest.next()?.to_lowercase().eq(p.to_lowercase()) { return None; }
+    }
+    Some(rest.as_str())
 }
 
 /// Delete all but the newest `MAX_BACKUPS` backup files. Failures are ignored: the save

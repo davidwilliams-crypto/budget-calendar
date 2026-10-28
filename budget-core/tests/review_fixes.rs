@@ -195,3 +195,13 @@ fn huge_frequency_times_count_loads_quickly() {
         assert!(t.elapsed().as_secs_f64() < 2.0, "{line}: {:?}", t.elapsed());
     }
 }
+
+#[test]
+fn viewing_the_last_calendar_years_never_builds_days_past_the_calendar() {
+    let mut db = BudgetDb::new(&Cal::from_int(99991201), 24, false);
+    db.rebuild_db(&Cal::from_int(99991201), 24, false);
+    assert_eq!(db.end_date.get(), budget_core::date::DATE_MAX);
+    assert!(db.get_day(&Cal::from_int(99991231)).is_some());
+    let (_, end) = db.window(&Cal::from_int(99980601), 36, true);
+    assert_eq!(end.get(), budget_core::date::DATE_MAX);
+}

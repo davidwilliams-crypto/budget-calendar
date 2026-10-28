@@ -236,6 +236,9 @@ impl BudgetDb {
         end.set(Field::Month, 11);
         let last = end.max_day();
         end.set(Field::Day, last);
+        // Viewing the last years must not build days past the calendar (a deliberate deviation).
+        let date_max = Cal::from_int(crate::date::DATE_MAX);
+        if end.gt(&date_max) { end = date_max; }
         (start, end)
     }
 
@@ -383,6 +386,15 @@ impl BudgetDb {
 
     /// `update(p)`: re-schedule one payment after it changed.
     pub fn update_payment(&mut self, i: usize) { self.update_payment_inner(i, true); }
+
+    /// Puts `payment` (an edited copy of payment `i`, possibly taken before a rebuild) in place of
+    /// payment `i` and re-schedules it. The engine keeps its own record of the days `i` occupies:
+    /// a copy's record may point at days of an earlier window.
+    pub fn replace_payment(&mut self, i: usize, mut payment: Payment) {
+        payment.calendar_days = std::mem::take(&mut self.payments[i].calendar_days);
+        self.payments[i] = payment;
+        self.update_payment(i);
+    }
 
     pub(crate) fn remove_from_budget_days(&mut self, i: usize) {
         let days = std::mem::take(&mut self.payments[i].calendar_days);

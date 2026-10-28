@@ -55,8 +55,7 @@ pub fn put_payment(db: &mut BudgetDb, payment: Payment, id: Option<i32>) -> Resu
     if let Some(id) = id {
         let i = db.get_by_id(id).ok_or("This payment no longer exists.")?;
         payment.id = id;
-        db.payments[i] = payment;
-        db.update_payment(i);
+        db.replace_payment(i, payment);
         Ok(id)
     } else {
         let i = db.add(payment);
@@ -84,8 +83,7 @@ pub fn change_transaction(db: &mut BudgetDb, id: i32, date: i32, amount: f64, no
     validate_loan(&proposed)?;
     proposed.set_note(date, if note.trim().is_empty() { None } else { Some(note) });
     proposed.set_flag(date, flag);
-    db.payments[i] = proposed;
-    db.update_payment(i);
+    db.replace_payment(i, proposed);
     Ok(())
 }
 
@@ -222,14 +220,12 @@ fn put_payment_from(db: &mut BudgetDb, edited: Payment, id: i32, date: i32) -> R
 fn commit_split(db: &mut BudgetDb, i: usize, earlier: Option<Payment>, later: Payment) -> i32 {
     match earlier {
         Some(earlier) => {
-            db.payments[i] = earlier;
-            db.update_payment(i);
+            db.replace_payment(i, earlier);
             let j = db.add(later);
             db.payments[j].id
         }
         None => {
-            db.payments[i] = later;
-            db.update_payment(i);
+            db.replace_payment(i, later);
             db.payments[i].id
         }
     }
@@ -564,8 +560,7 @@ pub fn move_transaction(db: &mut BudgetDb, id: i32, from: i32, to: i32, amount: 
     validate_loan(&proposed)?;
     preserve_tentative_destination(&baseline, &mut proposed, from, to)?;
     validate_loan(&proposed)?;
-    db.payments[i] = proposed;
-    db.update_payment(i);
+    db.replace_payment(i, proposed);
     db.calc_balances(None);
     Ok(true)
 }
@@ -678,8 +673,7 @@ pub fn delete(db: &mut BudgetDb, id: i32, date: Option<i32>) -> Result<(), Strin
         validate_loan(&proposed)?;
         preserve_future_amount(db, i, date, &mut proposed)?;
         validate_loan(&proposed)?;
-        db.payments[i] = proposed;
-        db.update_payment(i);
+        db.replace_payment(i, proposed);
     } else {
         db.delete_payment(i);
     }
@@ -691,13 +685,19 @@ pub fn delete(db: &mut BudgetDb, id: i32, date: Option<i32>) -> Result<(), Strin
 pub fn restore(db: &mut BudgetDb, id: i32, date: i32) -> Result<(), String> {
     let i = db.get_by_id(id).ok_or("This payment no longer exists.")?;
     let mut proposed = db.payments[i].clone();
-    if !proposed.opt.iter().any(|o| o.date == date && o.deleted) {
+    // A tentative period's deletion is shown on today (or the period's first day) wherever it is
+    // stored, because scheduling slides it without changing the stored date (analysis/01 §3.7).
+    let (first, last) = match proposed.is_tentative().then(|| proposed.period_containing(date)).flatten() {
+        Some(period) => period,
+        None => (date, date),
+    };
+    let deleted: Vec<i32> = proposed.opt.iter().filter(|o| o.deleted && first <= o.date && o.date <= last).map(|o| o.date).collect();
+    if deleted.is_empty() {
         return Err("There is no deleted transaction to restore on this date.".into());
     }
-    proposed.clear(date);
+    for d in deleted { proposed.clear(d); }
     validate_loan(&proposed)?;
-    db.payments[i] = proposed;
-    db.update_payment(i);
+    db.replace_payment(i, proposed);
     Ok(())
 }
 
@@ -781,6 +781,61 @@ mod tests {
         let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../target/document-tests").join(format!("budget-document-{}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed)));
         std::fs::create_dir_all(&dir).unwrap();
         dir.join("test.bgt")
+    }
+
+    /// The payment editor holds a copy for as long as it is open, and a date rollover can rebuild
+    /// (and move) the window meanwhile; applying that copy must not use its stale day indexes.
+    #[test]
+    fn an_edit_copied_before_the_window_moved_applies_to_the_current_window() {
+        let mut db = BudgetDb::new(&Cal::from_int(20260301), 24, false);
+        let mut rent = Payment::new(20250115);
+        rent.description = "Rent".into();
+        rent.amount = -1000.0;
+        rent.set_end_mode(END_MODE_INDEFINITE);
+        let i = db.add(rent);
+        let id = db.payments[i].id;
+        db.adjustments.set_custom_amount(20251115, 5000.0);
+        db.adjustments.set_custom_amount(20260110, 5000.0);
+        db.rebuild_db(&Cal::from_int(20260301), 24, false);
+        assert_eq!(db.start_date.get(), 20251101);
+        let mut edited = db.payments[0].clone(); // what an open payment editor holds
+        db.rebuild_db(&Cal::from_int(20260401), 24, false); // midnight moves the view to April
+        assert_eq!(db.start_date.get(), 20260101, "the window shrank, so the copy's day indexes are stale");
+        edited.amount = -1100.0;
+        put_payment(&mut db, edited, Some(id)).unwrap();
+        for date in [20260115, 20260415, 20281215] {
+            let day = db.get_day(&Cal::from_int(date)).unwrap();
+            assert_eq!(day.transactions.iter().map(|t| t.amount).collect::<Vec<_>>(), [-1100.0], "{date}");
+            assert_eq!(day.regulars, [0], "{date}");
+        }
+    }
+
+    /// A deleted tentative occurrence slides to today with the schedule; it must stay restorable
+    /// there after the date changes (the stored deletion keeps its original date).
+    #[test]
+    fn a_deleted_tentative_occurrence_can_be_restored_after_the_date_changes() {
+        let mut db = BudgetDb::new(&Cal::from_int(20261001), 12, false);
+        db.today = 20261027;
+        let mut p = Payment::new(20260901);
+        p.description = "Groceries".into();
+        p.amount = -300.0;
+        p.set_end_mode(END_MODE_INDEFINITE);
+        p.set_tentative(true);
+        let i = db.add(p);
+        let id = db.payments[i].id;
+        db.rebuild_db(&Cal::from_int(20261001), 12, false);
+        assert_eq!(amount(&mut db, 20261027), Some(-300.0));
+        delete(&mut db, id, Some(20261027)).unwrap();
+
+        db.today = 20261028; // the next day, by rollover or by reopening the budget
+        db.rebuild_db(&Cal::from_int(20261001), 12, false);
+        assert_eq!(db.get_day(&Cal::from_int(20261028)).unwrap().restorable, [i], "offered on today");
+        restore(&mut db, id, 20261028).unwrap();
+        db.rebuild_db(&Cal::from_int(20261001), 12, false);
+        assert_eq!(amount(&mut db, 20261028), Some(-300.0), "the occurrence is back");
+        assert!(db.payments[i].opt.iter().all(|o| !o.deleted), "no deletion is left in the period");
+        // Outside any deleted period there is still nothing to restore.
+        assert!(restore(&mut db, id, 20261128).is_err());
     }
 
     #[test]
