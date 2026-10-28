@@ -211,6 +211,22 @@ fn utf8_byte_order_mark_is_skipped() {
 }
 
 #[test]
+fn option_dates_must_be_real_calendar_days() {
+    // 20260230 used to load silently as 2 March, and a space inside an option date is not a date.
+    for opt in ["20260230", "20260230:5", "20260230=note", "20261301", "20260001", "20260431", "20230229", "2026030 :5"] {
+        let text = format!("v,2\n:\n=,\n-10.0, A, 20260101, 1m, 5, 20261201, 48,  , {opt}\n## END-OF-DATA; line_no=5 ##");
+        let l = bgt::load_str(&text, 20260101, None).unwrap_err();
+        assert!(l.log.contains("Invalid data for 'opts'"), "{opt}: {}", l.log);
+        assert!(l.payments.is_empty(), "{opt}");
+    }
+    // leap days and dates before year 1000 are real days
+    for opt in ["20240229", "20000229:5", "00010101:5"] {
+        let text = format!("v,2\n:\n=,\n-10.0, A, 20260101, 1m, 5, 20261201, 48,  , {opt}\n## END-OF-DATA; line_no=5 ##");
+        bgt::load_str(&text, 20260101, None).unwrap_or_else(|l| panic!("{opt}: {}", l.log));
+    }
+}
+
+#[test]
 fn non_finite_amounts_are_refused_before_saving() {
     // The loader accepts only finite amounts, so a save must never write a file it cannot reopen.
     let base = || {

@@ -2,7 +2,7 @@
 //! Reads plain, Blowfish (`#db*encrypted`) and legacy XOR files; saves plain or Blowfish.
 
 use crate::crypto::{xor_line, LineCipher, HEADER_BLOWFISH, HEADER_XOR};
-use crate::date::DATE_MAX;
+use crate::date::{is_leap, DATE_MAX};
 use crate::javafmt::{java_double, parse_double, parse_int};
 use crate::model::*;
 use std::path::Path;
@@ -110,6 +110,18 @@ fn tokens(line: &str) -> Vec<&str> {
     line.split(',').filter(|t| !t.is_empty()).map(str::trim).collect()
 }
 
+/// Whether `date` (yyyymmdd, year 0 or later) is a day of the Gregorian calendar, leap days included.
+fn is_real_day(date: i32) -> bool {
+    let (y, m, d) = (date / 10000, date / 100 % 100, date % 100);
+    let days = match m {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 => if is_leap(y) { 29 } else { 28 },
+        _ => return false,
+    };
+    (1..=days).contains(&d)
+}
+
 fn parse_options(p: &mut Payment, toks: &[&str]) -> Result<(), String> {
     for &tok in toks {
         if tok.is_empty() { continue; }
@@ -120,10 +132,12 @@ fn parse_options(p: &mut Payment, toks: &[&str]) -> Result<(), String> {
         }
         let n = tok.chars().count();
         if n < 8 { return Err(format!("invalid option: '{tok}'")); }
-        let head = tok.get(..8).ok_or_else(|| format!("invalid option: '{tok}'"))?;
+        // Exactly eight digits, no surrounding blanks: `parse_int` would accept "2026030 ".
+        let head = tok.get(..8).filter(|h| h.bytes().all(|b| b.is_ascii_digit())).ok_or_else(|| format!("invalid option: '{tok}'"))?;
         let date = parse_int(head)?;
-        // Deliberate deviation: a negative/huge date would overflow the calendar arithmetic.
-        if !(0..=DATE_MAX).contains(&date) { return Err(format!("invalid option: '{tok}'")); }
+        // A date that is not a real day would be moved silently by the calendar; a negative or huge
+        // one would overflow the calendar arithmetic (deliberate deviation).
+        if !(0..=DATE_MAX).contains(&date) || !is_real_day(date) { return Err(format!("invalid option: '{tok}'")); }
         if n == 8 { p.add_no_transaction(date); continue; }
         let c = tok[8..].chars().next().unwrap();
         let rest = &tok[8 + c.len_utf8()..];
