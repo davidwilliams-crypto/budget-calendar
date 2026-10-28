@@ -150,6 +150,8 @@ Deliberate deviations already taken by the port:
 - Loading: lone-CR line endings are line terminators like `\r\n`/`\n` (the original's `readLine`), in `.bgt` and `.budgetrc`; start/end dates outside `0..=99991231` are clamped and logged like the frequency clamp, and an option date outside that range is an invalid option, so corrupt values cannot overflow the calendar; a highlight colour is kept to 24-bit RGB (`-1` still removes) so a negative value cannot be saved as an unreadable 8-digit hex; Blowfish-decrypted lines are read as ISO-8859-1 like plain files (the legacy `0xFF`/`0xFE` comma/newline bytes survive).
 - `.budgetrc`: characters above U+FFFF are written as a `\uXXXX` surrogate pair (as Java does) and recombined on load; a final line ending in a continuation backslash keeps its entry; a malformed `\u` escape drops only that entry (its default stays) where Java discarded the whole file.
 - The formula calculator rejects more than 64 nested parentheses ("Expression too deeply nested"); the original recursed until a stack overflow, which in the port would abort the process.
+- Reports: Monthly Detailed and Monthly Excel include the To month (the GUI passes the month after To to the generator, whose loop stops before its end month), and the HTML Totals row shows the expenses total in the Expenses cell instead of repeating income. Other report quirks (unclosed tags, formula row offsets) are kept.
+- Backups: the original deleted `.bak` after a successful save. The port keeps the previous version as `.bak`, `.bak.1`, … with numbering that continues upward, and after each successful save removes all but the newest 10 backup files (`bgt::MAX_BACKUPS`).
 
 ## 7. Consolidated unknowns
 

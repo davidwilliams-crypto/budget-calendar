@@ -657,8 +657,8 @@ pub fn generate_report(db: &mut BudgetDb, start: &Cal, end: &Cal, mode: ReportMo
         }
         let bg1 = if shade { "eeeeee" } else { "ffffff" };
         let bg2 = if !shade { "eeeeee" } else { "ffffff" };
-        // quirk: in HTML mode the Expenses total cell prints the income total
-        let expenses_cell = if is_excel { fmt(expenses) } else { f2html(income) };
+        // The original printed the income total in this cell in HTML mode; the port shows expenses.
+        let expenses_cell = if is_excel { fmt(expenses) } else { f2html(expenses) };
         w.write(&format!("<TR bgcolor={bg1}><TD><TD COLSPAN=3 ALIGN=RIGHT><B>Totals:</B><TD ALIGN=RIGHT {num_attr} FORMULA=\"=@sum(E{first_data_row}..E{})\"><B>{}</B><TD ALIGN=RIGHT {num_attr} FORMULA=\"=@sum(F{first_data_row}..F{})\"><B>{expenses_cell}</B><TD ALIGN=RIGHT {num_attr} FORMULA=\"=E{row}+F{row}\"><B>{}</B></TR>\n<TR bgcolor={bg2}><TD><TD><TD COLSPAN=2 ALIGN=RIGHT><B>Closing balance:</B><TD ALIGN=RIGHT><B></B><TD ALIGN=RIGHT><B></B><TD ALIGN=RIGHT {num_attr} FORMULA=\"=G{}\"><B>{}</B></TR>\n",
             row - 1, num(income), row - 1, num(income + expenses), row - 1, bal(balance)));
         if !is_excel { w.write("</TABLE>\n<P><BR></P>"); }
@@ -1061,11 +1061,11 @@ mod tests {
         assert!(!excel.contains("</TABLE>"));
         assert!(excel.ends_with(&unicodish("</BODY>\n</HTML>\n")));
 
-        // HTML mode: quirk - the Expenses total cell shows the income total
+        // HTML mode: the Expenses total cell shows the expenses total (the original repeated income)
         // (HTML mode counts the opening balance as 4 rows, so the data rows are 4..=n+3 while firstDataRow stays 3)
         let html = generate_report(&mut db, &start, &end, ReportMode::Html, &no_images);
         let lh = last + 1;
-        assert!(html.contains(&unicodish(&format!("FORMULA=\"=@sum(E3..E{lh})\"><B>{0}</B><TD ALIGN=RIGHT  LOTUS_FORMAT=\"Fixed;2\"  FORMULA=\"=@sum(F3..F{lh})\"><B>{0}</B><TD ALIGN=RIGHT  LOTUS_FORMAT=\"Fixed;2\"  FORMULA=\"=E{1}+F{1}\"><B>{2}</B>", f2html(3000.0), lh + 1, f2html(-30.0)))));
+        assert!(html.contains(&unicodish(&format!("FORMULA=\"=@sum(E3..E{lh})\"><B>{0}</B><TD ALIGN=RIGHT  LOTUS_FORMAT=\"Fixed;2\"  FORMULA=\"=@sum(F3..F{lh})\"><B>{3}</B><TD ALIGN=RIGHT  LOTUS_FORMAT=\"Fixed;2\"  FORMULA=\"=E{1}+F{1}\"><B>{2}</B>", f2html(3000.0), lh + 1, f2html(-30.0), f2html(-3030.0)))));
         assert!(html.contains(&unicodish(" FORMULA=\"=G3+E4+F4\"")) && !html.contains(&unicodish(" FORMULA=\"=G2+E3+F3\"")));
         assert!(html.contains(&unicodish("</TABLE>\n<P><BR></P>")));
         assert_eq!(html.matches("<CAPTION>").count(), 1);

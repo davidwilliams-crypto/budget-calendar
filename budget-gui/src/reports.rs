@@ -73,8 +73,6 @@ impl ReportKind {
     pub fn viewer(self) -> Viewer {
         match self { Self::ExcelReport | Self::MonthlyExcel => Viewer::Spreadsheet, _ => Viewer::Browser }
     }
-    /// Monthly Detailed / Monthly Excel stop before the To month unless it equals From (06 §8).
-    fn excludes_to(self) -> bool { matches!(self, Self::MonthlyDetailed | Self::MonthlyExcel) }
 }
 
 /// One report to produce. Months are day-1 calendars.
@@ -250,7 +248,7 @@ pub fn validate(req: &Request, min: Cal, max: Cal) -> Result<(), String> {
     Ok(())
 }
 
-/// What the report will actually contain, so a rule such as the excluded To month is never a surprise.
+/// What the report will actually contain, spelled out so a range is never a surprise.
 pub fn covers(req: &Request) -> Option<String> {
     if req.from.ym() > req.to.ym() { return None; }
     Some(match req.kind {
@@ -263,8 +261,6 @@ pub fn covers(req: &Request) -> Option<String> {
             let end = shift(req.other, Cal::months_diff(&req.from, &req.to));
             format!("Compares {} with {}.", span(&req.from, &req.to), span(&req.other, &end))
         }
-        kind if kind.excludes_to() && req.from != req.to =>
-            format!("Covers {}. As in the original, the To month itself is not included.", span(&req.from, &shift(req.to, -1))),
         _ => format!("Covers {}.", span(&req.from, &req.to)),
     })
 }
@@ -325,8 +321,9 @@ fn calendar_options(cfg: &BudgetConfig) -> CalendarOptions {
 }
 
 /// The report document. Ranges follow 06 §11: the Stats tables use `calcStatistics(From, months)`,
-/// Unpaid & paid runs from the 1st of From to the last day of To, the printed calendar includes the
-/// To month and the Monthly Detailed / Excel reports stop before it unless it equals From.
+/// Unpaid & paid runs from the 1st of From to the last day of To, and every other report includes
+/// the To month. The original's Monthly Detailed / Excel reports left the To month out unless it
+/// equalled From (06 §8); here the generator is given the month after To, so they include it too.
 pub fn generate(db: &mut BudgetDb, cfg: &BudgetConfig, req: &Request) -> Result<String, String> {
     let images = |path: &str| report_image(path, cfg);
     let n = Cal::months_diff(&req.from, &req.to) + 1;
@@ -344,8 +341,8 @@ pub fn generate(db: &mut BudgetDb, cfg: &BudgetConfig, req: &Request) -> Result<
             report::generate_month_by_month_report(db, &st, cfg.show_decimals_in_cv)?
         }
         ReportKind::MonthlyCalendar => report::generate_monthly_calendar(db, &req.from, &req.to, &calendar_options(cfg), &images),
-        ReportKind::MonthlyDetailed => report::generate_report(db, &req.from, &req.to, ReportMode::Html, &images),
-        ReportKind::MonthlyExcel => report::generate_report(db, &req.from, &req.to, ReportMode::Excel, &images),
+        ReportKind::MonthlyDetailed => report::generate_report(db, &req.from, &shift(req.to, 1), ReportMode::Html, &images),
+        ReportKind::MonthlyExcel => report::generate_report(db, &req.from, &shift(req.to, 1), ReportMode::Excel, &images),
         ReportKind::UnpaidPaid => {
             let mut end = req.to;
             end.set_day_last();
@@ -489,13 +486,10 @@ impl Draft {
 
     fn request(&self) -> Request { Request { kind: self.kind, from: self.from, to: self.to, other: self.other } }
 
-    /// Chooses From/To so that the report covers `first..=last` (one month more for the reports
-    /// that leave out their To month).
+    /// Chooses From/To so that the report covers `first..=last`.
     fn cover(&mut self, first: Cal, last: Cal) {
-        let (first, last) = (clamp(first, self.min, self.max), clamp(last, self.min, self.max));
-        self.from = first;
-        let after = shift(last, 1);
-        self.to = if self.kind.excludes_to() && first != last && after.ym() <= self.max.ym() { after } else { last };
+        self.from = clamp(first, self.min, self.max);
+        self.to = clamp(last, self.min, self.max);
     }
 
     /// The equally long range just before the base range, or just after it when the budget starts too late.
@@ -795,20 +789,24 @@ mod tests {
     }
 
     #[test]
-    fn covered_months_are_spelled_out_including_the_excluded_to_month() {
+    fn covered_months_are_spelled_out_and_include_the_to_month() {
         assert_eq!(covers(&req(ReportKind::Print, 20260601, 20260601, 0)).unwrap(), "Covers June 2026.");
         assert_eq!(covers(&req(ReportKind::MonthlyCalendar, 20260601, 20260801, 0)).unwrap(), "Covers June 2026 to August 2026 (3 months).");
-        assert_eq!(covers(&req(ReportKind::MonthlyDetailed, 20260601, 20260801, 0)).unwrap(),
-            "Covers June 2026 to July 2026 (2 months). As in the original, the To month itself is not included.");
+        assert_eq!(covers(&req(ReportKind::MonthlyDetailed, 20260601, 20260801, 0)).unwrap(), "Covers June 2026 to August 2026 (3 months).");
         assert_eq!(covers(&req(ReportKind::MonthlyExcel, 20260601, 20260601, 0)).unwrap(), "Covers June 2026.");
         assert_eq!(covers(&req(ReportKind::UnpaidPaid, 20260601, 20260701, 0)).unwrap(), "Covers 1 June 2026 to 31 July 2026.");
         assert_eq!(covers(&req(ReportKind::Comparative, 20260601, 20260701, 20260401)).unwrap(),
             "Compares June 2026 to July 2026 (2 months) with April 2026 to May 2026 (2 months).");
         assert_eq!(covers(&req(ReportKind::Print, 20260701, 20260601, 0)), None);
-        // The Monthly Detailed report includes the To month only when it is also the From month.
+        // Unlike the original, the Monthly Detailed and Excel reports include the To month, and a
+        // one-month range still produces exactly that month.
         let mut db = fixture();
-        let html = generate(&mut db, &BudgetConfig::default(), &req(ReportKind::MonthlyDetailed, 20260601, 20260801, 0)).unwrap();
-        assert!(html.contains("01-Jul-2026") && !html.contains("01-Aug-2026"));
+        for kind in [ReportKind::MonthlyDetailed, ReportKind::MonthlyExcel] {
+            let html = generate(&mut db, &BudgetConfig::default(), &req(kind, 20260601, 20260801, 0)).unwrap();
+            assert!(html.contains("01-Aug-2026") && html.contains("31-Aug-2026") && !html.contains("01-Sep-2026"), "{kind:?}");
+            let html = generate(&mut db, &BudgetConfig::default(), &req(kind, 20260601, 20260601, 0)).unwrap();
+            assert!(html.contains("01-Jun-2026") && !html.contains("01-Jul-2026"), "{kind:?}");
+        }
     }
 
     #[test]
@@ -827,10 +825,10 @@ mod tests {
         assert_eq!(validate(&d.request(), min, max), Ok(()));
         let d = Draft::new(ReportKind::Comparative, &month(20260415), min, max);
         assert_eq!(d.other.get(), 20260501);
-        // "Last 12 months" covers twelve months even where the To month is left out.
+        // "Last 12 months" ends at the month on screen for every report.
         let mut d = Draft::new(ReportKind::MonthlyDetailed, &month(20270615), min, max);
         d.cover(shift(d.cur, -11), d.cur);
-        assert_eq!((d.from.get(), d.to.get()), (20260701, 20270701));
+        assert_eq!((d.from.get(), d.to.get()), (20260701, 20270601));
         assert!(covers(&d.request()).unwrap().starts_with("Covers July 2026 to June 2027 (12 months)."));
     }
 
