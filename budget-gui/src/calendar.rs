@@ -182,6 +182,16 @@ fn suffix_marker(suffix: char) -> Option<Marker> {
 const GRACE_DAYS_ID: &str = "calendar-grace-days";
 const ROW_DETAILS_ID: &str = "calendar-row-details";
 
+/// A click target that is not a Tab stop (a day cell, a balance strip): the keyboard order runs
+/// through the payment rows and +N buttons only. `Response::context_menu` re-registers a response
+/// with `Sense::click()`, which would make it focusable again, so the response is marked as
+/// already sensing that.
+fn pointer_only(ui: &Ui, rect: Rect, id: egui::Id) -> egui::Response {
+    let mut response = ui.interact(rect, id, Sense::CLICK);
+    response.sense |= Sense::FOCUSABLE;
+    response
+}
+
 pub enum Action {
     Filter(String), Add(i32), Day(i32), EditPayment(i32), DeletePayment(i32),
     EditTransaction { id: i32, date: i32, amount: f64 },
@@ -233,7 +243,7 @@ pub fn show(ui: &mut Ui, view: &MonthView, t: &Tokens, sunday_first: bool, today
         let rect = layout.cell(i);
         let last = r + 1 == rows;
         let cr = CornerRadius { nw: 0, ne: 0, sw: if last && c == 0 { theme::RADIUS } else { 0 }, se: if last && c == 6 { theme::RADIUS } else { 0 } };
-        let resp = ui.interact(rect, ui.id().with(("cell", cell.date)), Sense::click());
+        let resp = pointer_only(ui, rect, ui.id().with(("cell", cell.date)));
         if cell.in_month && !dragging {
             resp.context_menu(|ui| {
                 if ui.button("Add payment on this date").clicked() { clicked = Some(Action::Add(cell.date)); ui.close_menu(); }
@@ -265,7 +275,7 @@ pub fn show(ui: &mut Ui, view: &MonthView, t: &Tokens, sunday_first: bool, today
             p.rect_stroke(rect, cr, Stroke::new(1.0_f32, tint(fill, t.today, 0.85)), StrokeKind::Inside);
             p.rect_filled(Rect::from_min_size(rect.min, Vec2::new(rect.width(), 2.0)), 0, t.today);
         }
-        if let Some(f) = cell_filter(ui, &p.with_clip_rect(rect), cell, rect, t, today, decimals, &resp, changed[i]) { clicked = Some(f); }
+        if let Some(f) = cell_filter(ui, &p.with_clip_rect(rect), cell, rect, t, today, decimals, &resp, changed[i], filtered) { clicked = Some(f); }
     }
     if ui.ctx().data(|d| d.get_temp::<Vec<i32>>(grace_id)).unwrap_or_default() != grace { ui.ctx().request_repaint(); }
     p.hline(layout.inner.x_range(), layout.grid.min.y - 0.5, hair);
@@ -318,7 +328,7 @@ fn balance_changes(cells: impl Iterator<Item = (bool, Option<f64>)>) -> Vec<bool
 
 // Same parameter set as the sibling cell painters; a context struct would be used by this one only.
 #[allow(clippy::too_many_arguments)]
-fn cell_filter(ui: &mut Ui, p: &Painter, cell: &CellData, rect: Rect, t: &Tokens, today: i32, decimals: bool, resp: &egui::Response, changed: bool) -> Option<Action> {
+fn cell_filter(ui: &mut Ui, p: &Painter, cell: &CellData, rect: Rect, t: &Tokens, today: i32, decimals: bool, resp: &egui::Response, changed: bool, filtered: bool) -> Option<Action> {
     let mut clicked = None;
     let layout = CellLayout::new(rect, cell.rows.len());
     let hp = p.with_clip_rect(layout.header);
@@ -345,11 +355,20 @@ fn cell_filter(ui: &mut Ui, p: &Painter, cell: &CellData, rect: Rect, t: &Tokens
     if hidden > 0 {
         let count_w = (rect.width() - 35.0).clamp(0.0, 42.0);
         let more = Rect::from_min_max(Pos2::new(rect.max.x - 4.0 - count_w, layout.header.min.y), Pos2::new(rect.max.x - 4.0, layout.header.max.y));
+        // With a search active the rows (and so +N) are the matching transactions only; the day
+        // dialog lists those first, then the day's other transactions.
+        let (more_text, info) = if filtered {
+            (format!("{hidden} more matching transactions. View this date's transactions, matches first."),
+                format!("View the {} matching transactions on {}", cell.rows.len(), cell.date))
+        } else {
+            (format!("{hidden} more transactions. View all transactions on this date."),
+                format!("View all {} transactions on {}", cell.rows.len(), cell.date))
+        };
         let response = ui.interact(more, ui.id().with(("more", cell.date)), Sense::click())
             .on_hover_cursor(egui::CursorIcon::PointingHand)
-            .on_hover_text(format!("{} more transactions. View all transactions on this date.", hidden));
+            .on_hover_text(more_text);
         let label = format!("+{hidden}");
-        response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, format!("View all {} transactions on {}", cell.rows.len(), cell.date)));
+        response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, info.clone()));
         if response.hovered() || response.has_focus() { hp.rect_filled(more, 4, tint(t.surface, t.accent, 0.08)); }
         if response.has_focus() { hp.rect_stroke(more, 4, Stroke::new(1.0_f32, t.accent), StrokeKind::Inside); }
         truncated(&hp.with_clip_rect(more), Pos2::new(more.min.x + 3.0, more.center().y), &label, font(ui, SEMI), t.accent, (more.width() - 6.0).max(0.0));
@@ -431,7 +450,7 @@ fn cell_filter(ui: &mut Ui, p: &Painter, cell: &CellData, rect: Rect, t: &Tokens
             }
         }
         fp.galley(Pos2::new(amount_left, cy - amount.size().y / 2.0), amount, fg);
-        let sresp = ui.interact(sr, ui.id().with(("strip", cell.date)), Sense::click());
+        let sresp = pointer_only(ui, sr, ui.id().with(("strip", cell.date)));
         sresp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, format!("Closing balance {} on {}{}. Right-click to edit balance", money(b.value, true), cell.date,
             if b.adjusted { format!(", adjusted by {}", money(b.adjustment, true)) } else { String::new() })));
         if !egui::DragAndDrop::has_payload_of_type::<DraggedTransaction>(ui.ctx()) {
@@ -475,10 +494,13 @@ fn draw_row(ui: &mut Ui, p: &Painter, row: &TranRow, rr: Rect, t: &Tokens, decim
         if ui.button("Delete whole payment").clicked() { action = Some(Action::DeletePayment(row.payment_id)); ui.close_menu(); }
     }); }
     let hovered = resp.hovered();
+    let focused = resp.has_focus();
     // Disabled rows keep their highlight colour (05 §1.6) at a lighter tint next to the muted text.
     if let Some(h) = row.hilite { p.rect_filled(rr, 4, tint(t.surface, h, if row.disabled { 0.07 } else { 0.14 })); }
-    if hovered { p.rect_filled(rr, 4, tint(t.surface, t.accent, 0.08)); }
-    if resp.has_focus() { p.rect_stroke(rr, 4, Stroke::new(1.0_f32, t.accent), StrokeKind::Inside); }
+    if hovered || focused { p.rect_filled(rr, 4, tint(t.surface, t.accent, 0.08)); }
+    // Keyboard focus (Tab; Enter or Space edits) gets the 2px accent ring the buttons use, drawn
+    // inside the row so its geometry is unchanged.
+    if focused { p.rect_stroke(rr, 4, Stroke::new(2.0_f32, t.accent), StrokeKind::Inside); }
     let name_y = rr.center().y;
     let status = match row.flag {
         budget_core::FLAG_PAID => Some(t.paid),
@@ -1090,6 +1112,30 @@ mod tests {
         frame(&ctx, &t, &view, size, vec![button(pos, true)]);
         let (_, action) = frame(&ctx, &t, &view, size, vec![button(pos, false)]);
         assert!(matches!(action, Some(Action::Day(20261001))));
+    }
+
+    #[test]
+    fn filtered_overflow_counts_hidden_matching_rows_and_says_so() {
+        // A filtered view holds only the matching rows, so +N is the number of hidden matches.
+        let (ctx, t) = context();
+        ctx.style_mut(|s| s.interaction.tooltip_delay = 0.0);
+        let mut view = fixture(4, 20);
+        view.filtered = true;
+        let size = Vec2::new(860.0, 540.0);
+        let (output, _) = frame(&ctx, &t, &view, size, Vec::new());
+        let shapes = text_shapes(&output);
+        let visible = shapes.iter().filter(|(s, _)| s.galley.job.text.starts_with("Payment name")).count() / view.cells.len();
+        assert!(visible > 0);
+        let label = format!("+{}", 20 - visible);
+        let (more, _) = shapes.iter().find(|(s, _)| s.galley.job.text == label).unwrap_or_else(|| panic!("{label} must count the hidden matches"));
+        let pos = more.pos + Vec2::new(8.0, 8.0);
+        let mut tip = false;
+        for _ in 0..30 {
+            let (o, _) = frame(&ctx, &t, &view, size, vec![egui::Event::PointerMoved(pos)]);
+            tip |= text_shapes(&o).iter().any(|(s, _)| s.galley.job.text.starts_with(&format!("{} more matching transactions", 20 - visible)));
+            if tip { break; }
+        }
+        assert!(tip, "the tooltip says the hidden rows are matches");
     }
 
     #[test]

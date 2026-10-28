@@ -7,8 +7,10 @@
 
 mod calendar;
 mod balance_editor;
+mod date_watch;
 mod document;
 mod editor;
+mod file_probe;
 mod payment_list;
 mod theme;
 mod view;
@@ -27,6 +29,8 @@ use theme::{alpha, tint, ts, Tokens, CAPTION, ICON, SECTION, SEMI, SP1, SP2, SP3
 use view::{money, MonthView};
 use editor::{PaymentAction, PaymentEditor, TransactionAction, TransactionEditor, TransactionScope};
 use balance_editor::{BalanceAction, BalanceEditor};
+use date_watch::DateWatch;
+use file_probe::{FileProbes, FileStatus};
 
 const MONTHS: [&str; 12] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const MONTHS_LONG: [&str; 12] = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -131,9 +135,28 @@ enum PendingAction { Open(PathBuf), Close }
 #[derive(Clone, Copy)]
 struct DeleteTarget { id: i32, date: Option<i32> }
 
+/// Day dialog input state carried between frames.
+#[derive(Clone, Copy, Default)]
+struct DayDialogInput {
+    /// Input time of the first frame the dialog was shown.
+    opened_at: Option<f64>,
+    /// A More menu was open at the end of the previous frame.
+    menu_open: bool,
+    /// The current press must not close the dialog when it is released on the backdrop.
+    ignore_release: bool,
+}
+
 struct App {
     cfg: BudgetConfig,
     rc_path: PathBuf,
+    /// Switches `today` when the local date changes (fixed with `--today`).
+    date_watch: DateWatch,
+    /// Background existence checks of remembered budgets.
+    files: FileProbes,
+    /// The last budget, opened once its background check finds it.
+    auto_open: Option<PathBuf>,
+    /// The control that had keyboard focus when a dialog opened; it gets focus back on close.
+    focus_return: Option<egui::Id>,
     db: Option<BudgetDb>,
     file: Option<PathBuf>,
     password: Option<String>,
@@ -181,6 +204,8 @@ impl App {
         cur.set_day_one();
         let t = Tokens::new(&cfg.colors, cli.dark);
         let mut app = App {
+            date_watch: if cli.today.is_some() { DateWatch::fixed() } else { DateWatch::system() },
+            files: FileProbes::default(), auto_open: None, focus_return: None,
             cfg, rc_path, db: None, file: None, password: None, cur, today: cli.today.unwrap_or_else(|| Cal::today().get()),
             saved_bytes: None, dirty: false, payment_editor: None, transaction_editor: None,
             balance_editor: None, drag_month_hover: None,
@@ -197,17 +222,67 @@ impl App {
             if p.is_file() { app.open(&p); app.toast = None; }
             else { app.banner = Some(Banner { text: format!("No file was found at {}.", p.display()), details: None, ..Banner::load_failure(&p, "") }); }
         } else if let Some(f) = app.cfg.last_file_name.clone() {
+            // The last budget may sit on an unreachable share, whose check blocks for ~20 s: look for
+            // it off the UI thread and open it when it turns up (see `finish_auto_open`).
             let p = resolve_path(Path::new(f.trim()));
-            if p.is_file() { app.open(&p); app.toast = None; }
+            match app.files.wait(&p, Duration::from_millis(250)) {
+                FileStatus::Present(_) => { app.open(&p); app.toast = None; }
+                FileStatus::Checking => app.auto_open = Some(p),
+                FileStatus::Missing => {}
+            }
         }
         app
     }
 
+    /// Opens the last budget once its slow background check finds it, unless the user opened
+    /// something else meanwhile.
+    fn finish_auto_open(&mut self) {
+        let Some(path) = self.auto_open.clone() else { return };
+        match self.files.status(&path) {
+            FileStatus::Checking => {}
+            FileStatus::Present(_) if self.has_modal() => {}
+            FileStatus::Present(_) => {
+                self.auto_open = None;
+                if self.db.is_none() { self.open(&path); self.toast = None; }
+            }
+            FileStatus::Missing => self.auto_open = None,
+        }
+    }
+
+    /// The original's 20 s date-change timer (analysis/03 §11.4), switching without asking:
+    /// the new day becomes today for the grid, the filters and the tentative scheduler.
+    fn check_date(&mut self, ctx: &egui::Context) {
+        let (date, next) = self.date_watch.poll(Instant::now());
+        // Wake an idle window for the next check.
+        if let Some(next) = next { ctx.request_repaint_after(next); }
+        // A dragged transaction keeps the schedule it was picked up from; switch on a later check.
+        if egui::DragAndDrop::has_payload_of_type::<calendar::DraggedTransaction>(ctx) { return; }
+        if let Some(date) = date.filter(|d| *d != self.today) { self.set_today(date); }
+    }
+
+    fn set_today(&mut self, date: i32) {
+        // Someone looking at the current month keeps looking at the current month (31 Oct → 1 Nov).
+        let follow = self.cur.get() / 100 == self.today / 100;
+        self.today = date;
+        if follow { self.cur = Cal::from_int(date); self.cur.set_day_one(); }
+        // Relative filters such as range: are evaluated against today.
+        if !self.filter_text.trim().is_empty() { self.set_filter(); }
+        if let Some(db) = &mut self.db {
+            db.today = date;
+            document::rebuild(db, &self.cur, self.cfg.future_n_months, self.cfg.unlimited_history);
+        }
+        self.view = None;
+    }
+
     fn notify(&mut self, text: impl Into<String>) { self.toast = Some(Toast { text: text.into(), error: false, until: Instant::now() + Duration::from_secs(4) }); }
+    /// A brief warning that needs no dismissing (unlike the persistent error banner).
+    fn warn(&mut self, text: impl Into<String>) { self.toast = Some(Toast { text: text.into(), error: true, until: Instant::now() + Duration::from_secs(5) }); }
     fn fail(&mut self, text: impl Into<String>) { self.banner = Some(Banner::plain(text)); }
     fn fail_load(&mut self, path: &Path, log: &str) { self.banner = Some(Banner::load_failure(path, log)); }
 
     fn open(&mut self, path: &Path) {
+        // An explicit open replaces any pending automatic open of the last budget.
+        self.auto_open = None;
         let path = &resolve_path(path);
         if self.dirty || self.has_draft() {
             self.pending_action = Some(PendingAction::Open(path.to_path_buf()));
@@ -503,37 +578,11 @@ impl App {
                 }
             });
             if !self.show_payments {
-                ui.add_space(if compact { SP1 } else { SP3 });
-                let previous = icon_button(ui, ph::CARET_LEFT).on_hover_text("Previous month (PgUp)\nHold a dragged payment here to move to this month");
-                if previous.clicked() { self.go(-1); }
-                self.drag_month_navigation(ui.ctx(), &previous, -1);
-                ui.menu_button(RichText::new(format!("{} {}  {}", MONTHS_LONG[self.cur.month() as usize], self.cur.year(), ph::CARET_DOWN))
-                    .size(if compact { 17.0 } else { 20.0 }).family(egui::FontFamily::Name("semi".into())), |ui| {
-                    let mut year = self.cur.year();
-                    ui.horizontal(|ui| { ui.label("Year"); ui.add(egui::DragValue::new(&mut year).range(1000..=9999).update_while_editing(false)); });
-                    if year != self.cur.year() { self.go((year - self.cur.year()) * 12); }
-                    egui::Grid::new("month_picker").num_columns(3).show(ui, |ui| {
-                        for (month, label) in MONTHS.iter().enumerate() {
-                            if ui.selectable_label(month as i32 == self.cur.month(), *label).clicked() {
-                                self.go(month as i32 - self.cur.month()); ui.close_menu();
-                            }
-                            if month % 3 == 2 { ui.end_row(); }
-                        }
-                    });
-                });
-                let next = icon_button(ui, ph::CARET_RIGHT).on_hover_text("Next month (PgDn)\nHold a dragged payment here to move to this month");
-                if next.clicked() { self.go(1); }
-                self.drag_month_navigation(ui.ctx(), &next, 1);
-                // Today is a call to action only when another month is on screen.
-                let away = self.cur.get() / 100 != self.today / 100;
-                if away {
-                    if theme::primary_button(ui, format!("{}  Today", ph::DOT_OUTLINE), &t).on_hover_text("Jump to the current month (Home or T)").clicked() { self.go_today(); }
-                } else {
-                    ui.add_enabled(false, Button::new(RichText::new("Today").color(t.text_muted)).min_size(Vec2::new(0.0, 32.0)))
-                        .on_disabled_hover_text("You are already viewing the current month");
-                }
+                // The search box is added before the month controls so Tab reaches it first
+                // (header → search → month → summary → calendar); it still sits at the right end.
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     ui.add_enabled_ui(self.db.is_some(), |ui| self.filter_box(ui, &t, if compact { 218.0 } else { 278.0 }));
+                    ui.with_layout(Layout::left_to_right(Align::Center), |ui| self.month_navigation(ui, &t, compact));
                 });
             } else {
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -541,6 +590,38 @@ impl App {
                 });
             }
         });
+    }
+
+    fn month_navigation(&mut self, ui: &mut egui::Ui, t: &Tokens, compact: bool) {
+        ui.add_space(if compact { SP1 } else { SP3 });
+        let previous = icon_button(ui, ph::CARET_LEFT).on_hover_text("Previous month (PgUp)\nHold a dragged payment here to move to this month");
+        if previous.clicked() { self.go(-1); }
+        self.drag_month_navigation(ui.ctx(), &previous, -1);
+        ui.menu_button(RichText::new(format!("{} {}  {}", MONTHS_LONG[self.cur.month() as usize], self.cur.year(), ph::CARET_DOWN))
+            .size(if compact { 17.0 } else { 20.0 }).family(egui::FontFamily::Name("semi".into())), |ui| {
+            let mut year = self.cur.year();
+            ui.horizontal(|ui| { ui.label("Year"); ui.add(egui::DragValue::new(&mut year).range(1000..=9999).update_while_editing(false)); });
+            if year != self.cur.year() { self.go((year - self.cur.year()) * 12); }
+            egui::Grid::new("month_picker").num_columns(3).show(ui, |ui| {
+                for (month, label) in MONTHS.iter().enumerate() {
+                    if ui.selectable_label(month as i32 == self.cur.month(), *label).clicked() {
+                        self.go(month as i32 - self.cur.month()); ui.close_menu();
+                    }
+                    if month % 3 == 2 { ui.end_row(); }
+                }
+            });
+        });
+        let next = icon_button(ui, ph::CARET_RIGHT).on_hover_text("Next month (PgDn)\nHold a dragged payment here to move to this month");
+        if next.clicked() { self.go(1); }
+        self.drag_month_navigation(ui.ctx(), &next, 1);
+        // Today is a call to action only when another month is on screen.
+        let away = self.cur.get() / 100 != self.today / 100;
+        if away {
+            if theme::primary_button(ui, format!("{}  Today", ph::DOT_OUTLINE), t).on_hover_text("Jump to the current month (Home or T)").clicked() { self.go_today(); }
+        } else {
+            ui.add_enabled(false, Button::new(RichText::new("Today").color(t.text_muted)).min_size(Vec2::new(0.0, 32.0)))
+                .on_disabled_hover_text("You are already viewing the current month");
+        }
     }
 
     fn filter_box(&mut self, ui: &mut egui::Ui, t: &Tokens, width: f32) {
@@ -620,15 +701,22 @@ impl App {
                     let r = response.response.rect;
                     ui.painter().rect_filled(egui::Rect::from_min_max(egui::pos2(r.min.x, r.min.y + 6.0), egui::pos2(r.min.x + 3.0, r.max.y - 6.0)), 1.5, *color);
                 }
-                response.response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, format!("{label}: {}", money(*value, true))));
+                // Each tile is one Tab stop with its own id. Interacting through the frame's response
+                // instead registered it twice (hover, then the context menu's click), so the tile
+                // surrendered keyboard focus every frame and Tab restarted at the header.
+                let tile = ui.interact(response.response.rect, ui.id().with(("summary_tile", index)), Sense::click());
+                if tile.has_focus() {
+                    ui.painter().rect_stroke(tile.rect.expand(1.0), theme::RADIUS + 1, Stroke::new(2.0_f32, t.accent), StrokeKind::Outside);
+                }
+                tile.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, format!("{label}: {}", money(*value, true))));
                 if index == 0 || index == 3 {
                     let mut date = self.cur;
                     if index == 0 { date.add(Field::Day, -1); } else { date.set(Field::Day, date.max_day()); }
-                    response.response.context_menu(|ui| {
+                    tile.context_menu(|ui| {
                         if ui.button("Edit balance").clicked() { action = Some(calendar::Action::EditBalance(date.get())); ui.close_menu(); }
                     });
                 }
-                response.response.on_hover_text(format!("{label}: {}\nNet change: {}\nLowest balance: {}\nAverage balance: {}\nHighest balance: {}",
+                tile.on_hover_text(format!("{label}: {}\nNet change: {}\nLowest balance: {}\nAverage balance: {}\nHighest balance: {}",
                     money(*value, true), money(q.income + q.expenses, true), money(q.min, true), money(q.avg, true), money(q.max, true)));
             }
         });
@@ -758,19 +846,26 @@ impl App {
                 ui.add_space(SP1);
                 for r in recent.iter().take(6) {
                     let path = Path::new(r);
-                    let modified = std::fs::metadata(path).and_then(|m| m.modified()).ok();
+                    // Answered by a background check; a share that does not respond must not freeze the window.
+                    let status = self.files.status(path);
                     let (rect, resp) = ui.allocate_exact_size(Vec2::new(width, 52.0), Sense::click());
                     let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(r);
                     let p = ui.painter();
                     p.rect(rect, 8, if resp.hovered() { t.surface_hover } else { t.surface }, Stroke::new(1.0_f32, if resp.hovered() { tint(t.surface, t.accent, 0.6) } else { t.border }), StrokeKind::Inside);
                     if resp.has_focus() { p.rect_stroke(rect.expand(1.0), 9, Stroke::new(2.0_f32, t.accent), StrokeKind::Outside); }
-                    p.text(egui::pos2(rect.min.x + 14.0, rect.center().y), Align2::LEFT_CENTER, ph::FILE_TEXT, egui::FontId::new(22.0, egui::FontFamily::Proportional), if modified.is_some() { t.accent } else { t.text_faint });
+                    let icon = match status { FileStatus::Present(_) => t.accent, FileStatus::Checking => t.text_muted, FileStatus::Missing => t.text_faint };
+                    p.text(egui::pos2(rect.min.x + 14.0, rect.center().y), Align2::LEFT_CENTER, ph::FILE_TEXT, egui::FontId::new(22.0, egui::FontFamily::Proportional), icon);
                     let text_w = rect.width() - 62.0;
                     let mut name = egui::text::LayoutJob::simple_singleline(file_name(path), ts(SEMI).resolve(ui.style()), t.text);
                     name.wrap = egui::text::TextWrapping::truncate_at_width(text_w);
                     let g = ui.painter().layout_job(name);
                     ui.painter().galley(egui::pos2(rect.min.x + 48.0, rect.min.y + 9.0), g, t.text);
-                    let sub = match modified { Some(m) => format!("Modified {}", ago(m)), None => "File not found".into() };
+                    let sub = match status {
+                        FileStatus::Checking => "Checking…".into(),
+                        FileStatus::Present(Some(m)) => format!("Modified {}", ago(m)),
+                        FileStatus::Present(None) => "Available".into(),
+                        FileStatus::Missing => "File not found".into(),
+                    };
                     let mut job = egui::text::LayoutJob::simple_singleline(sub, ts(CAPTION).resolve(ui.style()), t.text_muted);
                     job.wrap = egui::text::TextWrapping::truncate_at_width(text_w);
                     let g = ui.painter().layout_job(job);
@@ -913,6 +1008,8 @@ impl App {
 
     fn screenshot_step(&mut self, ctx: &egui::Context) {
         let Some(path) = self.screenshot.clone() else { return };
+        // A remembered budget still being located would be missing from the capture.
+        if self.auto_open.is_some() { ctx.request_repaint(); return; }
         self.frames += 1;
         if self.frames == 6 { ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::UserData::default())); }
         let shot = ctx.input(|i| i.events.iter().find_map(|e| match e {
@@ -1051,23 +1148,44 @@ impl App {
     }
 
     fn day_window(&mut self, ctx: &egui::Context) {
+        let state_id = egui::Id::new("day_transactions_input");
+        let Some(date) = self.day_dialog else { ctx.data_mut(|d| d.remove::<DayDialogInput>(state_id)); return };
         if self.has_draft() || self.pending_action.is_some() || self.confirm_delete.is_some() { return; }
-        let Some(date) = self.day_dialog else { return };
         let can_restore = self.can_restore();
         let Some(db) = &mut self.db else { return };
         let transactions = db.get_day(&Cal::from_int(date)).map(|d| d.transactions.clone()).unwrap_or_default();
         let restorable = db.get_day(&Cal::from_int(date)).map(|d| d.restorable.clone()).unwrap_or_default();
+        // A search lists what +N counted (the matching transactions) first, then the rest of the day.
+        let (matching, others): (Vec<_>, Vec<_>) = match &self.filter {
+            Some(filter) => transactions.into_iter().partition(|tr| filter.is_match(&db.payments[tr.pmt], tr.amount, date)),
+            None => (transactions, Vec::new()),
+        };
+        let total = matching.len() + others.len();
+        let summary = match (&self.filter, total) {
+            (Some(_), _) => format!("{} of {total} transactions match the search", matching.len()),
+            (None, 1) => "1 transaction".to_string(),
+            (None, _) => format!("{total} transactions"),
+        };
         let t = self.t.clone();
+        let mut state: DayDialogInput = ctx.data(|d| d.get_temp(state_id)).unwrap_or_default();
+        let delay = ctx.options(|o| o.input_options.max_double_click_delay);
+        let (time, pressed, since_click) = ctx.input(|i| (i.time, i.pointer.any_pressed(), i.pointer.time_since_last_click() as f64));
+        let opened_at = *state.opened_at.get_or_insert(time);
+        // A press that only dismisses an open More menu, or that is the second click of the
+        // double-click that opened this dialog, must not close it when released on the backdrop.
+        if pressed { state.ignore_release = state.menu_open || (since_click < delay && time - since_click <= opened_at + 1e-3); }
+        let menu_was_open = state.menu_open;
+        let mut menu_open = false;
         let mut open = true;
         let mut action = None;
-        egui::Modal::new(egui::Id::new("day_transactions")).frame(t.card().inner_margin(24)).show(ctx, |ui| {
+        let response = egui::Modal::new(egui::Id::new("day_transactions")).frame(t.card().inner_margin(24)).show(ctx, |ui| {
             ui.set_width(560.0_f32.min(ctx.screen_rect().width() - 80.0));
             let cal = Cal::from_int(date);
             ui.heading(format!("{} {}, {}", MONTHS_LONG[cal.month() as usize], cal.day(), cal.year()));
-            ui.label(RichText::new(format!("{} transactions", transactions.len())).color(t.text_muted));
+            ui.label(RichText::new(summary).color(t.text_muted));
             ui.add_space(SP3);
             egui::ScrollArea::vertical().max_height((ctx.screen_rect().height() - 250.0).max(140.0)).show(ui, |ui| {
-                for tr in transactions {
+                let mut row = |ui: &mut egui::Ui, tr: &budget_core::Transaction| {
                     let p = &db.payments[tr.pmt];
                     ui.push_id(p.id, |ui| {
                         ui.horizontal(|ui| {
@@ -1079,12 +1197,21 @@ impl App {
                         ui.horizontal(|ui| {
                             if ui.button("Edit this date").clicked() { action = Some(calendar::Action::EditTransaction { id:p.id, date, amount:tr.amount }); }
                             ui.menu_button("More", |ui| {
+                                // Runs only while the menu is shown (egui 0.31 returns the menu's
+                                // inner response only on the frame it closes).
+                                menu_open = true;
                                 if ui.button("Edit whole payment").clicked() { action = Some(calendar::Action::EditPayment(p.id)); ui.close_menu(); }
                                 if ui.button(RichText::new("Delete transaction").color(t.negative)).clicked() { action = Some(calendar::Action::DeleteTransaction { id:p.id, date }); ui.close_menu(); }
                             });
                         });
                         ui.add_space(SP2); ui.separator(); ui.add_space(SP2);
                     });
+                };
+                for tr in &matching { row(ui, tr); }
+                if !others.is_empty() {
+                    ui.label(RichText::new("Other transactions on this day").text_style(ts(SECTION)).color(t.text_muted));
+                    ui.add_space(SP2);
+                    for tr in &others { row(ui, tr); }
                 }
                 // Deleted or moved-away occurrences are not transactions any more; offer them for restoring.
                 for pi in restorable {
@@ -1108,9 +1235,13 @@ impl App {
                 if theme::secondary_button(ui, "Add payment on this date", &t).clicked() { action = Some(calendar::Action::Add(date)); }
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| { if theme::primary_button(ui, "Done", &t).clicked() { open = false; } });
             });
-            if ui.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape)) { open = false; }
+            // egui closes an open More menu on Escape itself; that Escape must not also close the dialog.
+            if ui.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape)) && !menu_was_open { open = false; }
         });
-        if !open { self.day_dialog = None; }
+        // Like the other read-only dialogs, a click on the dimmed backdrop closes it.
+        if response.backdrop_response.clicked() && !state.ignore_release { open = false; }
+        state.menu_open = menu_open;
+        if open { ctx.data_mut(|d| d.insert_temp(state_id, state)); } else { self.day_dialog = None; }
         if let Some(action) = action { self.calendar_action(action); }
     }
 
@@ -1253,7 +1384,12 @@ impl App {
         let help = ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::F1))
             || (!ctx.wants_keyboard_input() && ctx.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Text(s) if s == "?"))));
         if help && !dragging && !self.has_modal_other_than_shortcuts() { self.show_shortcuts = !self.show_shortcuts; }
-        if self.has_modal() { return; }
+        let dropped = ctx.input(|i| i.raw.dropped_files.iter().filter_map(|f| f.path.clone()).find(|p| p.extension().is_some_and(|e| e.eq_ignore_ascii_case("bgt"))));
+        if self.has_modal() {
+            // Dialogs keep their place (and any draft); say why the dropped budget did not open.
+            if dropped.is_some() { self.warn("Close the open dialog first, then drop the budget again."); }
+            return;
+        }
         if dragging && ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape)) {
             egui::DragAndDrop::clear_payload(ctx); self.drag_month_hover = None; return;
         }
@@ -1278,7 +1414,6 @@ impl App {
         if pgdn { self.go(1); }
         if pgup { self.go(-1); }
         if home { self.go_today(); }
-        let dropped = ctx.input(|i| i.raw.dropped_files.iter().filter_map(|f| f.path.clone()).find(|p| p.extension().is_some_and(|e| e.eq_ignore_ascii_case("bgt"))));
         if let Some(p) = dropped { self.open(&p); }
     }
 
@@ -1421,6 +1556,10 @@ fn icon_button(ui: &mut egui::Ui, icon: &str) -> egui::Response {
 
 impl App {
     fn render(&mut self, ctx: &egui::Context) {
+        let (modal_before, focus_before) = (self.has_modal(), ctx.memory(|m| m.focused()));
+        self.files.wake(ctx);
+        self.finish_auto_open();
+        self.check_date(ctx);
         self.screenshot_step(ctx);
         if ctx.input(|i| i.viewport().close_requested()) {
             if !self.allow_close && (self.dirty || self.has_draft()) {
@@ -1509,14 +1648,20 @@ impl App {
             self.confirmations(ctx);
             self.password_prompt(ctx);
         }
-        // drag-over hint
-        if ctx.input(|i| !i.raw.hovered_files.is_empty()) {
+        // drag-over hint; a dialog does not accept drops (`keys` explains a drop made anyway)
+        if ctx.input(|i| !i.raw.hovered_files.is_empty()) && !self.has_modal() {
             let r = ctx.screen_rect();
             let p = ctx.layer_painter(egui::LayerId::new(egui::Order::Foreground, egui::Id::new("drop")));
             p.rect(r.shrink(SP3), theme::RADIUS, alpha(t.accent, 10), Stroke::new(2.0_f32, t.accent), StrokeKind::Inside);
             p.text(r.center(), Align2::CENTER_CENTER, "Drop to open", ts(TITLE).resolve(&ctx.style()), t.accent);
         }
         self.toast(ctx);
+        // Keyboard focus goes back to the control that opened a dialog (e.g. a row opened with Enter).
+        match (modal_before, self.has_modal()) {
+            (false, true) => self.focus_return = focus_before,
+            (true, false) => if let Some(id) = self.focus_return.take() { ctx.memory_mut(|m| m.request_focus(id)); },
+            _ => {}
+        }
     }
 }
 
@@ -1634,6 +1779,7 @@ mod lifecycle_tests {
         let mut p = budget_core::Payment::new(20261027); p.description = "Fixture payment".into(); p.amount = -12.0;
         db.add(p);
         let app = App {
+            date_watch: DateWatch::fixed(), files: FileProbes::default(), auto_open: None, focus_return: None,
             cfg, rc_path: dir.join(".budgetrc"), db: Some(db), file: Some(dir.join("current.bgt")), password: None,
             saved_bytes: Some(b"previous budget".to_vec()), dirty: true, payment_editor: None, transaction_editor: None,
             balance_editor: None, drag_month_hover: None,
@@ -2299,6 +2445,287 @@ mod lifecycle_tests {
         frame(&mut app, &ctx, vec![key(Key::Enter, Modifiers::NONE)], false);
         frame(&mut app, &ctx, vec![], false);
         assert_eq!(app.cur.get(), 20271001);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    type Texts = Vec<(egui::epaint::TextShape, egui::Rect)>;
+
+    fn text_center(texts: &Texts, pred: impl Fn(&str) -> bool) -> Option<egui::Pos2> {
+        texts.iter().find(|(t, _)| pred(&t.galley.job.text)).map(|(t, _)| t.pos + t.galley.mesh_bounds.center().to_vec2())
+    }
+
+    fn click_at(app: &mut App, ctx: &egui::Context, pos: egui::Pos2) -> Texts {
+        frame(app, ctx, vec![egui::Event::PointerMoved(pos)], false);
+        for pressed in [true, false] {
+            frame(app, ctx, vec![egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: Modifiers::NONE }], false);
+        }
+        rendered_text(&frame(app, ctx, vec![], false))
+    }
+
+    /// The rectangle of the widget that has keyboard focus.
+    fn focused_rect(ctx: &egui::Context) -> Option<(egui::Id, egui::Rect)> {
+        let id = ctx.memory(|m| m.focused())?;
+        Some((id, ctx.read_response(id)?.rect))
+    }
+
+    #[test]
+    fn tab_walks_header_search_month_tiles_and_calendar_rows_and_shift_tab_goes_back() {
+        let (mut app, dir) = fixture();
+        app.dirty = false;
+        let ctx = gui(&app);
+        let mut texts = Vec::new();
+        for _ in 0..3 { texts = rendered_text(&frame(&mut app, &ctx, vec![], false)); }
+        let landmarks = [
+            ("search", text_center(&texts, |s| s == "Search transactions").unwrap()),
+            ("month", text_center(&texts, |s| s.starts_with("October 2026")).unwrap()),
+            ("opening", text_center(&texts, |s| s == "Opening balance").unwrap()),
+            ("closing", text_center(&texts, |s| s == "Closing balance").unwrap()),
+            ("row", text_center(&texts, |s| s == "Fixture payment").unwrap()),
+        ];
+        // Each key press is followed by an idle frame, as when a person presses Tab repeatedly.
+        let mut order: Vec<(egui::Id, Option<&str>)> = Vec::new();
+        for _ in 0..60 {
+            frame(&mut app, &ctx, vec![key(Key::Tab, Modifiers::NONE)], false);
+            frame(&mut app, &ctx, vec![], false);
+            let (id, rect) = focused_rect(&ctx).unwrap_or_else(|| panic!("Tab left nothing focused after {:?}", order.iter().map(|(_, n)| n).collect::<Vec<_>>()));
+            order.push((id, landmarks.iter().find(|(_, pos)| rect.contains(*pos)).map(|(name, _)| *name)));
+            if order.len() > 1 && order[0].0 == id { break; }
+        }
+        let first = |name: &str| order.iter().position(|(_, n)| *n == Some(name))
+            .unwrap_or_else(|| panic!("Tab never reached {name}: {:?}", order.iter().map(|(_, n)| n).collect::<Vec<_>>()));
+        let steps: Vec<usize> = landmarks.iter().map(|(name, _)| first(name)).collect();
+        assert!(steps.windows(2).all(|w| w[0] < w[1]), "header → search → month → tiles → rows, got steps {steps:?}");
+        assert_eq!(order.last().unwrap().0, order[0].0, "after the calendar Tab wraps around to the header");
+        // Walk back to the row, then Shift+Tab returns to the closing balance tile.
+        while focused_rect(&ctx).and_then(|(_, r)| r.contains(landmarks[4].1).then_some(())).is_none() {
+            frame(&mut app, &ctx, vec![key(Key::Tab, Modifiers::SHIFT)], false);
+            frame(&mut app, &ctx, vec![], false);
+        }
+        let (row_id, row_rect) = focused_rect(&ctx).unwrap();
+        let ring = frame(&mut app, &ctx, vec![], false).shapes.iter().any(|s| matches!(&s.shape,
+            egui::Shape::Rect(r) if r.stroke.width >= 2.0 && r.stroke.color == app.t.accent && r.rect == row_rect));
+        assert!(ring, "a focused row shows a 2px accent focus ring inside its unchanged rectangle");
+        frame(&mut app, &ctx, vec![key(Key::Tab, Modifiers::SHIFT)], false);
+        frame(&mut app, &ctx, vec![], false);
+        assert!(focused_rect(&ctx).unwrap().1.contains(landmarks[3].1), "Shift+Tab from the first row goes back to the summary tiles");
+        // Back on the row: Enter opens this date's editor, and closing it returns focus to the row.
+        frame(&mut app, &ctx, vec![key(Key::Tab, Modifiers::NONE)], false);
+        frame(&mut app, &ctx, vec![], false);
+        assert_eq!(focused_rect(&ctx).unwrap().0, row_id);
+        frame(&mut app, &ctx, vec![key(Key::Enter, Modifiers::NONE)], false);
+        let editor = app.transaction_editor.as_ref().expect("Enter on a focused row opens the transaction editor");
+        assert_eq!((editor.payment_id, editor.date), (app.db.as_ref().unwrap().payments[0].id, 20261027));
+        frame(&mut app, &ctx, vec![], false);
+        frame(&mut app, &ctx, vec![key(Key::Escape, Modifiers::NONE)], false);
+        frame(&mut app, &ctx, vec![], false);
+        assert!(app.transaction_editor.is_none());
+        assert_eq!(ctx.memory(|m| m.focused()), Some(row_id), "closing the editor returns focus to the row");
+        frame(&mut app, &ctx, vec![key(Key::Space, Modifiers::NONE)], false);
+        assert!(app.transaction_editor.is_some(), "Space opens the editor too");
+        assert!(!app.dirty);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn filtered_day_dialog_lists_matching_transactions_before_the_others() {
+        let (mut app, dir) = dense_fixture();
+        let ctx = gui(&app);
+        // Bill 8-3 and 8-4 (−153, −154) match; 8-0..8-2 do not.
+        app.filter_text = "<-152.5".into();
+        app.set_filter();
+        app.day_dialog = Some(20261008);
+        // Tall enough that the settled dialog lists all five without scrolling.
+        let tall = |app: &mut App| rendered_text(&ctx.run(egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, Vec2::new(1280.0, 1400.0))), ..Default::default() }, |ctx| app.render(ctx)));
+        let mut texts = Vec::new();
+        for _ in 0..12 { texts = tall(&mut app); }
+        // The dialog names payments in the semibold face; the calendar uses the body face.
+        let semi = egui::FontFamily::Name("semi".into());
+        let dialog_y = |name: &str| texts.iter().find(|(t, _)| t.galley.job.text == name && t.galley.job.sections[0].format.font_id.family == semi)
+            .map(|(t, _)| t.pos.y).unwrap_or_else(|| panic!("the day dialog must list {name}"));
+        let other = text_center(&texts, |s| s == "Other transactions on this day").expect("non-matching transactions get their own section").y;
+        assert!(texts.iter().any(|(t, _)| t.galley.job.text == "2 of 5 transactions match the search"));
+        for name in ["Bill 8-3", "Bill 8-4"] { assert!(dialog_y(name) < other, "{name} matches and is listed first"); }
+        for name in ["Bill 8-0", "Bill 8-1", "Bill 8-2"] { assert!(dialog_y(name) > other, "{name} is listed under the other transactions"); }
+        app.filter_text.clear();
+        app.set_filter();
+        for _ in 0..2 { texts = tall(&mut app); }
+        assert!(texts.iter().any(|(t, _)| t.galley.job.text == "5 transactions"));
+        assert!(!texts.iter().any(|(t, _)| t.galley.job.text == "Other transactions on this day"));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn escape_closes_the_day_dialog_menu_first_and_the_backdrop_closes_the_dialog() {
+        let (mut app, dir) = fixture();
+        let ctx = gui(&app);
+        app.day_dialog = Some(20261027);
+        let mut texts = Vec::new();
+        for _ in 0..2 { texts = rendered_text(&frame(&mut app, &ctx, vec![], false)); }
+        let more = text_center(&texts, |s| s == "More").expect("the day dialog offers More");
+        texts = click_at(&mut app, &ctx, more);
+        assert!(texts.iter().any(|(t, _)| t.galley.job.text == "Edit whole payment"), "More opens its menu");
+        frame(&mut app, &ctx, vec![key(Key::Escape, Modifiers::NONE)], false);
+        texts = rendered_text(&frame(&mut app, &ctx, vec![], false));
+        assert!(!texts.iter().any(|(t, _)| t.galley.job.text == "Edit whole payment"), "Escape closes the menu");
+        assert_eq!(app.day_dialog, Some(20261027), "the first Escape closes only the menu");
+        frame(&mut app, &ctx, vec![key(Key::Escape, Modifiers::NONE)], false);
+        assert_eq!(app.day_dialog, None, "a second Escape closes the dialog");
+        // A press on the backdrop while the menu is open dismisses only the menu, as Escape does.
+        app.day_dialog = Some(20261027);
+        frame(&mut app, &ctx, vec![], false);
+        click_at(&mut app, &ctx, more);
+        let backdrop = egui::pos2(20.0, 420.0);
+        texts = click_at(&mut app, &ctx, backdrop);
+        assert!(!texts.iter().any(|(t, _)| t.galley.job.text == "Edit whole payment"));
+        assert_eq!(app.day_dialog, Some(20261027));
+        click_at(&mut app, &ctx, backdrop);
+        assert_eq!(app.day_dialog, None, "a backdrop click closes the day dialog, like the other read-only dialogs");
+        app.show_legend = true;
+        frame(&mut app, &ctx, vec![], false);
+        click_at(&mut app, &ctx, backdrop);
+        assert!(!app.show_legend, "the legend closes the same way");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn double_clicking_plus_n_leaves_the_day_dialog_open() {
+        let (mut app, dir) = fixture();
+        let db = app.db.as_mut().unwrap();
+        for n in 0..60 {
+            let mut p = budget_core::Payment::new(20261004);
+            p.description = format!("Busy {n}"); p.amount = -1.0 - n as f64;
+            db.add(p);
+        }
+        let ctx = gui(&app);
+        let mut texts = Vec::new();
+        for _ in 0..3 { texts = rendered_text(&frame(&mut app, &ctx, vec![], false)); }
+        let more = text_center(&texts, |s| s.len() > 1 && s.starts_with('+') && s[1..].chars().all(|c| c.is_ascii_digit())).expect("the busy day shows +N");
+        assert!(more.x < 300.0, "+N must lie outside the centred dialog for this test: {more:?}");
+        let button = |pressed| egui::Event::PointerButton { pos: more, button: egui::PointerButton::Primary, pressed, modifiers: Modifiers::NONE };
+        frame(&mut app, &ctx, vec![egui::Event::PointerMoved(more)], false);
+        for pressed in [true, false] { frame(&mut app, &ctx, vec![button(pressed)], false); }
+        // The second press follows a few frames later (each test frame is 1/60 s; the double-click window is 0.3 s).
+        for _ in 0..4 { frame(&mut app, &ctx, vec![], false); }
+        assert_eq!(app.day_dialog, Some(20261004), "the first click opens the day dialog");
+        for pressed in [true, false] { frame(&mut app, &ctx, vec![button(pressed)], false); }
+        frame(&mut app, &ctx, vec![], false);
+        assert_eq!(app.day_dialog, Some(20261004), "the double-click's second click lands on the backdrop but must not close the dialog it opened");
+        for _ in 0..30 { frame(&mut app, &ctx, vec![], false); }
+        click_at(&mut app, &ctx, more);
+        assert_eq!(app.day_dialog, None, "a later backdrop click closes it");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_file_dropped_while_a_dialog_is_open_is_explained_not_silently_ignored() {
+        let (mut app, dir) = fixture();
+        app.dirty = false;
+        let ctx = gui(&app);
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, Vec2::new(1280.0, 840.0));
+        let dropped = dir.join("other.bgt");
+        let hover = |app: &mut App| rendered_text(&ctx.run(egui::RawInput { screen_rect: Some(screen),
+            hovered_files: vec![egui::HoveredFile { path: Some(dropped.clone()), ..Default::default() }], ..Default::default() }, |ctx| app.render(ctx)));
+        assert!(hover(&mut app).iter().any(|(t, _)| t.galley.job.text == "Drop to open"), "without a dialog the drop target is shown");
+        app.show_legend = true;
+        assert!(!hover(&mut app).iter().any(|(t, _)| t.galley.job.text == "Drop to open"), "no drop target while a dialog is open");
+        let _ = ctx.run(egui::RawInput { screen_rect: Some(screen),
+            dropped_files: vec![egui::DroppedFile { path: Some(dropped.clone()), ..Default::default() }], ..Default::default() }, |ctx| app.render(ctx));
+        assert!(app.toast.as_ref().is_some_and(|t| t.error && t.text.contains("Close the open dialog")), "the drop is explained");
+        assert!(app.show_legend && app.pending_action.is_none() && app.pw_prompt.is_none());
+        assert_eq!(app.file.as_deref(), Some(dir.join("current.bgt").as_path()));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_new_local_date_becomes_today_while_the_app_is_open() {
+        use std::sync::atomic::AtomicI32;
+        use std::sync::Arc;
+        let (mut app, dir) = fixture();
+        app.dirty = false;
+        let clock = Arc::new(AtomicI32::new(20261027));
+        let source = clock.clone();
+        app.date_watch = DateWatch::new(Some(Box::new(move || source.load(Ordering::Relaxed))), Instant::now());
+        let ctx = gui(&app);
+        let wake = |output: &egui::FullOutput| output.viewport_output[&egui::ViewportId::ROOT].repaint_delay;
+        let mut output = frame(&mut app, &ctx, vec![], false);
+        for _ in 0..3 { output = frame(&mut app, &ctx, vec![], false); }
+        assert_eq!(app.today, 20261027);
+        assert!(wake(&output) <= DateWatch::INTERVAL, "an idle window wakes for the next date check: {:?}", wake(&output));
+        // Midnight passes: the grid and the scheduler's today follow without any input.
+        clock.store(20261028, Ordering::Relaxed);
+        app.date_watch.expire();
+        frame(&mut app, &ctx, vec![], false);
+        assert_eq!((app.today, app.db.as_ref().unwrap().today), (20261028, 20261028));
+        let today: Vec<i32> = app.view.as_ref().unwrap().cells.iter().filter(|c| c.is_today).map(|c| c.date).collect();
+        assert_eq!(today, [20261028], "the grid marks the new day");
+        assert!(!app.dirty, "a new day is not an edit");
+        // Someone looking at the current month moves into the next one with it...
+        clock.store(20261101, Ordering::Relaxed);
+        app.date_watch.expire();
+        frame(&mut app, &ctx, vec![], false);
+        assert_eq!((app.today, app.cur.get()), (20261101, 20261101));
+        // ...while someone browsing another month stays there.
+        app.go(2);
+        clock.store(20261102, Ordering::Relaxed);
+        app.date_watch.expire();
+        frame(&mut app, &ctx, vec![], false);
+        assert_eq!((app.today, app.cur.get()), (20261102, 20270101));
+        // `--today` keeps the date fixed and needs no wake-ups.
+        app.date_watch = DateWatch::fixed();
+        clock.store(20261103, Ordering::Relaxed);
+        for _ in 0..3 { output = frame(&mut app, &ctx, vec![], false); }
+        assert_eq!(app.today, 20261102);
+        assert!(wake(&output) > DateWatch::INTERVAL, "{:?}", wake(&output));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn recent_budgets_on_a_stalled_share_never_block_the_window() {
+        let (mut app, dir) = fixture();
+        (app.db, app.file, app.dirty) = (None, None, false);
+        app.cfg.recent_file = vec![r"\\stalled-server\budgets\Home.bgt".to_string()];
+        let (gate, probes) = file_probe::tests::Gate::probes(FileStatus::Present(Some(std::time::SystemTime::now())));
+        app.files = probes;
+        let ctx = gui(&app);
+        let started = Instant::now();
+        let mut texts = Vec::new();
+        for _ in 0..3 { texts = rendered_text(&frame(&mut app, &ctx, vec![], false)); }
+        assert!(started.elapsed() < Duration::from_secs(2), "frames must not wait for the file check");
+        let shown = |texts: &Texts, s: &str| texts.iter().any(|(t, _)| t.galley.job.text == s);
+        assert!(shown(&texts, "Home.bgt") && shown(&texts, "Checking…"), "a neutral placeholder until the answer arrives");
+        assert!(!shown(&texts, "File not found"));
+        gate.open();
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !shown(&texts, "Modified just now") && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(5));
+            texts = rendered_text(&frame(&mut app, &ctx, vec![], false));
+        }
+        assert!(shown(&texts, "Modified just now"));
+        assert_eq!(gate.calls.load(Ordering::SeqCst), 1, "each path is checked once, not every frame");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn the_last_budget_on_a_slow_share_opens_when_its_check_returns() {
+        let (mut app, dir) = fixture();
+        let path = dir.join("last.bgt");
+        bgt::save_file(&path, &app.db.as_ref().unwrap().to_text(None).unwrap()).unwrap();
+        (app.db, app.file, app.dirty) = (None, None, false);
+        let (gate, probes) = file_probe::tests::Gate::probes(FileStatus::Present(None));
+        app.files = probes;
+        app.auto_open = Some(path.clone());
+        let ctx = gui(&app);
+        for _ in 0..2 { frame(&mut app, &ctx, vec![], false); }
+        assert!(app.db.is_none() && app.auto_open.is_some(), "the window stays usable while the share is checked");
+        gate.open();
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while app.db.is_none() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(5));
+            frame(&mut app, &ctx, vec![], false);
+        }
+        assert_eq!(app.file.as_deref(), Some(path.as_path()));
+        assert!(app.auto_open.is_none());
         std::fs::remove_dir_all(dir).unwrap();
     }
 }
