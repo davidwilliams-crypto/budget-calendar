@@ -169,69 +169,46 @@ pub struct Tokens {
     pub low: (Color32, Color32),
 }
 
+/// A `.budgetrc` palette entry.
+type Key = fn(&Colors) -> u32;
+
 impl Tokens {
+    /// Each role is listed once with its modern light and dark tone. Roles tied to a `.budgetrc`
+    /// colour use that colour instead when the user changed it (it matches neither stock palette).
     pub fn new(c: &Colors, dark: bool) -> Tokens {
-        let dl = Colors::theme(Theme::Light);
-        let dd = Colors::theme(Theme::Dark);
-        // user colour if customised, else the modern tone for the role
-        let pick = |user: u32, l: u32, d: u32, modern: u32| if user == l || user == d { rgb(modern) } else { rgb(user) };
-        let strip = |user: u32, l: u32, d: u32, bg: u32, fg: u32| {
-            if user == l || user == d { (rgb(bg), rgb(fg)) } else { let b = rgb(user); (b, on(b)) }
+        let stock = [Colors::theme(Theme::Light), Colors::theme(Theme::Dark)];
+        let customised = |key: Key| stock.iter().all(|s| key(s) != key(c));
+        let tone = |light: u32, night: u32| rgb(if dark { night } else { light });
+        let user = |key: Key, light: u32, night: u32| if customised(key) { rgb(key(c)) } else { tone(light, night) };
+        // Balance strips: (background, foreground); a custom background gets a readable foreground.
+        let strip = |key: Key, light: (u32, u32), night: (u32, u32)| {
+            if customised(key) { let bg = rgb(key(c)); (bg, on(bg)) } else { (tone(light.0, night.0), tone(light.1, night.1)) }
         };
-        if dark {
-            let surface = pick(c.bgColorCell, dl.bgColorCell, dd.bgColorCell, 0x1b1f27);
-            Tokens {
-                dark,
-                bg: pick(c.bgColorWindow, dl.bgColorWindow, dd.bgColorWindow, 0x111722),
-                surface,
-                surface_hover: rgb(0x242935),
-                weekend: rgb(0x1d222b),
-                past: pick(c.bgColorCellPast, dl.bgColorCellPast, dd.bgColorCellPast, 0x1a1f27),
-                other_month: pick(c.bgColorCellOtherMonths, dl.bgColorCellOtherMonths, dd.bgColorCellOtherMonths, 0x0f131b),
-                border: rgb(0x2b313d),
-                border_strong: rgb(0x3b4350),
-                text: pick(c.colorDescText, dl.colorDescText, dd.colorDescText, 0xe6e8eb),
-                text_muted: rgb(0xa0aec0),
-                text_faint: rgb(0x8b97aa),
-                accent: pick(c.colorCurrentMonth, dl.colorCurrentMonth, dd.colorCurrentMonth, 0x60a5fa),
-                today: pick(c.colorCalendarToday, dl.colorCalendarToday, dd.colorCalendarToday, 0x60a5fa),
-                positive: pick(c.colorPositiveAmount, dl.colorPositiveAmount, dd.colorPositiveAmount, 0x4ade80),
-                negative: pick(c.colorNegativeAmount, dl.colorNegativeAmount, dd.colorNegativeAmount, 0xf87171),
-                disabled: pick(c.colorDisabledPayment, dl.colorDisabledPayment, dd.colorDisabledPayment, 0x7d8799),
-                paid: pick(c.bgColorPaid, dl.bgColorPaid, dd.bgColorPaid, 0x34d399),
-                important: pick(c.bgColorImportant, dl.bgColorImportant, dd.bgColorImportant, 0xfbbf24),
-                bal: strip(c.bgColorBalance, dl.bgColorBalance, dd.bgColorBalance, 0x232833, 0xc9ced6),
-                max: strip(c.bgColorMaxBalance, dl.bgColorMaxBalance, dd.bgColorMaxBalance, 0x123524, 0x86efac),
-                min: strip(c.bgColorMinBalance, dl.bgColorMinBalance, dd.bgColorMinBalance, 0x1e3a5f, 0x93c5fd),
-                low: strip(c.bgColorBelowMinBalance, dl.bgColorBelowMinBalance, dd.bgColorBelowMinBalance, 0x4a3410, 0xfcd34d),
-            }
-        } else {
-            let surface = pick(c.bgColorCell, dl.bgColorCell, dd.bgColorCell, 0xffffff);
-            Tokens {
-                dark,
-                bg: pick(c.bgColorWindow, dl.bgColorWindow, dd.bgColorWindow, 0xf4f6fa),
-                surface,
-                surface_hover: rgb(0xf0f3f8),
-                weekend: rgb(0xf6f8fb),
-                past: pick(c.bgColorCellPast, dl.bgColorCellPast, dd.bgColorCellPast, 0xf8f9fc),
-                other_month: pick(c.bgColorCellOtherMonths, dl.bgColorCellOtherMonths, dd.bgColorCellOtherMonths, 0xeef1f6),
-                border: rgb(0xe2e8f0),
-                border_strong: rgb(0xcbd5e1),
-                text: pick(c.colorDescText, dl.colorDescText, dd.colorDescText, 0x1f2328),
-                text_muted: rgb(0x475569),
-                text_faint: rgb(0x64748b),
-                accent: pick(c.colorCurrentMonth, dl.colorCurrentMonth, dd.colorCurrentMonth, 0x2563eb),
-                today: pick(c.colorCalendarToday, dl.colorCalendarToday, dd.colorCalendarToday, 0x2563eb),
-                positive: pick(c.colorPositiveAmount, dl.colorPositiveAmount, dd.colorPositiveAmount, 0x15803d),
-                negative: pick(c.colorNegativeAmount, dl.colorNegativeAmount, dd.colorNegativeAmount, 0xb91c1c),
-                disabled: pick(c.colorDisabledPayment, dl.colorDisabledPayment, dd.colorDisabledPayment, 0x6b7280),
-                paid: pick(c.bgColorPaid, dl.bgColorPaid, dd.bgColorPaid, 0x16a34a),
-                important: pick(c.bgColorImportant, dl.bgColorImportant, dd.bgColorImportant, 0xd97706),
-                bal: strip(c.bgColorBalance, dl.bgColorBalance, dd.bgColorBalance, 0xf3f4f6, 0x374151),
-                max: strip(c.bgColorMaxBalance, dl.bgColorMaxBalance, dd.bgColorMaxBalance, 0xdcfce7, 0x166534),
-                min: strip(c.bgColorMinBalance, dl.bgColorMinBalance, dd.bgColorMinBalance, 0xdbeafe, 0x1e40af),
-                low: strip(c.bgColorBelowMinBalance, dl.bgColorBelowMinBalance, dd.bgColorBelowMinBalance, 0xfef3c7, 0x92400e),
-            }
+        Tokens {
+            dark,
+            //                         .budgetrc colour                    light      dark
+            bg:            user(|c| c.bgColorWindow,                   0xf4f6fa, 0x111722),
+            surface:       user(|c| c.bgColorCell,                     0xffffff, 0x1b1f27),
+            surface_hover: tone(                                       0xf0f3f8, 0x242935),
+            weekend:       tone(                                       0xf6f8fb, 0x1d222b),
+            past:          user(|c| c.bgColorCellPast,                 0xf8f9fc, 0x1a1f27),
+            other_month:   user(|c| c.bgColorCellOtherMonths,          0xeef1f6, 0x0f131b),
+            border:        tone(                                       0xe2e8f0, 0x2b313d),
+            border_strong: tone(                                       0xcbd5e1, 0x3b4350),
+            text:          user(|c| c.colorDescText,                   0x1f2328, 0xe6e8eb),
+            text_muted:    tone(                                       0x475569, 0xa0aec0),
+            text_faint:    tone(                                       0x64748b, 0x8b97aa),
+            accent:        user(|c| c.colorCurrentMonth,               0x2563eb, 0x60a5fa),
+            today:         user(|c| c.colorCalendarToday,              0x2563eb, 0x60a5fa),
+            positive:      user(|c| c.colorPositiveAmount,             0x15803d, 0x4ade80),
+            negative:      user(|c| c.colorNegativeAmount,             0xb91c1c, 0xf87171),
+            disabled:      user(|c| c.colorDisabledPayment,            0x6b7280, 0x7d8799),
+            paid:          user(|c| c.bgColorPaid,                     0x16a34a, 0x34d399),
+            important:     user(|c| c.bgColorImportant,                0xd97706, 0xfbbf24),
+            bal:           strip(|c| c.bgColorBalance,         (0xf3f4f6, 0x374151), (0x232833, 0xc9ced6)),
+            max:           strip(|c| c.bgColorMaxBalance,      (0xdcfce7, 0x166534), (0x123524, 0x86efac)),
+            min:           strip(|c| c.bgColorMinBalance,      (0xdbeafe, 0x1e40af), (0x1e3a5f, 0x93c5fd)),
+            low:           strip(|c| c.bgColorBelowMinBalance, (0xfef3c7, 0x92400e), (0x4a3410, 0xfcd34d)),
         }
     }
 
@@ -364,6 +341,45 @@ mod tests {
             // Repeated (unchanged) day balances use faint text on the ordinary balance strip tint.
             let ratio = contrast(t.text_faint, tint(t.surface, t.bal.0, 0.5));
             assert!(ratio >= 4.5, "faint on the ordinary balance strip in {} theme is {ratio:.2}:1", if dark { "dark" } else { "light" });
+        }
+    }
+
+    fn dump(t: &Tokens) -> String {
+        let h = |c: Color32| format!("{:02x}{:02x}{:02x}", c.r(), c.g(), c.b());
+        let pair = |p: (Color32, Color32)| format!("{}/{}", h(p.0), h(p.1));
+        [h(t.bg), h(t.surface), h(t.surface_hover), h(t.weekend), h(t.past), h(t.other_month), h(t.border), h(t.border_strong),
+            h(t.text), h(t.text_muted), h(t.text_faint), h(t.accent), h(t.today), h(t.positive), h(t.negative), h(t.disabled),
+            h(t.paid), h(t.important), pair(t.bal), pair(t.max), pair(t.min), pair(t.low)].join(" ")
+    }
+
+    /// Every role keeps its exact value: the stock palettes map to the modern tones, and customised
+    /// `.budgetrc` colours are honoured with a derived readable foreground.
+    #[test]
+    fn every_colour_role_keeps_its_value_in_both_themes() {
+        let stock = budget_core::config::BudgetConfig::default().colors;
+        let custom = Colors {
+            bgColorWindow: 0x101112, bgColorCell: 0x202122, bgColorCellPast: 0x303132, bgColorCellOtherMonths: 0x404142,
+            colorDescText: 0x505152, colorCurrentMonth: 0x606162, colorCalendarToday: 0x707172, colorPositiveAmount: 0x808182,
+            colorNegativeAmount: 0x909192, colorDisabledPayment: 0xa0a1a2, bgColorPaid: 0xb0b1b2, bgColorImportant: 0xc0c1c2,
+            bgColorBalance: 0xd0d1d2, bgColorMaxBalance: 0xe0e1e2, bgColorMinBalance: 0xf0f1f2, bgColorBelowMinBalance: 0x0a0b0c,
+            ..Colors::theme(Theme::Light)
+        };
+        let dark_stock = Colors::theme(Theme::Dark);
+        let light = "f4f6fa ffffff f0f3f8 f6f8fb f8f9fc eef1f6 e2e8f0 cbd5e1 1f2328 475569 64748b 2563eb 2563eb 15803d b91c1c \
+            6b7280 16a34a d97706 f3f4f6/374151 dcfce7/166534 dbeafe/1e40af fef3c7/92400e";
+        let cases = [
+            (&stock, false, light),
+            (&stock, true, "111722 1b1f27 242935 1d222b 1a1f27 0f131b 2b313d 3b4350 e6e8eb a0aec0 8b97aa 60a5fa 60a5fa 4ade80 \
+                f87171 7d8799 34d399 fbbf24 232833/c9ced6 123524/86efac 1e3a5f/93c5fd 4a3410/fcd34d"),
+            // The stock dark palette counts as stock in the light theme too.
+            (&dark_stock, false, light),
+            (&custom, false, "101112 202122 f0f3f8 f6f8fb 303132 404142 e2e8f0 cbd5e1 505152 475569 64748b 606162 707172 808182 \
+                909192 a0a1a2 b0b1b2 c0c1c2 d0d1d2/172033 e0e1e2/172033 f0f1f2/172033 0a0b0c/ffffff"),
+            (&custom, true, "101112 202122 242935 1d222b 303132 404142 2b313d 3b4350 505152 a0aec0 8b97aa 606162 707172 808182 \
+                909192 a0a1a2 b0b1b2 c0c1c2 d0d1d2/172033 e0e1e2/172033 f0f1f2/172033 0a0b0c/ffffff"),
+        ];
+        for (colors, dark, expected) in cases {
+            assert_eq!(dump(&Tokens::new(colors, dark)), expected, "dark={dark}");
         }
     }
 
