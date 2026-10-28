@@ -224,9 +224,15 @@ fn parse_payment(mut first: &str, toks: &[&str], id: i32, today: i32, log: &mut 
     Ok(p)
 }
 
+/// A UTF-8 byte-order mark (Notepad writes one): U+FEFF in decoded text, or the bytes EF BB BF as
+/// `load_file` reads them (ISO-8859-1). It is not part of the first line.
+fn strip_bom(text: &str) -> &str {
+    text.strip_prefix('\u{feff}').or_else(|| text.strip_prefix("\u{ef}\u{bb}\u{bf}")).unwrap_or(text)
+}
+
 /// `isEncrypted`: first line is one of the two encryption headers.
 pub fn is_encrypted_text(text: &str) -> bool {
-    let first = logical_lines(text).next().unwrap_or("");
+    let first = logical_lines(strip_bom(text)).next().unwrap_or("");
     first == HEADER_XOR || first == HEADER_BLOWFISH
 }
 
@@ -240,6 +246,7 @@ enum Mode<'a> { Plain, Xor(&'a str), Blowfish(Box<LineCipher>) }
 /// Parse the text of a `.bgt` file. `today` seeds new payments' default dates; `password` is used
 /// only when the first line is an encryption header (a plain file ignores it, like the original).
 pub fn load_str(text: &str, today: i32, password: Option<&str>) -> Result<Loaded, Box<Loaded>> {
+    let text = strip_bom(text);
     let first = load_with(text, today, password, false);
     if first.is_err() {
         // Files saved by earlier builds with a 1-3 byte password used a zero-padded key.

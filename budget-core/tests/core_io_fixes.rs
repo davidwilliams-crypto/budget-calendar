@@ -188,3 +188,24 @@ fn malformed_payment_lines_name_the_field_and_keep_the_id_numbering() {
         assert!(l.log.contains(&format!("({line}): Invalid data for '{field}'\nException: {message}\n")), "{line}: {}", l.log);
     }
 }
+
+#[test]
+fn utf8_byte_order_mark_is_skipped() {
+    // Notepad saves a UTF-8 BOM. A file is read as ISO-8859-1 (bytes EF BB BF), while text decoded
+    // as UTF-8 carries U+FEFF; both must load as the same budget, plain or encrypted.
+    let body = "v,2\n:\n=,\n-10.0, A, 20260101, 1m, 5, 20260101, 48,  \n## END-OF-DATA; line_no=5 ##";
+    let latin1 = bgt::latin1_decode(&[b"\xEF\xBB\xBF".as_slice(), body.as_bytes()].concat());
+    for text in [format!("\u{feff}{body}"), latin1] {
+        let l = bgt::load_str(&text, 20260101, None).unwrap_or_else(|l| panic!("{}", l.log));
+        assert_eq!(l.payments.len(), 1);
+        assert_eq!(l.payments[0].description, "A");
+        assert_eq!(l.version, "2");
+    }
+    let mut p = Payment::new(20260101);
+    p.description = "Rent".into();
+    let enc = bgt::save_str(&[p], &Payment::new(20260101), "", Some("pw")).unwrap();
+    let enc = bgt::latin1_decode(&[b"\xEF\xBB\xBF".as_slice(), enc.as_bytes()].concat());
+    assert!(bgt::is_encrypted_text(&enc));
+    let l = bgt::load_str(&enc, 20260101, Some("pw")).unwrap_or_else(|l| panic!("{}", l.log));
+    assert_eq!(l.payments[0].description, "Rent");
+}
