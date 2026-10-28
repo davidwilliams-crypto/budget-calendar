@@ -6,8 +6,8 @@ use egui_phosphor::regular as ph;
 use crate::theme::{self, font, tint, ts, Tokens, CAPTION, DAY, ICON, SECTION, SEMI};
 use budget_core::numfmt::balance_display;
 use crate::view::{is_negative, money, BalKind, CellData, MonthView, TranRow};
+use crate::names::WEEKDAYS;
 
-const WDAYS: [&str; 7] = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const HEADER_H: f32 = 26.0;
 const DAY_HEADER_H: f32 = 19.0;
 const COMPACT_ROW_H: f32 = 18.0;
@@ -220,7 +220,7 @@ pub fn show(ui: &mut Ui, view: &MonthView, t: &Tokens, sunday_first: bool, today
     for c in 0..7 {
         let w = if sunday_first { c } else { (c + 1) % 7 };
         // Full names when there is room, otherwise the 3-letter abbreviation; always small caps-style.
-        let name = (if cw >= 120.0 { WDAYS[w] } else { &WDAYS[w][..3] }).to_uppercase();
+        let name = (if cw >= 120.0 { WEEKDAYS[w] } else { &WEEKDAYS[w][..3] }).to_uppercase();
         let weekend = w == 0 || w == 6;
         let header_cell = Rect::from_min_size(Pos2::new(layout.inner.min.x + cw * c as f32, layout.header.min.y), Vec2::new(cw, layout.header.height()));
         let mut hfont = font(ui, SEMI);
@@ -682,18 +682,18 @@ mod tests {
             CellData {
                 day: date.day(), date: date.get(), in_month: true, is_today: false,
                 weekend: false, note: None, restorable: Vec::new(),
-                rows: (0..payments).map(|n| TranRow {
+                rows: (0..payments).map(|n| std::rc::Rc::new(TranRow {
                     payment_id: n as i32 + 10, date: date.get(), icon: "", text: format!("Payment name {n}"),
                     amount: "123.45".into(), value: 123.45, flag: '\0', hilite: None,
                     disabled: false, filter: String::new(),
                     tip: Tip { description: format!("Payment name {n}"), category: None, amount: 123.45,
                         planned: 123.45, balance_after: 1000.0, note: None, suffix: '\0' },
                     valid_days: Vec::new(),
-                }).collect(),
+                })).collect(),
                 balance: Some(Balance { text: format!("B{}", date.get()), value: 1000.0, kind: BalKind::Normal, adjusted: false, adjustment: 0.0 }),
             }
         }).collect();
-        MonthView { key: (20261001, String::new(), 0), cells, shown: payments * weeks * 7,
+        MonthView { key: Default::default(), cells, shown: payments * weeks * 7,
             total: payments * weeks * 7, brief: Vec::new(), below_min: false, shares_of_expenses: false, filtered: false,
             quick: QuickStats { opening: 0.0, closing: 0.0, min: 0.0, max: 0.0, avg: 0.0, income: 0.0, expenses: 0.0 } }
     }
@@ -840,8 +840,8 @@ mod tests {
         // Unbounded amount reservation can erase the name or paint over adjacent dates.
         let (ctx, t) = context();
         let mut view = fixture(4, 1);
-        view.cells[0].rows[0].text = "A very long payment name with useful detail".into();
-        view.cells[0].rows[0].amount = "999,999,999,999,999,999.99".into();
+        std::rc::Rc::make_mut(&mut view.cells[0].rows[0]).text = "A very long payment name with useful detail".into();
+        std::rc::Rc::make_mut(&mut view.cells[0].rows[0]).amount = "999,999,999,999,999,999.99".into();
         let (output, _) = frame(&ctx, &t, &view, Vec2::new(884.0, 430.0), Vec::new());
         let shapes = text_shapes(&output);
         let (name, name_clip) = shapes.iter().find(|(s, _)| s.galley.job.text.starts_with("A very long")).unwrap();
@@ -859,7 +859,7 @@ mod tests {
         for (width, value) in [(884.0, "−1,234.56"), (1176.0, "−123,456.78")] {
             let (ctx, t) = context();
             let mut view = fixture(5, 5);
-            view.cells[0].rows[0].amount = value.into();
+            std::rc::Rc::make_mut(&mut view.cells[0].rows[0]).amount = value.into();
             let (output, _) = frame(&ctx, &t, &view, Vec2::new(width, 630.0), Vec::new());
             let shapes = text_shapes(&output);
             let (name, name_clip) = shapes.iter().find(|(s, _)| s.galley.job.text == "Payment name 0").unwrap();
@@ -876,7 +876,7 @@ mod tests {
         for value in ["0", "7"] {
             let (ctx, t) = context();
             let mut view = fixture(5, 1);
-            view.cells[0].rows[0].amount = value.into();
+            std::rc::Rc::make_mut(&mut view.cells[0].rows[0]).amount = value.into();
             let (output, _) = frame(&ctx, &t, &view, Vec2::new(1176.0, 630.0), Vec::new());
             let shapes = text_shapes(&output);
             let (amount, clip) = shapes.iter().find(|(s, _)| s.galley.job.text == value &&
@@ -1198,7 +1198,7 @@ mod tests {
         let output = right_click_menu(&ctx, &t, &view, Pos2::new(70.0, 38.0));
         assert!(matches!(click_text(&ctx, &t, &view, &output, "Restore 'Rent'"), Some(Action::Restore { id: 42, date: 20261001 })));
         let (ctx, t) = context();
-        view.key.1 = "rent".into();
+        view.key.search = "rent".into();
         view.filtered = true;
         let output = right_click_menu(&ctx, &t, &view, Pos2::new(70.0, 38.0));
         assert!(click_text(&ctx, &t, &view, &output, "Restore 'Rent'").is_none(), "restoring is disabled while filtered (05 §1.5)");
@@ -1243,7 +1243,7 @@ mod tests {
         let (plain, _) = frame(&ctx, &t, &view, size, Vec::new());
         let name_x = |o: &egui::FullOutput| text_shapes(o).iter().find(|(s, _)| s.galley.job.text == "Payment name 0").unwrap().0.pos.x;
         let before = name_x(&plain);
-        view.cells[0].rows[0].tip.note = Some("Paid by cheque #123".into());
+        std::rc::Rc::make_mut(&mut view.cells[0].rows[0]).tip.note = Some("Paid by cheque #123".into());
         let (noted, _) = frame(&ctx, &t, &view, size, Vec::new());
         assert_eq!(text_shapes(&noted).iter().filter(|(s, _)| s.galley.job.text == ph::NOTE_PENCIL).count(), 1);
         assert!(name_x(&noted) > before + 5.0, "the name makes room for the note mark");
