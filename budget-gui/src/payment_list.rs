@@ -10,6 +10,7 @@ use eframe::egui::{
 use egui_phosphor::regular as ph;
 
 use crate::calendar::Action;
+use crate::names::{MONTHS, WEEKDAYS};
 use crate::theme::{self, font, tint, Tokens, CAPTION, SEMI};
 use crate::view::money;
 
@@ -95,15 +96,7 @@ fn schedule_label(payment: &Payment) -> String {
         'y' => every("year"),
         'W' | 'L' => {
             let start = Cal::from_int(payment.start_date);
-            let weekday = [
-                "Sunday",
-                "Monday",
-                "Tuesday",
-                "Wednesday",
-                "Thursday",
-                "Friday",
-                "Saturday",
-            ][start.day_of_week() as usize];
+            let weekday = WEEKDAYS[start.day_of_week() as usize];
             if payment.freq_type == 'W' {
                 let ordinal =
                     ["First", "Second", "Third", "Fourth", "Fifth"][start.week_of_month() as usize];
@@ -546,9 +539,6 @@ fn show_row_edit(selected: bool, hovered: bool) -> bool {
 /// `2 Jan 2026` (day without a leading zero).
 fn short_date(date: i32) -> String {
     let d = Cal::from_int(date);
-    const MONTHS: [&str; 12] = [
-        "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
-    ];
     format!("{} {} {}", d.day(), MONTHS[d.month() as usize], d.year())
 }
 

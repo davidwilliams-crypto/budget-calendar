@@ -1,5 +1,4 @@
 //! A dated closing-balance draft. The parent applies returned values to the document.
-use budget_core::Cal;
 use eframe::egui::{self, RichText, TextEdit};
 use crate::theme::{self, Tokens};
 
@@ -109,11 +108,7 @@ impl BalanceEditor {
     }
 }
 
-fn display_date(date: i32) -> String {
-    const MONTHS: [&str; 12] = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-    let day = Cal::from_int(date);
-    format!("{} {}, {}", MONTHS[day.month() as usize], day.day(), day.year())
-}
+fn display_date(date: i32) -> String { crate::names::long_date(date) }
 
 #[cfg(test)]
 mod tests {

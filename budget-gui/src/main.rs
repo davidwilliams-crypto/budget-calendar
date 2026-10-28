@@ -11,6 +11,7 @@ mod date_watch;
 mod document;
 mod editor;
 mod file_probe;
+mod names;
 mod payment_list;
 mod reports;
 mod theme;
@@ -32,9 +33,8 @@ use editor::{PaymentAction, PaymentEditor, TransactionAction, TransactionEditor,
 use balance_editor::{BalanceAction, BalanceEditor};
 use date_watch::DateWatch;
 use file_probe::{FileProbes, FileStatus};
+use names::{MONTHS, MONTHS_LONG};
 
-const MONTHS: [&str; 12] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-const MONTHS_LONG: [&str; 12] = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 const SUMMARY_W: f32 = 292.0;
 
 fn home_dir() -> PathBuf {
@@ -1186,8 +1186,7 @@ impl App {
         let mut action = None;
         let response = egui::Modal::new(egui::Id::new("day_transactions")).frame(t.card().inner_margin(24)).show(ctx, |ui| {
             ui.set_width(560.0_f32.min(ctx.screen_rect().width() - 80.0));
-            let cal = Cal::from_int(date);
-            ui.heading(format!("{} {}, {}", MONTHS_LONG[cal.month() as usize], cal.day(), cal.year()));
+            ui.heading(names::long_date(date));
             ui.label(RichText::new(summary).color(t.text_muted));
             ui.add_space(SP3);
             egui::ScrollArea::vertical().max_height((ctx.screen_rect().height() - 250.0).max(140.0)).show(ui, |ui| {

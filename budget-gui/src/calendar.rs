@@ -6,8 +6,8 @@ use egui_phosphor::regular as ph;
 use crate::theme::{self, font, tint, ts, Tokens, CAPTION, DAY, ICON, SECTION, SEMI};
 use budget_core::numfmt::balance_display;
 use crate::view::{is_negative, money, BalKind, CellData, MonthView, TranRow};
+use crate::names::WEEKDAYS;
 
-const WDAYS: [&str; 7] = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const HEADER_H: f32 = 26.0;
 const DAY_HEADER_H: f32 = 19.0;
 const COMPACT_ROW_H: f32 = 18.0;
@@ -220,7 +220,7 @@ pub fn show(ui: &mut Ui, view: &MonthView, t: &Tokens, sunday_first: bool, today
     for c in 0..7 {
         let w = if sunday_first { c } else { (c + 1) % 7 };
         // Full names when there is room, otherwise the 3-letter abbreviation; always small caps-style.
-        let name = (if cw >= 120.0 { WDAYS[w] } else { &WDAYS[w][..3] }).to_uppercase();
+        let name = (if cw >= 120.0 { WEEKDAYS[w] } else { &WEEKDAYS[w][..3] }).to_uppercase();
         let weekend = w == 0 || w == 6;
         let header_cell = Rect::from_min_size(Pos2::new(layout.inner.min.x + cw * c as f32, layout.header.min.y), Vec2::new(cw, layout.header.height()));
         let mut hfont = font(ui, SEMI);

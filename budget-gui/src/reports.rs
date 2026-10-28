@@ -9,6 +9,7 @@
 //! menu call, the dialog call and a keyboard guard.
 
 use crate::editor::{dialog_escape, dialog_footer, field, form_error, form_section};
+use crate::names::MONTHS_LONG;
 use crate::theme::{self, ts, Tokens, CAPTION};
 use budget_core::config::BudgetConfig;
 use budget_core::report::{self, CalendarOptions, ReportColors, ReportMode};
@@ -16,8 +17,6 @@ use budget_core::stats::calc_statistics;
 use budget_core::{BudgetDb, Cal, Field};
 use eframe::egui::{self, RichText};
 use std::path::{Path, PathBuf};
-
-const MONTHS_LONG: [&str; 12] = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
 /// The File menu's "&Print this month" (06 §3.5): the printed calendar of the month on screen.
 pub const PRINT_THIS_MONTH: &str = "Print this month";
