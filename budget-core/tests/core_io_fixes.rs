@@ -188,3 +188,67 @@ fn malformed_payment_lines_name_the_field_and_keep_the_id_numbering() {
         assert!(l.log.contains(&format!("({line}): Invalid data for '{field}'\nException: {message}\n")), "{line}: {}", l.log);
     }
 }
+
+#[test]
+fn utf8_byte_order_mark_is_skipped() {
+    // Notepad saves a UTF-8 BOM. A file is read as ISO-8859-1 (bytes EF BB BF), while text decoded
+    // as UTF-8 carries U+FEFF; both must load as the same budget, plain or encrypted.
+    let body = "v,2\n:\n=,\n-10.0, A, 20260101, 1m, 5, 20260101, 48,  \n## END-OF-DATA; line_no=5 ##";
+    let latin1 = bgt::latin1_decode(&[b"\xEF\xBB\xBF".as_slice(), body.as_bytes()].concat());
+    for text in [format!("\u{feff}{body}"), latin1] {
+        let l = bgt::load_str(&text, 20260101, None).unwrap_or_else(|l| panic!("{}", l.log));
+        assert_eq!(l.payments.len(), 1);
+        assert_eq!(l.payments[0].description, "A");
+        assert_eq!(l.version, "2");
+    }
+    let mut p = Payment::new(20260101);
+    p.description = "Rent".into();
+    let enc = bgt::save_str(&[p], &Payment::new(20260101), "", Some("pw")).unwrap();
+    let enc = bgt::latin1_decode(&[b"\xEF\xBB\xBF".as_slice(), enc.as_bytes()].concat());
+    assert!(bgt::is_encrypted_text(&enc));
+    let l = bgt::load_str(&enc, 20260101, Some("pw")).unwrap_or_else(|l| panic!("{}", l.log));
+    assert_eq!(l.payments[0].description, "Rent");
+}
+
+#[test]
+fn option_dates_must_be_real_calendar_days() {
+    // 20260230 used to load silently as 2 March, and a space inside an option date is not a date.
+    for opt in ["20260230", "20260230:5", "20260230=note", "20261301", "20260001", "20260431", "20230229", "2026030 :5"] {
+        let text = format!("v,2\n:\n=,\n-10.0, A, 20260101, 1m, 5, 20261201, 48,  , {opt}\n## END-OF-DATA; line_no=5 ##");
+        let l = bgt::load_str(&text, 20260101, None).unwrap_err();
+        assert!(l.log.contains("Invalid data for 'opts'"), "{opt}: {}", l.log);
+        assert!(l.payments.is_empty(), "{opt}");
+    }
+    // leap days and dates before year 1000 are real days
+    for opt in ["20240229", "20000229:5", "00010101:5"] {
+        let text = format!("v,2\n:\n=,\n-10.0, A, 20260101, 1m, 5, 20261201, 48,  , {opt}\n## END-OF-DATA; line_no=5 ##");
+        bgt::load_str(&text, 20260101, None).unwrap_or_else(|l| panic!("{opt}: {}", l.log));
+    }
+}
+
+#[test]
+fn non_finite_amounts_are_refused_before_saving() {
+    // The loader accepts only finite amounts, so a save must never write a file it cannot reopen.
+    let base = || {
+        let mut p = Payment::new(20260101);
+        p.description = "A".into();
+        p
+    };
+    let adj = Payment::new(20260101);
+    for v in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+        let mut amount = base();
+        amount.amount = v;
+        let mut loan = base();
+        loan.loan_amount = v;
+        let mut custom = base();
+        custom.add_custom_amount(20260201, v);
+        for p in [amount, loan, custom] {
+            assert!(bgt::save_str(std::slice::from_ref(&p), &adj, "", None).is_err(), "{:?}", p.opt);
+            assert!(bgt::save_str(std::slice::from_ref(&p), &adj, "", Some("pw")).is_err());
+        }
+    }
+    let mut bad_adjustment = Payment::new(20260101);
+    bad_adjustment.add_custom_amount(20260301, f64::NAN);
+    assert!(bgt::save_str(&[base()], &bad_adjustment, "", None).is_err());
+    assert!(bgt::save_str(&[base()], &adj, "", None).is_ok());
+}

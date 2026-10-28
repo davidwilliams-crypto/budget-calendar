@@ -70,8 +70,9 @@ fn huge_or_tiny_loans_terminate() {
     let db = build("-1.0%1.0E15, L, 20261001, 1d, 5, 20270901, 64, ", 20261001, 12);
     assert!(db.payments[0].n_pays > 0);
     // non-finite loan principal is refused by the loader
-    let text = "v,2\n:\n=,\n-10.0%Infinity, L, 20261001, 1m, 5, 20270901, 64, \n## END-OF-DATE ##";
-    assert!(bgt::load_str(text, 20261001, None).is_err());
+    let text = "v,2\n:\n=,\n-10.0%Infinity, L, 20261001, 1m, 5, 20270901, 64, \n## END-OF-DATA; line_no=5 ##";
+    let l = bgt::load_str(text, 20261001, None).unwrap_err();
+    assert!(l.log.contains("Invalid data for 'loan amount'"), "{}", l.log);
 }
 
 // ---------- review round 3 ----------
@@ -204,4 +205,22 @@ fn viewing_the_last_calendar_years_never_builds_days_past_the_calendar() {
     assert!(db.get_day(&Cal::from_int(99991231)).is_some());
     let (_, end) = db.window(&Cal::from_int(99980601), 36, true);
     assert_eq!(end.get(), budget_core::date::DATE_MAX);
+}
+
+// ---------- review round 4 ----------
+
+#[test]
+fn categories_list_each_folded_name_once() {
+    // The list is sorted case-insensitively, so every spelling of one category is adjacent in it:
+    // one entry per folded name, the first spelling in payment order.
+    let lines = [
+        "-10.0, A, 20260101, 1m, 5, 20260101, 48,  , $food",
+        "-5.0, B, 20260101, 1m, 5, 20260101, 48,  , $Rent",
+        "-1.0, C, 20260101, 1m, 5, 20260101, 48,  , $Food",
+        "-2.0, D, 20260101, 1m, 5, 20260101, 48,  , $FOOD",
+    ];
+    let text = format!("v,2\n:\n=,\n{}\n## END-OF-DATA; line_no={} ##", lines.join("\n"), lines.len() + 4);
+    let l = bgt::load_str(&text, 20260101, None).unwrap_or_else(|l| panic!("{}", l.log));
+    let db = BudgetDb::from_loaded(l, &Cal::from_int(20260101), 12, false);
+    assert_eq!(db.categories(), ["food", "Rent"]);
 }

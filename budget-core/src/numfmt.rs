@@ -53,16 +53,19 @@ pub fn format_frac0(x: f64) -> String {
 }
 
 /// `DecimalFormat.parse(s, pos)` prefix-lenient parse: longest leading number (optional `-`,
-/// digits with `,` grouping, optional fraction, optional exponent). Returns the value and the number
+/// digits with well-formed `,` grouping, optional fraction, optional exponent). Returns the value and the number
 /// of chars consumed, or `None` when no digit was found at the start.
 pub fn parse_prefix(s: &str) -> Option<(f64, usize)> {
     let b = s.as_bytes();
     let mut i = 0;
     if i < b.len() && b[i] == b'-' { i += 1; }
-    let mut saw_digit = false;
-    while i < b.len() && (b[i].is_ascii_digit() || b[i] == b',') {
-        if b[i].is_ascii_digit() { saw_digit = true; }
-        i += 1;
+    let start = i;
+    while i < b.len() && b[i].is_ascii_digit() { i += 1; }
+    let mut saw_digit = i > start;
+    // Thousands separators only in well-formed groups (a first group of 1-3 digits, then groups of
+    // exactly three). Any other comma ends the number, so "12,50" is not read as 1250.
+    if (1..=3).contains(&(i - start)) {
+        while i < b.len() && b[i] == b',' && is_thousands_group(&b[i + 1..]) { i += 4; }
     }
     if i < b.len() && b[i] == b'.' {
         let j = i + 1;
@@ -81,6 +84,11 @@ pub fn parse_prefix(s: &str) -> Option<(f64, usize)> {
     }
     let text: String = s[..i].chars().filter(|c| *c != ',').collect();
     text.parse::<f64>().ok().filter(|v| v.is_finite()).map(|v| (v, i))
+}
+
+/// Whether `rest` starts with exactly three digits that do not run on into a longer group.
+fn is_thousands_group(rest: &[u8]) -> bool {
+    rest.len() >= 3 && rest[..3].iter().all(u8::is_ascii_digit) && rest.get(3).is_none_or(|c| !c.is_ascii_digit())
 }
 
 /// `Budget.toDouble`: strip a leading `+`, drop every `$`, lenient parse, `0.0` on failure.
@@ -120,5 +128,19 @@ mod tests {
         assert_eq!(format_frac0(f64::NAN), "NaN");
         assert_eq!(parse_prefix("1E3x"), Some((1000.0, 3)));
         assert_eq!(parse_prefix(".5"), Some((0.5, 2)));
+    }
+
+    #[test]
+    fn a_comma_is_only_a_well_formed_thousands_separator() {
+        assert_eq!(parse_prefix("1,000+1"), Some((1000.0, 5)));
+        assert_eq!(parse_prefix("-1,234"), Some((-1234.0, 6)));
+        assert_eq!(parse_prefix("12,345,678.5x"), Some((12345678.5, 12)));
+        // any other comma ends the number: a decimal comma or a group that is not three digits
+        assert_eq!(parse_prefix("12,50"), Some((12.0, 2)));
+        assert_eq!(parse_prefix("1,2345"), Some((1.0, 1)));
+        assert_eq!(parse_prefix("1,000,00"), Some((1000.0, 5)));
+        assert_eq!(parse_prefix("1234,567"), Some((1234.0, 4)));
+        assert_eq!(parse_prefix(",5"), None);
+        assert_eq!(to_double("12,50"), 12.0);
     }
 }

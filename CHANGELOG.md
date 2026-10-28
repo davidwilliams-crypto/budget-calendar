@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.7.0] - 2026-10-28
+
+Third review: data safety, correctness of numbers and loans, and interface clarity.
+
+- **Starting and closing:** File offers New budget (it never replaces an existing file) and Close budget (asks first when there are unsaved edits). With no budget open, the month controls and Today are disabled.
+- **Backups:** only backups this app made are pruned. A backup you copied yourself, such as `home.bgt.bak`, is never deleted. The app records its own backups in `<budget>.baklog` beside the budget. Backups made by earlier versions are no longer pruned automatically.
+- **Loans:** a loan's saved payments may not exceed its principal. Every edit that would overpay is refused with a message naming the principal, including changes to one occurrence and Apply to all. A loan that already overpays still opens and saves, but each edit to it is refused until it is corrected.
+- **Amounts:** a decimal comma inside a formula (`12,50+3`) is an error, not 1,253; commas are accepted only as thousands separators. A typed `+` under Expense is refused, as a minus under Income is. A zero amount opens as Expense. An amount beyond the range reports "too large".
+- **Changing from a date:** "This and all future occurrences" leaves the payment as one record when the amount is unchanged, and applies to every occurrence from the date for tentative payments too. Moving an occurrence onto a skipped date keeps that date's note and status unless the moved occurrence sets its own.
+- **Files:** a byte-order mark from Notepad no longer stops a budget from opening. Non-finite amounts are refused before saving. Option dates must be real calendar days. Settings are saved through a temporary file.
+- **Filter and search:** `| rent` finds Rent only. `<-1k` means below -1,000. `invoice: 12` finds "Invoice: 12". Searching by note or flag works on each occurrence. A search leaves the (Unaccounted) line out of the brief summary.
+- **Brief summary:** an expense that changes to a positive amount stays in the expense list, and its planned amount stays on its row, so rows add up to the totals.
+- **Reports:** descriptions, categories and notes are escaped in every report, so `<` and `&` in your text no longer break or inject markup. Comparison totals above 21.47 million print correctly. Enter on a Reports item opens its range dialog; Enter on a shortcut keeps the dialog open.
+- **Calendar:** amounts stay whole in narrow cells and names truncate first. A month with no balance change shows no Min labels. Text on pills, balance strips and adjacent-month days meets the 4.5:1 contrast minimum. Past, weekend and weekday cells are visibly different. The lowest-day band and the adjusted marker no longer use the accent blue. Summary figures take their colour from the sign they print.
+- **Search results:** an active search shows a clearable chip above the grid with the number of matches; the footer names the calendar gestures.
+- **Recent budgets:** a budget spelled with different capitals is listed once. A missing recent budget can be removed from its menu. Save as adds `.bgt` unless the name already ends with it.
+- **Command line:** `--month=`, `--today=`, `--size=` and `--filter=` are accepted as well as the separate-argument form.
+- **Keyboard:** PageUp, PageDown, Home, T and Alt+arrows change the month only on the calendar page.
+- **Releases:** the build identifier no longer depends on how the source files were checked out. Archives record the commit and refuse uncommitted changes. The installer must match the archived version, and it restores any previous `.bgt` file association when uninstalled.
+
 ## [0.6.0] - 2026-10-28
 
 Deferred review items, reports and speed.

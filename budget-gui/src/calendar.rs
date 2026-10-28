@@ -142,7 +142,62 @@ pub const LEGEND: &[(Marker, &str)] = &[
 ];
 
 pub fn marker_color(kind: Marker, t: &Tokens) -> Color32 {
-    match kind { Marker::Paid => t.paid, Marker::Important => t.important, Marker::Adjusted => t.accent, Marker::Last | Marker::Note => t.text_muted }
+    match kind { Marker::Paid => t.paid, Marker::Important => t.important, Marker::Adjusted => t.adjusted, Marker::Last | Marker::Note => t.text_muted }
+}
+
+/// A status pill's (fill, text): the colour tinted over the surface, with the text made legible on that tint.
+fn pill_colors(t: &Tokens, color: Color32) -> (Color32, Color32) {
+    let fill = tint(t.surface, color, 0.16);
+    (fill, theme::legible(color, fill))
+}
+
+/// The today marker's (fill, day number): the user's today colour with a readable foreground derived from it.
+fn today_pill_colors(t: &Tokens) -> (Color32, Color32) { (t.today, theme::on(t.today)) }
+
+/// A balance strip's (background, ink). A repeated balance recedes to faint ink; the strip of a day whose
+/// balance moved reads in full ink. The labelled strips (Max, Min, Low) carry their own pair.
+fn strip_colors(t: &Tokens, kind: BalKind, changed: bool) -> (Color32, Color32) {
+    match kind {
+        BalKind::Max => (t.max.0, t.max.1),
+        BalKind::Min => (t.min.0, t.min.1),
+        BalKind::Low => (t.low.0, t.low.1),
+        BalKind::Normal => (tint(t.surface, t.bal.0, 0.5), if changed { t.text } else { t.text_faint }),
+    }
+}
+
+/// The fill a row's text sits on: the hover or focus tint (opaque, so it covers any highlight), else the
+/// highlight colour, else the surface.
+fn row_ground(t: &Tokens, hilite: Option<Color32>, disabled: bool, hovered: bool) -> Color32 {
+    if hovered { return tint(t.surface, t.accent, 0.08); }
+    match hilite { Some(h) => tint(t.surface, h, if disabled { 0.07 } else { 0.14 }), None => t.surface }
+}
+
+/// The colour of a strip's balance figure: the ink, or the negative colour made legible on the strip.
+fn strip_figure_color(t: &Tokens, bg: Color32, ink: Color32, negative: bool) -> Color32 {
+    if negative { theme::legible(t.negative, bg) } else { ink }
+}
+
+/// A day number's colour. Adjacent-month days recede to faint; past days (and every day in light
+/// mode) show muted, so payment names dominate.
+fn day_number_color(t: &Tokens, in_month: bool, past: bool) -> Color32 {
+    if !in_month { t.text_faint } else if past || !t.dark { t.text_muted } else { t.text }
+}
+
+/// The day number as painted on `fill`: its recession colour, made legible on the cell's actual fill
+/// (a grace-period or today tint can be brighter than the surface).
+fn day_number_ink(t: &Tokens, cell: &CellData, fill: Color32, today: i32) -> Color32 {
+    theme::legible(day_number_color(t, cell.in_month, cell.date < today), fill)
+}
+
+/// A day cell's fill: hover, grace-period and today tints first, then the weekend, past and future tiers.
+fn cell_fill(t: &Tokens, cell: &CellData, hovered: bool, grace: bool, today: i32) -> Color32 {
+    if !cell.in_month { t.other_month }
+    else if hovered { t.surface_hover }
+    else if grace { tint(t.surface, t.important, if t.dark { 0.22 } else { 0.16 }) }
+    else if cell.is_today { tint(t.surface, t.today, if t.dark { 0.12 } else { 0.07 }) }
+    else if cell.weekend { t.weekend }
+    else if cell.date < today { t.past }
+    else { t.surface }
 }
 
 /// Glyph size of the per-transaction note mark (Phosphor is a fallback of the proportional family).
@@ -264,13 +319,7 @@ pub fn show(ui: &mut Ui, view: &MonthView, t: &Tokens, sunday_first: bool, today
             // buttons sense their own clicks) adds a payment on that date.
             if resp.double_clicked() { clicked = Some(Action::Add(cell.date)); }
         }
-        let fill = if !cell.in_month { t.other_month }
-            else if resp.hovered() { t.surface_hover }
-            else if grace.contains(&cell.date) { tint(t.surface, t.important, if t.dark { 0.22 } else { 0.16 }) }
-            else if cell.is_today { tint(t.surface, t.today, if t.dark { 0.12 } else { 0.07 }) }
-            else if cell.weekend { t.weekend }
-            else if cell.date < today { t.past }
-            else { t.surface };
+        let fill = cell_fill(t, cell, resp.hovered(), grace.contains(&cell.date), today);
         p.rect_filled(rect, cr, fill);
         if cell.is_today && cell.in_month {
             // Today is findable at a glance: 1px inset border plus a 2px bar along the top edge.
@@ -278,7 +327,7 @@ pub fn show(ui: &mut Ui, view: &MonthView, t: &Tokens, sunday_first: bool, today
             p.rect_stroke(rect, cr, Stroke::new(1.0_f32, tint(fill, t.today, 0.85)), StrokeKind::Inside);
             p.rect_filled(Rect::from_min_size(rect.min, Vec2::new(rect.width(), 2.0)), 0, t.today);
         }
-        if let Some(f) = cell_filter(ui, &p.with_clip_rect(rect), cell, rect, t, today, decimals, &resp, changed[i], filtered) { clicked = Some(f); }
+        if let Some(f) = cell_filter(ui, &p.with_clip_rect(rect), cell, rect, t, fill, today, decimals, &resp, changed[i], filtered) { clicked = Some(f); }
     }
     if ui.ctx().data(|d| d.get_temp::<Vec<i32>>(grace_id)).unwrap_or_default() != grace { ui.ctx().request_repaint(); }
     p.hline(layout.inner.x_range(), layout.grid.min.y - 0.5, hair);
@@ -331,7 +380,7 @@ fn balance_changes(cells: impl Iterator<Item = (bool, Option<f64>)>) -> Vec<bool
 
 // Same parameter set as the sibling cell painters; a context struct would be used by this one only.
 #[allow(clippy::too_many_arguments)]
-fn cell_filter(ui: &mut Ui, p: &Painter, cell: &CellData, rect: Rect, t: &Tokens, today: i32, decimals: bool, resp: &egui::Response, changed: bool, filtered: bool) -> Option<Action> {
+fn cell_filter(ui: &mut Ui, p: &Painter, cell: &CellData, rect: Rect, t: &Tokens, fill: Color32, today: i32, decimals: bool, resp: &egui::Response, changed: bool, filtered: bool) -> Option<Action> {
     let mut clicked = None;
     let layout = CellLayout::new(rect, cell.rows.len());
     let hp = p.with_clip_rect(layout.header);
@@ -341,14 +390,14 @@ fn cell_filter(ui: &mut Ui, p: &Painter, cell: &CellData, rect: Rect, t: &Tokens
         // A 17px pill fits the 19px header (a circle would be clipped) and widens for two digits.
         let mut f = bold(font(ui, DAY));
         f.size = 12.5;
-        let fg = if t.dark { t.bg } else { Color32::WHITE };
+        let (pill_fill, fg) = today_pill_colors(t);
         let g = hp.layout_no_wrap(cell.day.to_string(), f, fg);
         let pill = Rect::from_min_size(Pos2::new(rect.min.x + PAD - 3.0, day_pos.y - 8.5), Vec2::new(17.0_f32.max(g.size().x + 10.0), 17.0));
-        hp.rect_filled(pill, 9, t.today);
+        hp.rect_filled(pill, 9, pill_fill);
         hp.galley(pill.center() - g.size() / 2.0, g, fg);
     } else {
         // Light mode lets payment names (14px, full ink) dominate; day numbers recede to muted.
-        let col = if !cell.in_month { t.text_faint } else if cell.date < today || !t.dark { t.text_muted } else { t.text };
+        let col = day_number_ink(t, cell, fill, today);
         hp.text(Pos2::new(rect.min.x + PAD, day_pos.y), Align2::LEFT_CENTER, cell.day.to_string(), font(ui, DAY), col);
     }
     if !cell.in_month { return None; }
@@ -385,7 +434,7 @@ fn cell_filter(ui: &mut Ui, p: &Painter, cell: &CellData, rect: Rect, t: &Tokens
     }
     let restorable = !cell.restorable.is_empty();
     if restorable && ix - 17.0 >= rect.min.x + 35.0 {
-        let r = hp.text(Pos2::new(ix, day_pos.y), Align2::RIGHT_CENTER, ph::ARROW_COUNTER_CLOCKWISE, icon.clone(), t.text_faint);
+        let r = hp.text(Pos2::new(ix, day_pos.y), Align2::RIGHT_CENTER, ph::ARROW_COUNTER_CLOCKWISE, icon.clone(), theme::legible(t.text_faint, fill));
         ix = r.min.x - 4.0;
     }
     // A hover-only "+" makes adding a payment on this date discoverable without the context menu.
@@ -421,17 +470,12 @@ fn cell_filter(ui: &mut Ui, p: &Painter, cell: &CellData, rect: Rect, t: &Tokens
         let fp = p.with_clip_rect(sr);
         // Ordinary days paint only the number; the few days that matter (lowest, highest, below the
         // minimum) get a labelled, fully tinted strip so they become the accents of the grid.
-        let (strip_bg, strip_fg, label) = match b.kind {
-            BalKind::Max => (t.max.0, t.max.1, Some("Max")),
-            BalKind::Min => (t.min.0, t.min.1, Some("Min")),
-            BalKind::Low => (t.low.0, t.low.1, Some("Low")),
-            // A repeated balance recedes to faint; a day whose balance moved reads in full ink.
-            BalKind::Normal => (tint(t.surface, t.bal.0, 0.5), if changed { t.text } else { t.text_faint }, None),
-        };
+        let (strip_bg, strip_fg) = strip_colors(t, b.kind, changed);
+        let label = match b.kind { BalKind::Max => Some("Max"), BalKind::Min => Some("Min"), BalKind::Low => Some("Low"), BalKind::Normal => None };
         fp.rect_filled(sr, 0, strip_bg);
         fp.hline((sr.min.x + 4.0)..=(sr.max.x - 4.0), sr.min.y, Stroke::new(1.0_f32, tint(t.surface, t.border, 0.7)));
         let cy = sr.center().y;
-        let fg = if is_negative(b.value, decimals) { t.negative } else { strip_fg };
+        let fg = strip_figure_color(t, strip_bg, strip_fg, is_negative(balance_display(b.value, decimals), decimals));
         let fid = font(ui, CAPTION);
         let amount_fid = if b.kind == BalKind::Normal && changed { bold(fid.clone()) } else { fid.clone() };
         let mut amount = fp.layout_no_wrap(b.strip_text(decimals), amount_fid.clone(), fg);
@@ -453,7 +497,8 @@ fn cell_filter(ui: &mut Ui, p: &Painter, cell: &CellData, rect: Rect, t: &Tokens
             }
         }
         fp.galley(Pos2::new(amount_left, cy - amount.size().y / 2.0), amount, fg);
-        let sresp = pointer_only(ui, sr, ui.id().with(("strip", cell.date)));
+        // The strip opens a context menu (Edit balance), so it advertises that like the other click targets.
+        let sresp = pointer_only(ui, sr, ui.id().with(("strip", cell.date))).on_hover_cursor(egui::CursorIcon::PointingHand);
         sresp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, format!("Closing balance {} on {}{}. Right-click to edit balance", money(b.value, true), cell.date,
             if b.adjusted { format!(", adjusted by {}", money(b.adjustment, true)) } else { String::new() })));
         if !egui::DragAndDrop::has_payload_of_type::<DraggedTransaction>(ui.ctx()) {
@@ -474,6 +519,23 @@ fn cell_filter(ui: &mut Ui, p: &Painter, cell: &CellData, rect: Rect, t: &Tokens
         }
     }
     clicked
+}
+
+/// A figure this wide or narrower always shows whole: about 100 million with cents (`−12,345,678.90`).
+const WHOLE_AMOUNT_W: f32 = 100.0;
+/// The name column kept when a figure wider than [`WHOLE_AMOUNT_W`] has to be shortened.
+const NAME_KEEP_W: f32 = 45.0;
+
+/// The amount column's width in a row whose name-and-amount text area is `text_w` wide, for a figure
+/// measured at `measured` px. The amount is the figure people scan for, so an ordinary one keeps its
+/// full width and the name gives up whatever it needs, down to nothing in a narrow cell. Only a figure
+/// wider than [`WHOLE_AMOUNT_W`] is shortened, and then so the name keeps [`NAME_KEEP_W`] (or half the
+/// row, where the row is too narrow for that).
+fn amount_width(measured: f32, text_w: f32) -> f32 {
+    // Two pixels either side of the measured advance cover glyph ink beyond it.
+    let natural = (measured + 2.0).max(10.0);
+    let limit = if natural <= WHOLE_AMOUNT_W { text_w } else { (text_w - NAME_KEEP_W).max(text_w * 0.5) };
+    natural.min(limit.max(0.0))
 }
 
 fn draw_row(ui: &mut Ui, p: &Painter, row: &TranRow, rr: Rect, t: &Tokens, decimals: bool) -> Option<Action> {
@@ -530,7 +592,10 @@ fn draw_row(ui: &mut Ui, p: &Painter, row: &TranRow, rr: Rect, t: &Tokens, decim
         let mark = paint_note_mark(&p, Pos2::new(x0, name_y), if row.disabled { t.disabled } else { t.text_muted });
         x0 = mark.max.x + 3.0;
     }
-    let text_col = if row.disabled { t.disabled } else { t.text };
+    // Row text is made legible on the fill it actually sits on (hover, highlight or surface).
+    let ground = row_ground(t, row.hilite, row.disabled, hovered || focused);
+    let text_col = theme::legible(if row.disabled { t.disabled } else { t.text }, ground);
+    let amount_ink = theme::legible(amount_col, ground);
     let right = (rr.max.x - 6.0).max(x0);
     // The trailing marker dot sits inside the amount column's right edge.
     let marker = suffix_marker(row.tip.suffix);
@@ -546,16 +611,14 @@ fn draw_row(ui: &mut Ui, p: &Painter, row: &TranRow, rr: Rect, t: &Tokens, decim
     // The amount is the figure people scan for, so it carries the weight; the name is regular.
     let mut amount_font = font(ui, SEMI);
     amount_font.size = 13.0;
-    // Leave a pixel on either side for glyph ink extending beyond its advance.
-    let amount_limit = (text_width - 45.0).max(text_width * 0.48);
-    let amount_w = (p.layout_no_wrap(row.amount.clone(), amount_font.clone(), amount_col).size().x + 2.0).max(10.0).min(amount_limit);
+    let amount_w = amount_width(p.layout_no_wrap(row.amount.clone(), amount_font.clone(), amount_col).size().x, text_width);
     let amount_rect = Rect::from_min_max(Pos2::new(right - amount_w, rr.min.y), Pos2::new(right, rr.max.y));
     let name_rect = Rect::from_min_max(Pos2::new(x0, rr.min.y), Pos2::new((amount_rect.min.x - 5.0).max(x0), rr.max.y));
     let name_font = egui::TextStyle::Body.resolve(ui.style());
     truncated_line(&p.with_clip_rect(name_rect), Pos2::new(x0, name_y), &row.text, name_font,
         text_col, name_rect.width(), Some(rr.height()));
     aligned_line(&p.with_clip_rect(amount_rect), Pos2::new(right - 1.0, name_y), &row.amount, amount_font,
-        amount_col, (amount_rect.width() - 2.0).max(0.0), Some(rr.height()), true);
+        amount_ink, (amount_rect.width() - 2.0).max(0.0), Some(rr.height()), true);
     if hovered && !ui.input(|i| i.pointer.primary_down()) && !egui::DragAndDrop::has_payload_of_type::<DraggedTransaction>(ui.ctx()) {
         let tip = &row.tip;
         if !row.valid_days.is_empty() {
@@ -583,7 +646,8 @@ fn draw_row(ui: &mut Ui, p: &Painter, row: &TranRow, rr: Rect, t: &Tokens, decim
                             _ => {}
                         }
                         if let Some(text) = suffix_pill(tip) {
-                            pill(ui, text, if tip.suffix == '*' { t.text_muted } else { t.accent }, t);
+                            let marker = if tip.suffix == '*' { Marker::Last } else { Marker::Adjusted };
+                            pill(ui, text, marker_color(marker, t), t);
                         }
                     });
                     ui.add_space(4.0);
@@ -606,11 +670,11 @@ fn draw_row(ui: &mut Ui, p: &Painter, row: &TranRow, rr: Rect, t: &Tokens, decim
     action
 }
 
-/// A compact rounded status badge: coloured text on a faint tint of the same colour.
+/// A compact rounded status badge: legible text on a faint tint of the same colour.
 fn pill(ui: &mut Ui, text: &str, color: Color32, t: &Tokens) {
-    let fill = tint(t.surface, color, 0.16);
+    let (fill, fg) = pill_colors(t, color);
     egui::Frame::new().fill(fill).corner_radius(8).inner_margin(egui::Margin::symmetric(6, 1)).show(ui, |ui| {
-        ui.label(egui::RichText::new(text).text_style(ts(CAPTION)).color(color).strong());
+        ui.label(egui::RichText::new(text).text_style(ts(CAPTION)).color(fg).strong());
     });
 }
 
@@ -1267,5 +1331,160 @@ mod tests {
         }
         assert!(texts.iter().any(|s| s == "Before adjustment 1,000.00"), "{texts:?}");
         assert!(texts.iter().any(|s| s == "Adjustment 250.00"));
+    }
+
+    #[test]
+    fn ordinary_figures_keep_their_width_and_the_name_gives_way() {
+        // Measured at 13 px semibold: "-12,345" is 41 px and "−123,456.78" 69 px (both plus 2 px of ink).
+        let decorated_900 = 103.0 - 7.0 - 14.0 - 9.0; // a 900 px window's text area less a paid dot, a note and a marker
+        assert!((super::amount_width(41.09, decorated_900) - 43.09).abs() < 0.01, "a whole figure in a decorated row");
+        assert!((super::amount_width(69.09, 145.0) - 71.09).abs() < 0.01);
+        // A narrow cell still shows a figure of this size whole, and an even narrower one is cut at the text area
+        // rather than drawn over the status dot.
+        assert!((super::amount_width(28.09, 35.0) - 30.09).abs() < 0.01);
+        assert!(super::amount_width(28.09, 20.0) <= 20.0);
+        // A figure wider than 100 px is shortened so the name keeps 40 px (45 less the gap) on a standard row...
+        assert!((super::amount_width(158.12, 103.0) - 58.0).abs() < 0.01);
+        // ...and grows to 100 px on a wide one.
+        assert!((super::amount_width(158.12, 145.0) - 100.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn amounts_stay_whole_in_a_900_px_window_on_decorated_rows() {
+        // The 884 px calendar area of a 900 px window: a paid dot, a note and an adjusted marker narrow the name
+        // column, so the figure must not be the thing that gives way.
+        for amount in ["-12,345", "3,200"] {
+            let (ctx, t) = context();
+            let mut view = fixture(5, 1);
+            {
+                let row = std::rc::Rc::make_mut(&mut view.cells[0].rows[0]);
+                row.amount = amount.into();
+                row.flag = budget_core::FLAG_PAID;
+                row.tip.note = Some("Cheque 123".into());
+                row.tip.suffix = '\'';
+            }
+            let (output, _) = frame(&ctx, &t, &view, Vec2::new(884.0, 540.0), Vec::new());
+            let shapes = text_shapes(&output);
+            let (amount_shape, clip) = shapes.iter().find(|(s, _)| s.galley.job.text == amount).unwrap_or_else(|| panic!("{amount} must be painted"));
+            assert!(!amount_shape.galley.elided, "{amount} is shortened in a 900 px window");
+            let ink = amount_shape.galley.mesh_bounds.translate(amount_shape.pos.to_vec2());
+            assert!(clip.expand(0.01).contains_rect(ink), "{amount}: {ink:?} outside {clip:?}");
+        }
+    }
+
+    #[test]
+    fn every_colour_pairing_the_calendar_paints_meets_aa() {
+        // Each check takes the colours the painting code uses (not the theme roles), so a new pairing has to go through them.
+        let today = 20261015;
+        for dark in [false, true] {
+            let t = Tokens::new(&budget_core::config::BudgetConfig::default().colors, dark);
+            let mode = if dark { "dark" } else { "light" };
+            let check = |what: &str, fg: Color32, bg: Color32| {
+                let ratio = theme::contrast(fg, bg);
+                assert!(ratio >= 4.5, "{what} in the {mode} theme is {ratio:.2}:1");
+            };
+            // Hover-card pills: each colour a pill can take, on its own tint.
+            for (name, color) in [("category", t.text_muted), ("disabled", t.disabled), ("paid", t.paid), ("important", t.important),
+                ("adjusted", marker_color(Marker::Adjusted, &t)), ("last", marker_color(Marker::Last, &t))] {
+                let (fill, fg) = pill_colors(&t, color);
+                check(&format!("{name} pill"), fg, fill);
+            }
+            // Balance strips: the label and ordinary figure, and a negative figure, on every strip kind.
+            for kind in [BalKind::Normal, BalKind::Max, BalKind::Min, BalKind::Low] {
+                for changed in [false, true] {
+                    let (bg, ink) = strip_colors(&t, kind, changed);
+                    check(&format!("{kind:?} strip ink (changed {changed})"), ink, bg);
+                    check(&format!("{kind:?} strip negative figure (changed {changed})"), strip_figure_color(&t, bg, ink, true), bg);
+                }
+            }
+            // Day cells: the day number and the restore icon (faint) on every fill a cell can have.
+            let mut view = fixture(4, 0);
+            for (i, cell) in view.cells.iter_mut().enumerate() {
+                cell.in_month = i % 9 != 0;
+                cell.weekend = i % 7 == 5 || i % 7 == 6;
+                cell.date = 20261001 + i as i32 * 2;
+            }
+            for cell in &view.cells {
+                for (hovered, grace) in [(false, false), (true, false), (false, true)] {
+                    let fill = cell_fill(&t, cell, hovered, grace, today);
+                    // The theme's recession colour passes on every plain fill; a grace tint is where the nudge applies.
+                    if !grace { check(&format!("day {} recession colour on {fill:?}", cell.day), day_number_color(&t, cell.in_month, cell.date < today), fill); }
+                    check(&format!("day {} number on {fill:?}", cell.day), day_number_ink(&t, cell, fill, today), fill);
+                    check(&format!("restore icon on {fill:?}"), theme::legible(t.text_faint, fill), fill);
+                }
+            }
+            // Transaction amounts on the surface (the hovered row is checked in the frame test below, where the
+            // painter's own legibility step applies); the +N and add buttons' accent on their tint.
+            for (name, color) in [("positive", t.positive), ("negative", t.negative), ("disabled", t.disabled)] {
+                check(&format!("{name} amount on the surface"), color, t.surface);
+            }
+            check("accent on the hover tint", t.accent, row_ground(&t, None, false, true));
+            // Today's pill.
+            let (fill, fg) = today_pill_colors(&t);
+            check("today pill", fg, fill);
+        }
+    }
+
+    #[test]
+    fn today_marker_foreground_follows_a_custom_today_colour() {
+        // A yellow today colour takes dark ink, not the white that the stock blue uses.
+        let mut colors = budget_core::config::BudgetConfig::default().colors;
+        colors.colorCalendarToday = 0xFFD700;
+        for dark in [false, true] {
+            let t = Tokens::new(&colors, dark);
+            let (fill, fg) = today_pill_colors(&t);
+            assert_eq!(fill, theme::rgb(0xFFD700));
+            assert_eq!(fg, theme::on(fill));
+            assert!(theme::contrast(fg, fill) >= 4.5, "yellow today pill is {:.2}:1", theme::contrast(fg, fill));
+        }
+    }
+
+    #[test]
+    fn disabled_row_text_stays_legible_on_its_hover_tint_and_highlight() {
+        // The painted colours (read from the text shapes) against the fill each row text sits on.
+        for dark in [false, true] {
+            let cfg = budget_core::config::BudgetConfig::default();
+            let t = Tokens::new(&cfg.colors, dark);
+            let ctx = egui::Context::default();
+            theme::install_fonts(&ctx);
+            theme::apply(&ctx, &t);
+            let size = Vec2::new(860.0, 540.0);
+            for (hilite, hovered) in [(Some(theme::rgb(0x1e3a8a)), false), (None, true)] {
+                let mut view = fixture(4, 1);
+                {
+                    let row = std::rc::Rc::make_mut(&mut view.cells[0].rows[0]);
+                    row.disabled = true;
+                    row.hilite = hilite;
+                    row.amount = "-12.00".into();
+                }
+                let (output, _) = frame(&ctx, &t, &view, size, Vec::new());
+                if hovered {
+                    let pos = text_shapes(&output).iter().find(|(s, _)| s.galley.job.text == "Payment name 0").unwrap().0.pos + Vec2::new(10.0, 7.0);
+                    frame(&ctx, &t, &view, size, vec![egui::Event::PointerMoved(pos)]);
+                }
+                let (output, _) = frame(&ctx, &t, &view, size, Vec::new());
+                let shapes = text_shapes(&output);
+                let ground = row_ground(&t, hilite, true, hovered);
+                for label in ["Payment name 0", "-12.00"] {
+                    let (shape, _) = shapes.iter().find(|(s, _)| s.galley.job.text == label).unwrap_or_else(|| panic!("{label} must be painted"));
+                    let colour = shape.galley.job.sections[0].format.color;
+                    let ratio = theme::contrast(colour, ground);
+                    assert!(ratio >= 4.5, "disabled {label:?} (hovered {hovered}, highlighted {}) in the {} theme is {ratio:.2}:1",
+                        hilite.is_some(), if dark { "dark" } else { "light" });
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn balance_strip_shows_a_pointing_hand_because_a_right_click_edits_it() {
+        let (ctx, t) = context();
+        let view = fixture(4, 1);
+        let size = Vec2::new(860.0, 540.0);
+        let pos = Pos2::new(65.0, 143.0);
+        frame(&ctx, &t, &view, size, Vec::new());
+        frame(&ctx, &t, &view, size, vec![egui::Event::PointerMoved(pos)]);
+        let (output, _) = frame(&ctx, &t, &view, size, Vec::new());
+        assert_eq!(output.platform_output.cursor_icon, egui::CursorIcon::PointingHand);
     }
 }

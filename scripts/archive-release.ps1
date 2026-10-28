@@ -1,10 +1,22 @@
-#Requires -Version 5.1
 <#
 .SYNOPSIS
 Preserves a freshly built local Budget Calendar release without replacing earlier builds.
+.DESCRIPTION
+Archives target/release/budget-gui.exe into local-releases/vVERSION with its build input manifest,
+a source ZIP of the release inputs, and release.json (build identity, SHA256 checksums, and the git
+commit with whether the work tree was clean). Relative paths in -ExecutablePath, -OutputDirectory and
+-BuildManifestPath are resolved against the repository root, not the current directory.
+When the repository is a git work tree, uncommitted changes to release inputs are refused.
+.PARAMETER ExecutablePath
+Built executable to archive. Default: target/release/budget-gui.exe under the repository root.
+.PARAMETER OutputDirectory
+Folder that receives vVERSION. Default: local-releases under the repository root.
+.PARAMETER BuildManifestPath
+Build input manifest that matches the executable. Default: the single matching manifest under target/release/build.
 .EXAMPLE
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/archive-release.ps1
 #>
+#Requires -Version 5.1
 [CmdletBinding()]
 param(
     [string]$ExecutablePath,
@@ -16,6 +28,11 @@ $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 Add-Type -AssemblyName System.IO.Compression, System.IO.Compression.FileSystem
 $repository = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..')).TrimEnd('\', '/')
+
+function Resolve-RepositoryPath([string]$Path) {
+    # Relative paths belong to the repository, so the archive behaves the same from any directory.
+    return [IO.Path]::GetFullPath([IO.Path]::Combine($repository, $Path))
+}
 
 function Assert-InRepository([string]$Path, [bool]$AllowRoot = $false) {
     $full = [IO.Path]::GetFullPath($Path).TrimEnd('\', '/')
@@ -94,6 +111,7 @@ function Get-ExecutableMetadata([string]$Path) {
 function Get-SourceFiles {
     # Deliberately enumerate application inputs, never the repository as a whole.
     # In particular, reference/, analysis/, target/, .git/, and user budgets are excluded.
+    # Keep this allowlist aligned with budget-gui/build.rs source_inputs.
     $files = [Collections.Generic.SortedDictionary[string, string]]::new([StringComparer]::Ordinal)
     foreach ($relative in @('Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', '.gitattributes', '.gitignore',
         'SPEC.md', 'CHANGELOG.md', 'AGENTS.md', 'budget-gui/Cargo.toml', 'budget-gui/build.rs',
@@ -106,7 +124,8 @@ function Get-SourceFiles {
         @{ Directory = 'budget-core/src'; Extensions = @('.rs') },
         @{ Directory = 'budget-core/tests'; Extensions = @('.rs') },
         @{ Directory = 'vendor/webbrowser/src'; Extensions = @('.rs') },
-        @{ Directory = 'scripts'; Extensions = @('.ps1') }
+        @{ Directory = 'scripts'; Extensions = @('.ps1') },
+        @{ Directory = 'installer'; Extensions = @('.nsi', '.ps1') }
     )) {
         $directory = Assert-InRepository (Join-Path $repository $rule.Directory)
         Assert-NoReparsePoint $directory
@@ -139,26 +158,86 @@ function Add-SourceDirectory([string]$Directory, [string[]]$Extensions, $Files) 
 
 function Initialize-InputHash {
     if ($null -eq ('BudgetReleaseArchiveHash' -as [type])) {
-        # Same dependency-free FNV-1a algorithm as build.rs; unchecked arithmetic is intentional.
+        # Same dependency-free FNV-1a algorithm and input identity as build.rs: a file with no NUL byte is
+        # text, hashed with CRLF read as LF, so a Windows checkout and an LF checkout digest identically.
+        # Unchecked arithmetic is intentional.
         Add-Type -TypeDefinition @'
 using System;
 using System.IO;
 public static class BudgetReleaseArchiveHash {
-    public static string StreamHash(Stream stream) {
+    public static string BytesHash(byte[] bytes) {
+        bool text = Array.IndexOf(bytes, (byte)0) < 0;
         ulong value = 14695981039346656037UL;
-        byte[] buffer = new byte[65536];
-        int count;
-        while ((count = stream.Read(buffer, 0, buffer.Length)) != 0) {
-            for (int i = 0; i < count; i++) value = unchecked((value ^ buffer[i]) * 1099511628211UL);
+        for (int i = 0; i < bytes.Length; i++) {
+            if (text && bytes[i] == 13 && i + 1 < bytes.Length && bytes[i + 1] == 10) continue;
+            value = unchecked((value ^ bytes[i]) * 1099511628211UL);
         }
         return value.ToString("x16");
     }
+    public static string StreamHash(Stream stream) {
+        using (MemoryStream buffer = new MemoryStream()) {
+            stream.CopyTo(buffer);
+            return BytesHash(buffer.ToArray());
+        }
+    }
     public static string FileHash(string path) {
-        using (Stream stream = File.OpenRead(path)) return StreamHash(stream);
+        return BytesHash(File.ReadAllBytes(path));
     }
 }
 '@
     }
+}
+
+function Invoke-Git([string[]]$Arguments) {
+    # Git writes warnings to stderr; the exit code decides success, so stderr is discarded here.
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        $output = @(& git -C $repository @Arguments 2>$null)
+        $exitCode = $LASTEXITCODE
+    } finally { $ErrorActionPreference = $previous }
+    return [pscustomobject]@{ ExitCode = $exitCode; Output = $output }
+}
+
+function Get-SourceControlState($AllowedSources) {
+    # Only a folder that holds git metadata can name a commit: a .git file (linked worktree) or a .git
+    # directory with HEAD. Other folders, including test fixtures that sit inside this repository, record
+    # null and are not checked against git. Once git metadata exists, every git failure is an error.
+    $marker = Join-Path $repository '.git'
+    $hasGitMetadata = (Test-Path -LiteralPath $marker -PathType Leaf) -or
+        (Test-Path -LiteralPath (Join-Path $marker 'HEAD') -PathType Leaf)
+    if (-not $hasGitMetadata) {
+        return @{ Commit = $null; Clean = $null }
+    }
+    if ($null -eq (Get-Command git -CommandType Application -ErrorAction SilentlyContinue)) {
+        throw 'Git is required to check this work tree before archiving. Install Git, then archive again.'
+    }
+    $top = Invoke-Git @('rev-parse', '--show-toplevel')
+    $topPath = if ($top.Output.Count -eq 1) { [IO.Path]::GetFullPath(([string]$top.Output[0]).Replace('/', '\')).TrimEnd('\') } else { '' }
+    if ($top.ExitCode -ne 0 -or -not $topPath.Equals($repository, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "Git does not treat $repository as its work tree root; refusing to archive."
+    }
+    $head = Invoke-Git @('rev-parse', '--verify', 'HEAD')
+    if ($head.ExitCode -ne 0 -or $head.Output.Count -ne 1 -or ([string]$head.Output[0]) -cnotmatch '^[0-9a-f]{40,64}$') {
+        throw 'Git HEAD has no commit to name. Commit the release sources, rebuild, then archive again.'
+    }
+    $status = Invoke-Git @('status', '--porcelain', '--untracked-files=all')
+    if ($status.ExitCode -ne 0) { throw 'git status failed; the release sources cannot be verified as committed.' }
+    $changed = @()
+    foreach ($line in $status.Output) {
+        $text = [string]$line
+        if ($text.Length -lt 4) { continue }
+        foreach ($part in $text.Substring(3).Split(@(' -> '), [StringSplitOptions]::None)) {
+            $changed += $part.Trim('"')
+        }
+    }
+    $uncommitted = @($changed | Where-Object { $AllowedSources.ContainsKey($_) })
+    if ($uncommitted.Count -gt 0) {
+        throw ('Refusing to archive: release inputs have uncommitted changes: ' + ($uncommitted -join ', ') +
+            '. Only committed sources can be archived, because the source ZIP and build identity must match a commit. ' +
+            'Commit these files, rebuild, then archive again.')
+    }
+    return @{ Commit = [string]$head.Output[0]; Clean = ($changed.Count -eq 0) }
 }
 
 function Get-BuildInputs($Metadata, $AllowedSources) {
@@ -251,7 +330,10 @@ function Assert-ExistingRelease([string]$Directory, $Metadata, [string]$Executab
 }
 
 if ([string]::IsNullOrWhiteSpace($ExecutablePath)) { $ExecutablePath = Join-Path $repository 'target/release/budget-gui.exe' }
+else { $ExecutablePath = Resolve-RepositoryPath $ExecutablePath }
 if ([string]::IsNullOrWhiteSpace($OutputDirectory)) { $OutputDirectory = Join-Path $repository 'local-releases' }
+else { $OutputDirectory = Resolve-RepositoryPath $OutputDirectory }
+if (-not [string]::IsNullOrWhiteSpace($BuildManifestPath)) { $BuildManifestPath = Resolve-RepositoryPath $BuildManifestPath }
 $executable = Require-File $ExecutablePath 'executable'
 $output = Assert-InRepository $OutputDirectory
 Assert-NoReparsePoint $output
@@ -273,6 +355,7 @@ if (-not $dateMatch.Success -or -not [datetime]::TryParseExact($dateMatch.Groups
 }
 $icon = Require-File (Join-Path $repository 'budget-gui/assets/budget-calendar.ico') 'application icon'
 $allowedSources = Get-SourceFiles
+$sourceControl = Get-SourceControlState $allowedSources
 $buildInputs = Get-BuildInputs $metadata $allowedSources
 $executableHash = Get-Sha256 $executable
 if ($executableHash -cne $initialExecutableHash) {
@@ -337,6 +420,8 @@ try {
         target = $metadata.target
         profile = $metadata.profile
         sha256 = $executableHash
+        git_commit = $sourceControl.Commit
+        git_clean = $sourceControl.Clean
         files = $fileHashes
     }
     [IO.File]::WriteAllText((Join-Path $staging 'release.json'), ($releaseManifest | ConvertTo-Json -Depth 5) + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))

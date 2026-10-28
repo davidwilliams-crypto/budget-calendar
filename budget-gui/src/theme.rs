@@ -134,11 +134,22 @@ pub fn keycap(ui: &mut egui::Ui, key: &str, t: &Tokens) -> egui::Response {
 }
 
 
-/// WCAG relative-luminance contrast ratio between two colours (used by the palette tests).
-#[cfg(test)]
-fn contrast(a: Color32, b: Color32) -> f32 {
+/// WCAG AA minimum contrast ratio for text.
+pub const AA_TEXT: f32 = 4.5;
+
+/// WCAG relative-luminance contrast ratio between two colours.
+pub fn contrast(a: Color32, b: Color32) -> f32 {
     let (la, lb) = (luminance(a), luminance(b));
     (la.max(lb) + 0.05) / (la.min(lb) + 0.05)
+}
+
+/// `fg` as text on `bg`: moved toward the readable ink of `bg` (dark ink on light fills, white on dark
+/// ones) only as far as WCAG AA needs. A colour that already passes is returned unchanged, so a
+/// user-chosen colour keeps its hue wherever it is legible.
+pub fn legible(fg: Color32, bg: Color32) -> Color32 {
+    if contrast(fg, bg) >= AA_TEXT { return fg; }
+    let ink = on(bg);
+    (1..=50).map(|i| fg.lerp_to_gamma(ink, i as f32 / 50.0)).find(|c| contrast(*c, bg) >= AA_TEXT).unwrap_or(ink)
 }
 
 #[derive(Clone)]
@@ -162,6 +173,8 @@ pub struct Tokens {
     pub disabled: Color32,
     pub paid: Color32,
     pub important: Color32,
+    /// The "adjusted" transaction marker. Violet rather than the accent, so it never reads as today.
+    pub adjusted: Color32,
     /// Balance strips: (background, foreground).
     pub bal: (Color32, Color32),
     pub max: (Color32, Color32),
@@ -190,14 +203,14 @@ impl Tokens {
             bg:            user(|c| c.bgColorWindow,                   0xf4f6fa, 0x111722),
             surface:       user(|c| c.bgColorCell,                     0xffffff, 0x1b1f27),
             surface_hover: tone(                                       0xf0f3f8, 0x242935),
-            weekend:       tone(                                       0xf6f8fb, 0x1d222b),
-            past:          user(|c| c.bgColorCellPast,                 0xf8f9fc, 0x1a1f27),
+            weekend:       tone(                                       0xf6f8fb, 0x222831),
+            past:          user(|c| c.bgColorCellPast,                 0xe6ebf2, 0x151921),
             other_month:   user(|c| c.bgColorCellOtherMonths,          0xeef1f6, 0x0f131b),
             border:        tone(                                       0xe2e8f0, 0x2b313d),
             border_strong: tone(                                       0xcbd5e1, 0x3b4350),
             text:          user(|c| c.colorDescText,                   0x1f2328, 0xe6e8eb),
             text_muted:    tone(                                       0x475569, 0xa0aec0),
-            text_faint:    tone(                                       0x64748b, 0x8b97aa),
+            text_faint:    tone(                                       0x5b6779, 0x8b97aa),
             accent:        user(|c| c.colorCurrentMonth,               0x2563eb, 0x60a5fa),
             today:         user(|c| c.colorCalendarToday,              0x2563eb, 0x60a5fa),
             positive:      user(|c| c.colorPositiveAmount,             0x15803d, 0x4ade80),
@@ -205,14 +218,15 @@ impl Tokens {
             disabled:      user(|c| c.colorDisabledPayment,            0x6b7280, 0x7d8799),
             paid:          user(|c| c.bgColorPaid,                     0x16a34a, 0x34d399),
             important:     user(|c| c.bgColorImportant,                0xd97706, 0xfbbf24),
+            adjusted:      tone(                                       0x6d28d9, 0xa78bfa),
             bal:           strip(|c| c.bgColorBalance,         (0xf3f4f6, 0x374151), (0x232833, 0xc9ced6)),
             max:           strip(|c| c.bgColorMaxBalance,      (0xdcfce7, 0x166534), (0x123524, 0x86efac)),
-            min:           strip(|c| c.bgColorMinBalance,      (0xdbeafe, 0x1e40af), (0x1e3a5f, 0x93c5fd)),
+            // Neutral slate: the lowest day reads as information, not as the accent selection.
+            min:           strip(|c| c.bgColorMinBalance,      (0xe2e8f0, 0x334155), (0x2d3748, 0xe2e8f0)),
             low:           strip(|c| c.bgColorBelowMinBalance, (0xfef3c7, 0x92400e), (0x4a3410, 0xfcd34d)),
         }
     }
 
-    pub fn signed(&self, v: f64) -> Color32 { if v < 0.0 { self.negative } else { self.positive } }
     pub fn card(&self) -> egui::Frame {
         egui::Frame::new().fill(self.surface).stroke(Stroke::new(1.0_f32, self.border)).corner_radius(RADIUS).inner_margin(SP3)
     }
@@ -349,7 +363,7 @@ mod tests {
         let pair = |p: (Color32, Color32)| format!("{}/{}", h(p.0), h(p.1));
         [h(t.bg), h(t.surface), h(t.surface_hover), h(t.weekend), h(t.past), h(t.other_month), h(t.border), h(t.border_strong),
             h(t.text), h(t.text_muted), h(t.text_faint), h(t.accent), h(t.today), h(t.positive), h(t.negative), h(t.disabled),
-            h(t.paid), h(t.important), pair(t.bal), pair(t.max), pair(t.min), pair(t.low)].join(" ")
+            h(t.paid), h(t.important), h(t.adjusted), pair(t.bal), pair(t.max), pair(t.min), pair(t.low)].join(" ")
     }
 
     /// Every role keeps its exact value: the stock palettes map to the modern tones, and customised
@@ -365,33 +379,77 @@ mod tests {
             ..Colors::theme(Theme::Light)
         };
         let dark_stock = Colors::theme(Theme::Dark);
-        let light = "f4f6fa ffffff f0f3f8 f6f8fb f8f9fc eef1f6 e2e8f0 cbd5e1 1f2328 475569 64748b 2563eb 2563eb 15803d b91c1c \
-            6b7280 16a34a d97706 f3f4f6/374151 dcfce7/166534 dbeafe/1e40af fef3c7/92400e";
+        let light = "f4f6fa ffffff f0f3f8 f6f8fb e6ebf2 eef1f6 e2e8f0 cbd5e1 1f2328 475569 5b6779 2563eb 2563eb 15803d b91c1c \
+            6b7280 16a34a d97706 6d28d9 f3f4f6/374151 dcfce7/166534 e2e8f0/334155 fef3c7/92400e";
         let cases = [
             (&stock, false, light),
-            (&stock, true, "111722 1b1f27 242935 1d222b 1a1f27 0f131b 2b313d 3b4350 e6e8eb a0aec0 8b97aa 60a5fa 60a5fa 4ade80 \
-                f87171 7d8799 34d399 fbbf24 232833/c9ced6 123524/86efac 1e3a5f/93c5fd 4a3410/fcd34d"),
+            (&stock, true, "111722 1b1f27 242935 222831 151921 0f131b 2b313d 3b4350 e6e8eb a0aec0 8b97aa 60a5fa 60a5fa 4ade80 \
+                f87171 7d8799 34d399 fbbf24 a78bfa 232833/c9ced6 123524/86efac 2d3748/e2e8f0 4a3410/fcd34d"),
             // The stock dark palette counts as stock in the light theme too.
             (&dark_stock, false, light),
-            (&custom, false, "101112 202122 f0f3f8 f6f8fb 303132 404142 e2e8f0 cbd5e1 505152 475569 64748b 606162 707172 808182 \
-                909192 a0a1a2 b0b1b2 c0c1c2 d0d1d2/172033 e0e1e2/172033 f0f1f2/172033 0a0b0c/ffffff"),
-            (&custom, true, "101112 202122 242935 1d222b 303132 404142 2b313d 3b4350 505152 a0aec0 8b97aa 606162 707172 808182 \
-                909192 a0a1a2 b0b1b2 c0c1c2 d0d1d2/172033 e0e1e2/172033 f0f1f2/172033 0a0b0c/ffffff"),
+            (&custom, false, "101112 202122 f0f3f8 f6f8fb 303132 404142 e2e8f0 cbd5e1 505152 475569 5b6779 606162 707172 808182 \
+                909192 a0a1a2 b0b1b2 c0c1c2 6d28d9 d0d1d2/172033 e0e1e2/172033 f0f1f2/172033 0a0b0c/ffffff"),
+            (&custom, true, "101112 202122 242935 222831 303132 404142 2b313d 3b4350 505152 a0aec0 8b97aa 606162 707172 808182 \
+                909192 a0a1a2 b0b1b2 c0c1c2 a78bfa d0d1d2/172033 e0e1e2/172033 f0f1f2/172033 0a0b0c/ffffff"),
         ];
         for (colors, dark, expected) in cases {
             assert_eq!(dump(&Tokens::new(colors, dark)), expected, "dark={dark}");
         }
     }
 
+    /// The largest per-channel difference between two colours, 0 to 255.
+    fn channel_gap(a: Color32, b: Color32) -> u8 {
+        a.r().abs_diff(b.r()).max(a.g().abs_diff(b.g())).max(a.b().abs_diff(b.b()))
+    }
+
     #[test]
-    fn past_weekend_and_other_month_cells_are_three_distinct_tiers() {
+    fn past_weekend_and_weekday_cells_are_visibly_distinct() {
+        // Future weekdays are the surface. The old light past and weekend differed by 2 units and read as one tier,
+        // so every pair here needs a gap of 6.
         let cfg = budget_core::config::BudgetConfig::default();
         for dark in [false, true] {
             let t = Tokens::new(&cfg.colors, dark);
-            assert_ne!(t.past, t.surface);
-            assert_ne!(t.weekend, t.surface);
-            assert_ne!(t.other_month, t.past);
-            assert_ne!(t.other_month, t.bg, "dark={dark}: leading/trailing days must not vanish into the window");
+            let mode = if dark { "dark" } else { "light" };
+            for (pair, a, b) in [("past/weekday", t.past, t.surface), ("weekend/weekday", t.weekend, t.surface),
+                ("past/weekend", t.past, t.weekend), ("other month/past", t.other_month, t.past)] {
+                let gap = channel_gap(a, b);
+                assert!(gap >= 6, "{pair} differ by only {gap} channel units in the {mode} theme");
+            }
+            assert_ne!(t.other_month, t.bg, "{mode}: leading/trailing days must not vanish into the window");
         }
+    }
+
+    #[test]
+    fn adjusted_marker_and_lowest_day_band_avoid_the_accent_and_pass_contrast() {
+        let cfg = budget_core::config::BudgetConfig::default();
+        for dark in [false, true] {
+            let t = Tokens::new(&cfg.colors, dark);
+            let mode = if dark { "dark" } else { "light" };
+            // The adjusted marker is a dot on the row and a pill in the hover card, on the surface or its hover tint.
+            let pill = tint(t.surface, t.adjusted, 0.16);
+            for (place, bg) in [("surface", t.surface), ("hover", t.surface_hover), ("pill", pill)] {
+                let ratio = contrast(t.adjusted, bg);
+                assert!(ratio >= 4.5, "adjusted on the {place} in the {mode} theme is {ratio:.2}:1");
+            }
+            assert_ne!(t.adjusted, t.accent, "adjusted must not read as today");
+            // The lowest-day band is neutral: a slate with no hue of its own, not the accent selection.
+            let spread = |c: Color32| c.r().max(c.g()).max(c.b()) - c.r().min(c.g()).min(c.b());
+            assert!(spread(t.min.0) <= 40 && spread(t.min.1) <= 40, "min band is not neutral in the {mode} theme");
+            assert_ne!(t.min.0, t.accent);
+            assert!(contrast(t.min.1, t.min.0) >= 4.5);
+        }
+    }
+
+    #[test]
+    fn legible_moves_text_only_as_far_as_aa_needs() {
+        let white = Color32::WHITE;
+        let dark = Color32::from_rgb(0x1b, 0x1f, 0x27);
+        // A colour that already passes is kept exactly, so user colours keep their hue.
+        assert_eq!(legible(rgb(0x15803d), white), rgb(0x15803d));
+        for (fg, bg) in [(rgb(0x16a34a), rgb(0xf0f9f3)), (rgb(0x7d8799), rgb(0x2a2f3a)), (rgb(0xf87171), rgb(0x1e3a5f)), (rgb(0xf87171), rgb(0x4a3410))] {
+            let out = legible(fg, bg);
+            assert!(contrast(out, bg) >= 4.5, "{fg:?} on {bg:?} is {:.2}:1 after legible", contrast(out, bg));
+        }
+        assert!(contrast(legible(rgb(0xfbbf24), dark), dark) >= 4.5);
     }
 }

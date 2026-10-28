@@ -100,12 +100,14 @@ impl Stats {
 /// `stat_comparator`.
 fn stat_cmp(a: &Amount, b: &Amount) -> Ordering { amount_order(a.amount, b.amount) }
 
-/// Move subs of `from` into `to`: with `non_negative_only` the subs with `amount >= 0`, else those `< 0`.
-fn transfer_sub_amount(from: &mut Amount, to: &mut Amount, non_negative_only: bool) {
+/// Whether a row belongs with the expenses: by its actual amount, or, with none, by its planned amount.
+fn is_expense_row(a: &Amount) -> bool { a.amount < 0.0 || (a.amount == 0.0 && a.planned_amount < 0.0) }
+
+/// Move the subs of `from` that `moves` accepts into `to`; both totals follow them.
+fn transfer_sub_amount(from: &mut Amount, to: &mut Amount, moves: fn(&Amount) -> bool) {
     let mut i = 0;
     while i < from.sub_amounts.len() {
-        let a = from.sub_amounts[i].amount;
-        if (non_negative_only && a >= 0.0) || (!non_negative_only && a < 0.0) {
+        if moves(&from.sub_amounts[i]) {
             let s = from.sub_amounts.remove(i);
             from.amount -= s.amount;
             from.planned_amount -= s.planned_amount;
@@ -113,6 +115,14 @@ fn transfer_sub_amount(from: &mut Amount, to: &mut Amount, non_negative_only: bo
             to.planned_amount += s.planned_amount;
             to.sub_amounts.push(s);
         } else { i += 1; }
+    }
+}
+
+/// The side of a reconciled description that gave up its amount: its row is dropped when it has no
+/// planned amount either, else kept at zero so the planned amount still shows.
+fn settle_row(top: &mut Amount, key: &str) {
+    if let Some(i) = top.sub_amounts.iter().position(|s| s.key == key) {
+        if top.sub_amounts[i].planned_amount == 0.0 { top.sub_amounts.remove(i); } else { top.sub_amounts[i].amount = 0.0; }
     }
 }
 
@@ -132,16 +142,17 @@ pub fn calc_statistics_exact(db: &mut BudgetDb, start: &Cal, end: &Cal, full: bo
     st.top_mut(UNCATEGORIZED_INCOME);
     st.top_mut(UNCATEGORIZED_EXPENSES);
 
-    // planned pass
+    // planned pass: each scheduled occurrence is tested on its own day's note and flag, as the calendar does
     let mut c = *start;
     while c.le(end) {
+        let date = c.get();
         if let Some(day) = db.get_day(&c) {
             // Sorted so the order of equal summary rows does not depend on how the schedule was built.
             let mut regulars = day.regulars.clone();
             regulars.sort_unstable();
             for pi in regulars {
                 let p = &db.payments[pi];
-                if let Some(f) = filter { if !f.is_match(p, p.amount, -1) { continue; } }
+                if let Some(f) = filter { if !f.is_match(p, p.amount, date) { continue; } }
                 if p.disabled { continue; }
                 let (cat, desc, amt) = (p.category.clone(), p.description.clone(), p.amount);
                 st.add_stat_info(cat.as_deref(), &desc, 0.0, Some((pi, amt)), true);
@@ -164,12 +175,15 @@ pub fn calc_statistics_exact(db: &mut BudgetDb, start: &Cal, end: &Cal, full: bo
                 let (cat, desc, amt) = (p.category.clone(), p.description.clone(), p.amount);
                 st.add_stat_info(cat.as_deref(), &desc, amount, Some((pi, amt)), false);
             }
-            if adj != 0.0 { st.add_stat_info(None, UNACCOUNTED, adj, None, false); }
+            // A balance adjustment is not a transaction: a search that narrows the statistics leaves it out.
+            if adj != 0.0 && filter.is_none_or(|f| f.is_empty()) { st.add_stat_info(None, UNACCOUNTED, adj, None, false); }
         }
         c.add(Field::Day, 1);
     }
 
-    // reconcile descriptions present in both uncategorized groups
+    // reconcile descriptions present in both uncategorized groups: the net shows on the side it falls
+    // on and the other side gives up its amount. Each row keeps its own planned amount, so a planned
+    // expense whose occurrence turned positive still has a row in the expense list.
     let ii = st.top.iter().position(|a| a.key == UNCATEGORIZED_INCOME).unwrap();
     let ei = st.top.iter().position(|a| a.key == UNCATEGORIZED_EXPENSES).unwrap();
     let both: Vec<String> = st.top[ii].sub_amounts.iter()
@@ -181,22 +195,22 @@ pub fn calc_statistics_exact(db: &mut BudgetDb, start: &Cal, end: &Cal, full: bo
         let net = inc_amt + exp_amt;
         if net > 0.0 {
             st.top[ei].amount -= exp_amt;
-            st.top[ei].sub_amounts.retain(|s| s.key != key);
             st.top[ii].amount += exp_amt;
             st.top[ii].sub_amounts.iter_mut().find(|s| s.key == key).unwrap().amount = net;
+            settle_row(&mut st.top[ei], &key);
         } else {
             st.top[ii].amount -= inc_amt;
-            st.top[ii].sub_amounts.retain(|s| s.key != key);
             st.top[ei].amount += inc_amt;
             st.top[ei].sub_amounts.iter_mut().find(|s| s.key == key).unwrap().amount = net;
+            settle_row(&mut st.top[ii], &key);
         }
     }
     {
         let (lo, hi) = (ii.min(ei), ii.max(ei));
         let (a, b) = st.top.split_at_mut(hi);
         let (inc, exp) = if ii < ei { (&mut a[lo], &mut b[0]) } else { (&mut b[0], &mut a[lo]) };
-        transfer_sub_amount(inc, exp, false);
-        transfer_sub_amount(exp, inc, true);
+        transfer_sub_amount(inc, exp, is_expense_row);
+        transfer_sub_amount(exp, inc, |s| !is_expense_row(s));
     }
     st.top.retain(|a| !(matches!(a.key.as_str(), UNCATEGORIZED_INCOME | UNCATEGORIZED_EXPENSES) && a.sub_amounts.is_empty()));
 
@@ -206,7 +220,7 @@ pub fn calc_statistics_exact(db: &mut BudgetDb, start: &Cal, end: &Cal, full: bo
     let mut sorted = st.top.clone();
     sorted.sort_by(stat_cmp);
     for a in sorted {
-        let vec = if a.amount < 0.0 { &mut st.expense } else { &mut st.income };
+        let vec = if is_expense_row(&a) { &mut st.expense } else { &mut st.income };
         vec.push(Row { key: a.key.clone(), amount: a.amount, planned_amount: a.planned_amount, pmt: a.pmt, is_sub: false });
         let mut subs = a.sub_amounts.clone();
         subs.sort_by(stat_cmp);
@@ -253,6 +267,114 @@ mod tests {
         let brief = calc_statistics(&mut db, &Cal::from_int(20211201), 1, false, None);
         assert!(brief.expense.iter().any(|r| r.key == "Rent" && !r.is_sub && r.amount == -1100.0));
         assert_eq!(brief.total_expense, -3030.0);
+    }
+
+    /// A payment on the 1st of each month from `start`, `n` occurrences, no category when `cat` is None.
+    fn scheduled(desc: &str, cat: Option<&str>, amount: f64, start: i32, n: i32) -> crate::model::Payment {
+        let mut p = crate::model::Payment::new(start);
+        p.description = desc.into();
+        p.category = cat.map(str::to_string);
+        p.amount = amount;
+        p.n_pays = n;
+        p
+    }
+
+    fn db_of(payments: Vec<crate::model::Payment>) -> BudgetDb {
+        let mut db = BudgetDb::new(&Cal::from_int(20261001), 12, false);
+        for p in payments { db.add(p); }
+        db
+    }
+
+    /// The leaf rows (those carrying payments) must add up to the totals, planned and actual.
+    fn assert_rows_reconcile(st: &Stats) {
+        let rows: Vec<&Row> = st.income.iter().chain(st.expense.iter()).collect();
+        let (mut amount, mut planned) = (0.0, 0.0);
+        for (i, r) in rows.iter().enumerate() {
+            if r.is_sub || rows.get(i + 1).is_none_or(|next| !next.is_sub) {
+                amount += r.amount;
+                planned += r.planned_amount;
+            }
+        }
+        assert!((amount - (st.total_income + st.total_expense)).abs() < 1e-9, "rows {amount} vs totals");
+        let total_planned = st.total_planned_income + st.total_planned_expense;
+        assert!((planned - total_planned).abs() < 1e-9, "planned rows {planned} vs totals {total_planned}");
+    }
+
+    #[test]
+    fn rows_reconcile_with_the_totals_on_the_sample_budget() {
+        let mut db = sample();
+        for (start, full) in [(20211201, true), (20210101, true), (20211201, false)] {
+            let st = calc_statistics(&mut db, &Cal::from_int(start), 12, full, None);
+            assert_rows_reconcile(&st);
+        }
+    }
+
+    #[test]
+    fn planned_pass_tests_each_occurrence_against_its_own_note_and_flag() {
+        // Oct 1 is noted "shell" and Paid; Nov and Dec are neither. The filter sees each date's own.
+        let mut fuel = scheduled("Fuel", Some("Auto"), -30.0, 20261001, 3);
+        fuel.set_note(20261001, Some("shell"));
+        fuel.set_flag(20261001, crate::model::FLAG_PAID);
+        let mut db = db_of(vec![fuel]);
+        let (start, end) = (Cal::from_int(20261001), Cal::from_int(20261231));
+        let planned = |db: &mut BudgetDb, text: &str| {
+            let f = Filter::new(text, 20261027).unwrap();
+            calc_statistics_exact(db, &start, &end, true, Some(&f)).total_planned_expense
+        };
+        assert_eq!(planned(&mut db, "note:shell"), -30.0);
+        assert_eq!(planned(&mut db, "note:shell cat:auto"), -30.0);
+        assert_eq!(planned(&mut db, "flag:paid"), -30.0);
+        assert_eq!(planned(&mut db, "flag:unpaid"), -60.0);
+        assert_eq!(planned(&mut db, "note:rent"), 0.0);
+        assert_eq!(calc_statistics_exact(&mut db, &start, &end, true, Some(&Filter::new("note:shell", 20261027).unwrap())).total_expense, -30.0);
+    }
+
+    #[test]
+    fn a_search_leaves_unaccounted_out_of_the_statistics() {
+        // The Oct 15 balance adjustment is not a transaction, so a search that narrows the list
+        // drops it instead of adding it to the matches.
+        let mut db = db_of(vec![scheduled("Rent", Some("Housing"), -1000.0, 20261001, 1)]);
+        db.update_adjustment(&Cal::from_int(20261015), -3020.0);
+        let (start, end) = (Cal::from_int(20261001), Cal::from_int(20261031));
+        let f = Filter::new("cat:zzz", 20261027).unwrap();
+        let st = calc_statistics_exact(&mut db, &start, &end, true, Some(&f));
+        assert!(st.income.iter().chain(st.expense.iter()).all(|r| !r.key.contains(UNACCOUNTED)), "{:?}", st.expense);
+        assert_eq!(st.total_expense, 0.0);
+        // without a search the adjustment is shown and counted
+        let st = calc_statistics_exact(&mut db, &start, &end, true, None);
+        assert!(st.expense.iter().any(|r| r.key == "   (Unaccounted)"));
+        assert_eq!(st.total_expense, -3020.0);
+    }
+
+    #[test]
+    fn a_planned_expense_that_turns_positive_keeps_its_planned_row() {
+        // An uncategorised -30 expense whose only occurrence was changed to +30: the planned -30
+        // used to vanish from the rows while Total Expenses still counted it.
+        let mut db = db_of(vec![scheduled("Refund", None, -30.0, 20261001, 1)]);
+        db.payments[0].set_custom_amount(20261001, 30.0);
+        db.update_payment(0);
+        let st = calc_statistics_exact(&mut db, &Cal::from_int(20261001), &Cal::from_int(20261031), true, None);
+        assert_eq!(st.total_planned_expense, -30.0);
+        assert_rows_reconcile(&st);
+        assert!(st.expense.iter().any(|r| r.key == "   Refund" && r.amount == 0.0 && r.planned_amount == -30.0), "{:?}", st.expense);
+        assert!(st.income.iter().any(|r| r.key == "   Refund" && r.amount == 30.0 && r.planned_amount == 0.0), "{:?}", st.income);
+    }
+
+    #[test]
+    fn a_planned_expense_without_an_actual_stays_in_the_expense_list() {
+        // Expenses whose only occurrence was deleted have actual 0 and planned -30: they must
+        // list as expenses, not as income rows.
+        let mut db = db_of(vec![scheduled("Car loan", Some("Auto"), -30.0, 20261001, 1), scheduled("Gym", None, -20.0, 20261001, 1)]);
+        db.payments[0].set_no_transaction(20261001);
+        db.payments[1].set_no_transaction(20261001);
+        db.update_payment(0);
+        db.update_payment(1);
+        let st = calc_statistics_exact(&mut db, &Cal::from_int(20261001), &Cal::from_int(20261031), true, None);
+        assert_eq!(st.total_planned_expense, -50.0);
+        assert_rows_reconcile(&st);
+        assert!(st.expense.iter().any(|r| r.key == "Auto" && !r.is_sub && r.planned_amount == -30.0), "{:?}", st.expense);
+        assert!(st.expense.iter().any(|r| r.key == "(Uncategorized-Expenses)" && r.planned_amount == -20.0), "{:?}", st.expense);
+        assert!(st.income.is_empty(), "{:?}", st.income);
     }
 
     #[test]

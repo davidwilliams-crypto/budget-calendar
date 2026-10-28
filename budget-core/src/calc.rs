@@ -26,21 +26,54 @@ fn tokenize(expr: &str) -> Vec<String> {
     out
 }
 
+/// The multiplier a suffix adds to a number: none (`""`), or one of `k`, `m`, `b`, `t` in either case.
+fn multiplier(suffix: &str) -> Option<f64> {
+    match suffix {
+        "" => Some(1.0),
+        "k" | "K" => Some(1e3),
+        "m" | "M" => Some(1e6),
+        "b" | "B" => Some(1e9),
+        "t" | "T" => Some(1e12),
+        _ => None,
+    }
+}
+
 /// `isNumber`: `%` dropped, optional `+`, lenient parse, single multiplier suffix allowed.
 fn is_number(s: &str) -> Option<f64> {
     let s: String = s.chars().filter(|c| *c != '%').collect();
     let body = if let Some(r) = s.strip_prefix('+') { if r.is_empty() { return None; } r } else { &s };
     let (v, used) = parse_prefix(body)?;
-    let rest = &body[used..];
-    let mult = match rest {
-        "" => 1.0,
-        "k" | "K" => 1e3,
-        "m" | "M" => 1e6,
-        "b" | "B" => 1e9,
-        "t" | "T" => 1e12,
-        _ => return None,
+    let mult = multiplier(&body[used..])?;
+    // A product beyond a double is "Number too large" (see `bad_number`), not a finite number.
+    Some(v * mult).filter(|x| x.is_finite())
+}
+
+/// A well-formed decimal number, with its multiplier, whose value is beyond a double (`1e999`,
+/// `1e308k`). Read here rather than through `parse_prefix`, which only refuses it as non-finite.
+fn overflows(tok: &str) -> bool {
+    let t: String = tok.chars().filter(|c| !matches!(c, '%' | ',')).collect();
+    let last = t.char_indices().next_back().map_or(0, |(i, _)| i);
+    let (body, mult) = match multiplier(&t[last..]) {
+        Some(m) if last > 0 => (&t[..last], m),
+        _ => (t.as_str(), 1.0),
     };
-    Some(v * mult)
+    let literal = body.starts_with(|c: char| c.is_ascii_digit() || c == '.') && body.chars().all(|c| c.is_ascii_digit() || matches!(c, '.' | 'e' | 'E'));
+    literal && body.parse::<f64>().is_ok_and(|v| (v * mult).is_infinite())
+}
+
+/// The error for a token that is not a number: "Number too large" for one beyond a double.
+fn bad_number(tok: &str) -> String {
+    if overflows(tok) { "Number too large".into() } else { syntax_error(tok) }
+}
+
+/// The number after `%` or `%%`: the whole of it must be a number, so `%5k` and `%5abc` are errors.
+fn percent_operand(tok: &str, rest: &str) -> Result<f64, String> {
+    match parse_prefix(rest) {
+        Some((n, used)) if used == rest.len() => Ok(n),
+        Some(_) => Err(syntax_error(tok)),
+        None if overflows(rest) => Err("Number too large".into()),
+        None => Err(format!("Unparseable number: \"{rest}\"")),
+    }
 }
 
 fn weight(tok: &str) -> i32 {
@@ -82,7 +115,7 @@ fn process(tokens: &[String], pos: &mut usize, values: &mut Vec<f64>, week: f64,
                 sign = if tok == "-" { -1.0 } else { 1.0 };
                 let Some(next) = tokens.get(*pos).cloned() else { return Err("Unexpected end of expression".into()) };
                 *pos += 1;
-                if next != "(" && is_number(&next).is_none() { return Err(syntax_error(&next)); }
+                if next != "(" && is_number(&next).is_none() { return Err(bad_number(&next)); }
                 tok = next;
             }
             if tok == "(" {
@@ -90,13 +123,13 @@ fn process(tokens: &[String], pos: &mut usize, values: &mut Vec<f64>, week: f64,
                 process(tokens, pos, values, week, month, depth + 1)?;
                 if sign < 0.0 { values.push(-1.0); apply(values, "*")?; }
             } else if let Some(rest) = tok.strip_prefix("%%") {
-                let (n, _) = parse_prefix(rest).ok_or_else(|| format!("Unparseable number: \"{rest}\""))?;
+                let n = percent_operand(&tok, rest)?;
                 values.push(n * month / 100.0 * sign);
             } else if let Some(rest) = tok.strip_prefix('%') {
-                let (n, _) = parse_prefix(rest).ok_or_else(|| format!("Unparseable number: \"{rest}\""))?;
+                let n = percent_operand(&tok, rest)?;
                 values.push(n * week / 100.0 * sign);
             } else {
-                let v = is_number(&tok).ok_or_else(|| syntax_error(&tok))?;
+                let v = is_number(&tok).ok_or_else(|| bad_number(&tok))?;
                 values.push(v * sign);
             }
             expect_operand = false;
@@ -167,6 +200,28 @@ mod tests {
             assert_eq!(calculate(&nest(65)).unwrap_err(), "Expression too deeply nested");
             assert_eq!(calculate(&format!("-{}", nest(32))).unwrap(), -1.0);
         }).unwrap().join().unwrap();
+    }
+
+    #[test]
+    fn percentages_take_no_trailing_text() {
+        // "%5k" and "%5abc" used to read as 5% and silently drop the rest.
+        let c = |s: &str| calculate_with_income(s, 1000.0, 4300.0);
+        assert_eq!(c("%5k").unwrap_err(), "Syntax error near '%5k'");
+        assert_eq!(c("%5abc").unwrap_err(), "Syntax error near '%5abc'");
+        assert_eq!(c("%%5x + 1").unwrap_err(), "Syntax error near '%%5x'");
+        assert_eq!(c("100 + %5abc").unwrap_err(), "Syntax error near '%5abc'");
+        assert_eq!(c("%5.5").unwrap(), 55.0);
+        assert_eq!(c("%1,000").unwrap(), 10000.0);
+    }
+
+    #[test]
+    fn numbers_too_large_are_reported_as_such() {
+        // "1e999" used to report "Syntax error near '1e999'", hiding that the number is too large.
+        assert_eq!(calculate("1e999").unwrap_err(), "Number too large");
+        assert_eq!(calculate("-1e999").unwrap_err(), "Number too large");
+        assert_eq!(calculate("1+1e999").unwrap_err(), "Number too large");
+        assert_eq!(calculate("1e308k").unwrap_err(), "Number too large");
+        assert_eq!(calculate("1e308*10").unwrap_err(), "Result is too large");
     }
 
     #[test]
