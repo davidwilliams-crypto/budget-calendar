@@ -53,7 +53,7 @@ pub fn format_frac0(x: f64) -> String {
 }
 
 /// `DecimalFormat.parse(s, pos)` prefix-lenient parse: longest leading number (optional `-`,
-/// digits with `,` grouping, optional fraction, optional exponent). Returns the value and the number
+/// digits with well-formed `,` grouping, optional fraction, optional exponent). Returns the value and the number
 /// of chars consumed, or `None` when no digit was found at the start.
 pub fn parse_prefix(s: &str) -> Option<(f64, usize)> {
     let b = s.as_bytes();

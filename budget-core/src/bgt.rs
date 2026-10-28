@@ -396,8 +396,8 @@ pub fn payment_line(p: &Payment) -> String {
 /// The loader takes only finite amounts (`parse_double`), so a save refuses NaN and infinity before
 /// anything is written, rather than producing a file that cannot be opened again.
 fn check_finite(name: &str, p: &Payment) -> Result<(), String> {
-    let written = p.amount.is_finite() && p.loan_amount.is_finite() && p.opt.iter().all(|o| o.deleted || o.amount.is_finite());
-    if written { Ok(()) } else { Err(format!("Cannot save: '{name}' has an amount that is not a finite number")) }
+    let finite = p.amount.is_finite() && p.loan_amount.is_finite() && p.opt.iter().all(|o| o.deleted || o.amount.is_finite());
+    if finite { Ok(()) } else { Err(format!("Cannot save: '{name}' has an amount that is not a finite number")) }
 }
 
 /// Whole file text including the END-OF-DATA trailer (no final newline). With a password every

@@ -243,8 +243,8 @@ fn non_finite_amounts_are_refused_before_saving() {
         let mut custom = base();
         custom.add_custom_amount(20260201, v);
         for p in [amount, loan, custom] {
-            assert!(bgt::save_str(&[p.clone()], &adj, "", None).is_err(), "{:?}", p.opt);
-            assert!(bgt::save_str(&[p], &adj, "", Some("pw")).is_err());
+            assert!(bgt::save_str(std::slice::from_ref(&p), &adj, "", None).is_err(), "{:?}", p.opt);
+            assert!(bgt::save_str(std::slice::from_ref(&p), &adj, "", Some("pw")).is_err());
         }
     }
     let mut bad_adjustment = Payment::new(20260101);
