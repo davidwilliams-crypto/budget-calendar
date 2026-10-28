@@ -56,12 +56,10 @@ pub fn put_payment(db: &mut BudgetDb, payment: Payment, id: Option<i32>) -> Resu
         let i = db.get_by_id(id).ok_or("This payment no longer exists.")?;
         payment.id = id;
         db.payments[i] = payment;
-        update_preserving_details(db, i);
+        db.update_payment(i);
         Ok(id)
     } else {
-        let details = payment.clone();
         let i = db.add(payment);
-        restore_details(&mut db.payments[i], details);
         Ok(db.payments[i].id)
     }
 }
@@ -87,7 +85,7 @@ pub fn change_transaction(db: &mut BudgetDb, id: i32, date: i32, amount: f64, no
     proposed.set_note(date, if note.trim().is_empty() { None } else { Some(note) });
     proposed.set_flag(date, flag);
     db.payments[i] = proposed;
-    update_preserving_details(db, i);
+    db.update_payment(i);
     Ok(())
 }
 
@@ -225,15 +223,13 @@ fn commit_split(db: &mut BudgetDb, i: usize, earlier: Option<Payment>, later: Pa
     match earlier {
         Some(earlier) => {
             db.payments[i] = earlier;
-            update_preserving_details(db, i);
-            let details = later.clone();
+            db.update_payment(i);
             let j = db.add(later);
-            restore_details(&mut db.payments[j], details);
             db.payments[j].id
         }
         None => {
             db.payments[i] = later;
-            update_preserving_details(db, i);
+            db.update_payment(i);
             db.payments[i].id
         }
     }
@@ -506,7 +502,7 @@ fn schedule_snapshot(today: i32, payments: &[Payment], from: i32, to: i32) -> Re
     snapshot.today = today;
     snapshot.payments.extend(payments.iter().cloned());
     snapshot.adjustments.set_custom_amount(from, 0.0);
-    rebuild(&mut snapshot, &Cal::from_int(end), 0, false);
+    snapshot.rebuild_db(&Cal::from_int(end), 0, false);
     let mut values = BTreeMap::new();
     let mut day = Cal::from_int(from);
     while day.get() <= to {
@@ -569,7 +565,7 @@ pub fn move_transaction(db: &mut BudgetDb, id: i32, from: i32, to: i32, amount: 
     preserve_tentative_destination(&baseline, &mut proposed, from, to)?;
     validate_loan(&proposed)?;
     db.payments[i] = proposed;
-    update_preserving_details(db, i);
+    db.update_payment(i);
     db.calc_balances(None);
     Ok(true)
 }
@@ -626,7 +622,7 @@ fn isolated_payment_db(today: i32, payment: &Payment, date: i32) -> BudgetDb {
     anchor.set(Field::Day, 1);
     anchor.add(Field::Month, -3);
     snapshot.adjustments.set_custom_amount(anchor.get(), 0.0);
-    rebuild(&mut snapshot, &cal, 0, false);
+    snapshot.rebuild_db(&cal, 0, false);
     snapshot
 }
 
@@ -683,11 +679,9 @@ pub fn delete(db: &mut BudgetDb, id: i32, date: Option<i32>) -> Result<(), Strin
         preserve_future_amount(db, i, date, &mut proposed)?;
         validate_loan(&proposed)?;
         db.payments[i] = proposed;
-        update_preserving_details(db, i);
+        db.update_payment(i);
     } else {
-        let original: Vec<_> = db.payments.iter().filter(|p| p.id != id).cloned().collect();
         db.delete_payment(i);
-        for (p, details) in db.payments.iter_mut().zip(original) { restore_details(p, details); }
     }
     Ok(())
 }
@@ -703,7 +697,7 @@ pub fn restore(db: &mut BudgetDb, id: i32, date: i32) -> Result<(), String> {
     proposed.clear(date);
     validate_loan(&proposed)?;
     db.payments[i] = proposed;
-    update_preserving_details(db, i);
+    db.update_payment(i);
     Ok(())
 }
 
@@ -763,30 +757,14 @@ fn preserve_future_amount(db: &mut BudgetDb, i: usize, date: i32, proposed: &mut
     Ok(())
 }
 
-fn restore_details(payment: &mut Payment, original: Payment) {
-    payment.opt = original.opt;
-    payment.flag = original.flag;
-    payment.note = original.note;
-    payment.hilighting = original.hilighting;
-}
-
-fn update_preserving_details(db: &mut BudgetDb, i: usize) {
-    let details = db.payments[i].clone();
-    db.update_payment(i);
-    restore_details(&mut db.payments[i], details);
-}
-
+// The core's scheduling leaves every payment's stored options, flags, notes and highlighting
+// alone, so these are plain calls. They remain only as the UI's entry points (main.rs, view.rs).
 pub fn rebuild(db: &mut BudgetDb, cal: &Cal, months: i32, history: bool) {
-    let original = db.payments.clone();
     db.rebuild_db(cal, months, history);
-    for (p, details) in db.payments.iter_mut().zip(original) { restore_details(p, details); }
 }
 
 pub fn from_loaded(loaded: bgt::Loaded, cal: &Cal, months: i32, history: bool) -> BudgetDb {
-    let original = loaded.payments.clone();
-    let mut db = BudgetDb::from_loaded(loaded, cal, months, history);
-    for (p, details) in db.payments.iter_mut().zip(original) { restore_details(p, details); }
-    db
+    BudgetDb::from_loaded(loaded, cal, months, history)
 }
 
 #[cfg(test)]
@@ -873,7 +851,7 @@ mod tests {
         p.set_note(20300101, Some("Future note"));
         p.set_flag(20300101, FLAG_PAID); p.set_hilighting(20260901, 123);
         p.set_default_highlighting(0x445566); p.set_url(Some("https://example.com/rent"));
-        rebuild(&mut db, &Cal::from_int(20261001), 12, false);
+        db.rebuild_db(&Cal::from_int(20261001), 12, false);
         change_future_transactions(&mut db, id, 20261001, -250.0, "Selected only", FLAG_PAID).unwrap();
         assert_eq!(amount(&mut db, 20260801), Some(-100.0));
         assert_eq!(amount(&mut db, 20260901), Some(-75.0));
@@ -900,7 +878,7 @@ mod tests {
         assert_eq!(later.get_flag(20300101), FLAG_PAID);
         let text = db.to_text(None).unwrap();
         let loaded = bgt::load_str(&text, 20261027, None).unwrap();
-        let mut reopened = from_loaded(loaded, &Cal::from_int(20300101), 12, true);
+        let mut reopened = BudgetDb::from_loaded(loaded, &Cal::from_int(20300101), 12, true);
         assert_eq!(amount(&mut reopened, 20260801), Some(-100.0));
         assert_eq!(amount(&mut reopened, 20260901), Some(-75.0));
         assert_eq!(amount(&mut reopened, 20300101), Some(-250.0));
@@ -916,7 +894,7 @@ mod tests {
         let mut db = db(false); db.today = 20261027;
         let id = db.payments[0].id;
         db.payments[0].start_date = 20251001;
-        rebuild(&mut db, &Cal::from_int(20261001), 12, false);
+        db.rebuild_db(&Cal::from_int(20261001), 12, false);
         change_future_transactions(&mut db, id, 20261101, -250.0, "", FLAG_NONE).unwrap();
         assert!(db.payments.iter().all(|p| p.opt.is_empty()), "{:?}", db.payments.iter().map(|p| &p.opt).collect::<Vec<_>>());
         let mut month = Cal::from_int(20251001);
@@ -934,7 +912,7 @@ mod tests {
 
     /// Each day's amount of the (possibly split) payment over `[from, to]`, with full history.
     fn daily_amounts(db: &mut BudgetDb, from: i32, to: i32) -> Vec<(i32, Option<f64>)> {
-        rebuild(db, &Cal::from_int(to), 0, true);
+        db.rebuild_db(&Cal::from_int(to), 0, true);
         let mut day = Cal::from_int(from);
         let mut out = Vec::new();
         while day.get() <= to { out.push((day.get(), amount(db, day.get()))); day.add_days(1); }
@@ -987,7 +965,7 @@ mod tests {
     fn future_split_from_a_moved_occurrence_moves_with_it() {
         let mut db = db(false); let id = db.payments[0].id;
         db.payments[0].start_date = 20260901;
-        rebuild(&mut db, &Cal::from_int(20261001), 12, false);
+        db.rebuild_db(&Cal::from_int(20261001), 12, false);
         assert!(move_transaction(&mut db, id, 20261001, 20261009, -100.0).unwrap());
         change_future_transactions(&mut db, id, 20261009, -250.0, "Moved one", FLAG_NONE).unwrap();
         for (date, expected) in [(20260901, Some(-100.0)), (20261001, None), (20261009, Some(-250.0)), (20261101, Some(-250.0))] {
@@ -1002,7 +980,7 @@ mod tests {
         for early in [false, true] {
             let mut db = db(false); let id = db.payments[0].id;
             db.payments[0].set_no_weekends(true); db.payments[0].set_early_pay(early);
-            rebuild(&mut db, &Cal::from_int(20261001), 12, false);
+            db.rebuild_db(&Cal::from_int(20261001), 12, false);
             let shown = if early { 20261030 } else { 20261102 };
             assert_eq!(amount(&mut db, shown), Some(-100.0));
             change_future_transactions(&mut db, id, shown, -250.0, "", FLAG_NONE).unwrap();
@@ -1036,7 +1014,7 @@ mod tests {
             let mut db = db(false); let id = db.payments[0].id;
             let p = &mut db.payments[0];
             p.start_date = 20260601; p.set_end_mode(mode); p.n_pays = 12; p.end_date = 20270501;
-            rebuild(&mut db, &Cal::from_int(20261001), 12, false);
+            db.rebuild_db(&Cal::from_int(20261001), 12, false);
             change_future_transactions(&mut db, id, 20261101, -250.0, "", FLAG_NONE).unwrap();
             let (earlier, later) = (&db.payments[0], &db.payments[1]);
             // A count limit keeps counting (5 made, 7 left); a dated end ends the day before.
@@ -1057,7 +1035,7 @@ mod tests {
         p.set_custom_amount(20260801, -80.0);
         p.set_custom_amount(20270301, -60.0);
         p.set_note(20270301, Some("Later note"));
-        rebuild(&mut db, &Cal::from_int(20261001), 12, false);
+        db.rebuild_db(&Cal::from_int(20261001), 12, false);
         let mut edited = db.payments[0].clone();
         edited.amount = -120.0; edited.description = "Monthly bill (new rate)".into();
         let new_id = apply_payment(&mut db, edited, Some(id), Some(20261101)).unwrap();
@@ -1071,7 +1049,7 @@ mod tests {
         assert_eq!((later.id, later.description.as_str(), later.start_date), (new_id, "Monthly bill (new rate)", 20261101));
         assert_eq!(later.get_note(20270301).as_deref(), Some("Later note"));
         let loaded = bgt::load_str(&db.to_text(None).unwrap(), 20261027, None).unwrap();
-        let mut reopened = from_loaded(loaded, &Cal::from_int(20261001), 12, true);
+        let mut reopened = BudgetDb::from_loaded(loaded, &Cal::from_int(20261001), 12, true);
         assert_eq!(amount(&mut reopened, 20261001), Some(-100.0));
         assert_eq!(amount(&mut reopened, 20261201), Some(-120.0));
         // Applied to all occurrences instead, the single record changes from its start.
@@ -1087,7 +1065,7 @@ mod tests {
         let mut db = db(false); let id = db.payments[0].id;
         let p = &mut db.payments[0];
         p.start_date = 20260601; p.set_end_mode(END_MODE_N_PAYS); p.n_pays = 12;
-        rebuild(&mut db, &Cal::from_int(20261001), 12, false);
+        db.rebuild_db(&Cal::from_int(20261001), 12, false);
         let mut edited = db.payments[0].clone(); edited.frequency = 2;
         apply_payment(&mut db, edited, Some(id), Some(20261101)).unwrap();
         let shown: Vec<_> = daily_amounts(&mut db, 20260601, 20281231).into_iter().filter(|(_, v)| v.is_some()).map(|(d, _)| d).collect();
@@ -1096,7 +1074,7 @@ mod tests {
         // Ending before the date leaves nothing to continue: refused without changes.
         let mut db = self::db(false); let id = db.payments[0].id;
         db.payments[0].start_date = 20260601;
-        rebuild(&mut db, &Cal::from_int(20261001), 12, false);
+        db.rebuild_db(&Cal::from_int(20261001), 12, false);
         let before = db.to_text(None).unwrap(); let updates = db.update_count;
         let mut edited = db.payments[0].clone(); edited.set_end_mode(END_MODE_DATE); edited.end_date = 20260915;
         assert!(apply_payment(&mut db, edited, Some(id), Some(20261101)).unwrap_err().contains("no occurrences"));
@@ -1108,7 +1086,7 @@ mod tests {
         let mut db = db(false); let id = db.payments[0].id;
         let p = &mut db.payments[0]; p.start_date = 20260801;
         p.set_end_mode(END_MODE_LOAN_PAID); p.loan_amount = 1000.0;
-        rebuild(&mut db, &Cal::from_int(20261001), 12, false);
+        db.rebuild_db(&Cal::from_int(20261001), 12, false);
         let mut edited = db.payments[0].clone(); edited.amount = -300.0;
         apply_payment(&mut db, edited, Some(id), Some(20261001)).unwrap();
         assert_eq!(db.payments[1].loan_amount, 800.0);
@@ -1137,7 +1115,7 @@ mod tests {
         p.set_custom_amount(20261001, -45.0);
         p.set_no_transaction(20261101); p.set_custom_amount(20261104, -45.0);
         p.set_custom_amount(20300704, -12.0);
-        rebuild(&mut db, &Cal::from_int(20261001), 12, false);
+        db.rebuild_db(&Cal::from_int(20261001), 12, false);
         change_future_transactions(&mut db, id, 20261001, -250.0, "", FLAG_NONE).unwrap();
         for (date, expected) in [(20260701, Some(-100.0)), (20260801, Some(-75.0)), (20260901, Some(-75.0)),
             (20261001, Some(-250.0)), (20261101, None), (20261104, Some(-250.0)), (20261201, Some(-250.0))] {
@@ -1155,12 +1133,12 @@ mod tests {
         let p = &mut db.payments[0];
         p.description = "Groceries".into(); p.start_date = 20251024;
         p.freq_type = 'w'; p.frequency = 1; p.amount = -150.0;
-        rebuild(&mut db, &Cal::from_int(20261001), 12, false);
+        db.rebuild_db(&Cal::from_int(20261001), 12, false);
         change_future_transactions(&mut db, id, 20261023, -250.0, "Weekly budget", FLAG_NONE).unwrap();
         for date in [20251024, 20251226, 20261009, 20261016] { assert_eq!(amount(&mut db, date), Some(-150.0)); }
         for date in [20261023, 20261030, 20261106, 20270101] { assert_eq!(amount(&mut db, date), Some(-250.0)); }
         let loaded = bgt::load_str(&db.to_text(None).unwrap(), 20261027, None).unwrap();
-        let mut reopened = from_loaded(loaded, &Cal::from_int(20301001), 0, true);
+        let mut reopened = BudgetDb::from_loaded(loaded, &Cal::from_int(20301001), 0, true);
         assert_eq!(amount(&mut reopened, 20251024), Some(-150.0));
         assert_eq!(amount(&mut reopened, 20261016), Some(-150.0));
         assert_eq!(amount(&mut reopened, 20301025), Some(-250.0));
@@ -1177,7 +1155,7 @@ mod tests {
                     p.set_custom_amount(20260930, -70.0);
                     p.set_custom_amount(20261004, -80.0);
                     p.set_no_transaction(20261009);
-                    rebuild(&mut db, &Cal::from_int(20261001), 12, false);
+                    db.rebuild_db(&Cal::from_int(20261001), 12, false);
                     let mut day = Cal::from_int(20260924); let mut previous = Vec::new();
                     while day.get() < selected { previous.push((day.get(), amount(&mut db, day.get()))); day.add_days(1); }
                     change_future_transactions(&mut db, id, selected, -250.0, "", FLAG_NONE).unwrap();
@@ -1190,7 +1168,7 @@ mod tests {
                     for date in [20261013, 20261014] { assert_eq!(amount(&mut db, date), Some(-250.0)); }
                     assert_eq!(amount(&mut db, 20261009), None);
                     let loaded = bgt::load_str(&db.to_text(None).unwrap(), 20261027, None).unwrap();
-                    let mut reopened = from_loaded(loaded, &Cal::from_int(20261001), 12, true);
+                    let mut reopened = BudgetDb::from_loaded(loaded, &Cal::from_int(20261001), 12, true);
                     assert_eq!(amount(&mut reopened, selected), Some(-250.0));
                     assert_eq!(amount(&mut reopened, 20261102), Some(monday));
                     if early { assert_eq!(amount(&mut reopened, 20261030), Some(-750.0)); }
@@ -1211,7 +1189,7 @@ mod tests {
                     p.set_no_transaction(20261001);
                     p.set_custom_amount(20261203, -40.0);
                     p.set_note(20261203, Some("Keep December"));
-                    rebuild(&mut db, &Cal::from_int(20261001), 12, false);
+                    db.rebuild_db(&Cal::from_int(20261001), 12, false);
                     let history: Vec<_> = [20260801, 20260901, 20260903, 20261001, 20261027]
                         .into_iter().filter(|date| *date < selected).map(|date| (date, amount(&mut db, date))).collect();
                     // A current tentative period consisting solely of a deletion is skipped
@@ -1226,8 +1204,8 @@ mod tests {
                     assert_eq!(note_on(&db, 20261203).as_deref(), Some("Keep December"));
                     assert_eq!(note_on(&db, selected).as_deref(), Some("Selected note"));
                     let loaded = bgt::load_str(&db.to_text(None).unwrap(), 20261027, None).unwrap();
-                    let mut reopened = from_loaded(loaded, &Cal::from_int(20261001), 12, true);
-                    reopened.today = 20261027; rebuild(&mut reopened, &Cal::from_int(20261001), 12, true);
+                    let mut reopened = BudgetDb::from_loaded(loaded, &Cal::from_int(20261001), 12, true);
+                    reopened.today = 20261027; reopened.rebuild_db(&Cal::from_int(20261001), 12, true);
                     assert_eq!(amount(&mut reopened, 20260801), None);
                     assert_eq!(amount(&mut reopened, selected), Some(-250.0));
                 }
@@ -1240,14 +1218,14 @@ mod tests {
         let mut db = db(false); let id = db.payments[0].id;
         let p = &mut db.payments[0]; p.start_date = 20260801;
         p.set_end_mode(budget_core::END_MODE_LOAN_PAID); p.loan_amount = 1000.0;
-        rebuild(&mut db, &Cal::from_int(20261001), 12, false);
+        db.rebuild_db(&Cal::from_int(20261001), 12, false);
         change_future_transactions(&mut db, id, 20261001, -250.0, "", FLAG_NONE).unwrap();
         for (date, expected) in [(20260801, Some(-100.0)), (20260901, Some(-100.0)), (20261001, Some(-250.0)),
             (20261101, Some(-250.0)), (20261201, Some(-250.0)), (20270101, Some(-50.0)), (20270201, None)] {
             assert_eq!(amount(&mut db, date), expected, "{date}");
         }
         let loaded = bgt::load_str(&db.to_text(None).unwrap(), 20261027, None).unwrap();
-        let mut reopened = from_loaded(loaded, &Cal::from_int(20261001), 12, true);
+        let mut reopened = BudgetDb::from_loaded(loaded, &Cal::from_int(20261001), 12, true);
         assert_eq!(amount(&mut reopened, 20260901), Some(-100.0));
         assert_eq!(amount(&mut reopened, 20270101), Some(-50.0));
     }
@@ -1261,7 +1239,7 @@ mod tests {
             let p = &mut db.payments[0]; p.start_date = 20260801;
             p.set_end_mode(budget_core::END_MODE_LOAN_PAID); p.loan_amount = 1000.0;
             if let Some(value) = future_exception { p.set_custom_amount(20261215, value); }
-            rebuild(&mut db, &Cal::from_int(20261001), 12, false);
+            db.rebuild_db(&Cal::from_int(20261001), 12, false);
             let before = db.to_text(None).unwrap(); let updates = db.update_count;
             let selected_before = amount(&mut db, 20261001);
             let error = change_future_transactions(&mut db, id, 20261001, value, "Do not save", FLAG_PAID).unwrap_err();
@@ -1318,7 +1296,7 @@ mod tests {
                 let mut db = db(true); let id = db.payments[0].id;
                 let p = &mut db.payments[0]; p.start_date = 20260828;
                 p.freq_type = freq_type; p.set_end_mode(mode); p.n_pays = 6; p.end_date = 20270131;
-                rebuild(&mut db, &Cal::from_int(20261001), 12, false);
+                db.rebuild_db(&Cal::from_int(20261001), 12, false);
                 let end = db.payments[0].end_date; let count = db.payments[0].n_pays;
                 let mut day = Cal::from_int(20260801); let mut baseline = Vec::new();
                 while day.get() < 20270301 { baseline.push((day.get(), amount(&mut db, day.get()))); day.add_days(1); }
@@ -1341,14 +1319,14 @@ mod tests {
     fn future_amount_queries_history_outside_the_visible_window_and_supports_later_changes() {
         let mut db = db(true); let id = db.payments[0].id;
         db.update_adjustment(&Cal::from_int(20290101), 500.0);
-        rebuild(&mut db, &Cal::from_int(20290601), 0, false);
+        db.rebuild_db(&Cal::from_int(20290601), 0, false);
         assert!(db.get_day(&Cal::from_int(20261001)).is_none());
         change_future_transactions(&mut db, id, 20261101, -250.0, "First change", FLAG_NONE).unwrap();
         // The January occurrence now belongs to the record continuing from November.
         assert!(change_future_transactions(&mut db, id, 20270101, -300.0, "", FLAG_NONE).is_err());
         let november = db.payments.iter().find(|p| p.start_date == 20261101).unwrap().id;
         change_future_transactions(&mut db, november, 20270101, -300.0, "Second change", FLAG_PAID).unwrap();
-        rebuild(&mut db, &Cal::from_int(20301001), 0, true);
+        db.rebuild_db(&Cal::from_int(20301001), 0, true);
         assert_eq!(amount(&mut db, 20261001), Some(-100.0));
         assert_eq!(amount(&mut db, 20261101), Some(-250.0));
         assert_eq!(amount(&mut db, 20261201), Some(-250.0));
@@ -1377,7 +1355,7 @@ mod tests {
         assert_eq!(db.payments[0].opt, options);
         assert_eq!(db.payments[0].note, notes);
         assert_eq!(db.payments[0].flag, flags);
-        rebuild(&mut db, &Cal::from_int(20261001), 12, false);
+        db.rebuild_db(&Cal::from_int(20261001), 12, false);
         assert_eq!(db.payments[0].opt, options);
     }
 
@@ -1425,7 +1403,7 @@ mod tests {
             db.payments[0].set_no_weekends(true);
             db.payments[0].set_custom_amount(20261001, -150.0);
             db.payments[0].set_custom_amount(20261101, -80.0);
-            rebuild(&mut db, &Cal::from_int(20261001), 12, false);
+            db.rebuild_db(&Cal::from_int(20261001), 12, false);
             assert_eq!(amount(&mut db, 20261102), Some(-150.0));
             if delete_occurrence { delete(&mut db, id, Some(20261001)).unwrap(); }
             else { change_transaction(&mut db, id, 20261001, -35.0, "", FLAG_NONE).unwrap(); }
@@ -1434,7 +1412,7 @@ mod tests {
             assert_eq!(amount(&mut db, 20261201), Some(-80.0));
             assert_eq!(amount(&mut db, 20270101), Some(-80.0));
             let loaded = bgt::load_str(&db.to_text(None).unwrap(), 20261027, None).unwrap();
-            let mut reopened = from_loaded(loaded, &Cal::from_int(20261001), 12, false);
+            let mut reopened = BudgetDb::from_loaded(loaded, &Cal::from_int(20261001), 12, false);
             assert_eq!(amount(&mut reopened, 20261102), Some(-150.0));
             assert_eq!(amount(&mut reopened, 20261201), Some(-80.0));
         }
@@ -1447,7 +1425,7 @@ mod tests {
             let p = &mut db.payments[0];
             p.freq_type = 'd'; p.set_no_weekends(true); p.set_early_pay(early);
             p.set_custom_amount(20261004, -80.0);
-            rebuild(&mut db, &Cal::from_int(20261001), 12, false);
+            db.rebuild_db(&Cal::from_int(20261001), 12, false);
             let dates = [20261002, 20261003, 20261004, 20261005, 20261006];
             let before: Vec<_> = dates.iter().map(|&date| amount(&mut db, date)).collect();
             change_transaction(&mut db, id, 20261001, -35.0, "", FLAG_NONE).unwrap();
@@ -1469,7 +1447,7 @@ mod tests {
                 p.set_no_transaction(20261001);
                 if today_mode == 1 { p.set_custom_amount(20261027, -70.0); }
                 if today_mode == 2 { p.set_flag(20261001, FLAG_PAID); }
-                rebuild(&mut db, &Cal::from_int(20261001), 12, false);
+                db.rebuild_db(&Cal::from_int(20261001), 12, false);
                 let id = db.payments[0].id;
                 let today_amount = amount(&mut db, 20261027);
                 let next_amount = amount(&mut db, 20261101);
@@ -1519,7 +1497,7 @@ mod tests {
         p.set_note(20261001, Some("Receipt retained"));
         p.set_hilighting(20261001, 0x234567);
         p.set_note(20261201, Some("Unrelated"));
-        update_preserving_details(&mut db, 0);
+        db.update_payment(0);
         assert!(move_transaction(&mut db, id, 20261001, 20261009, -123.45).unwrap());
         assert_eq!(amount(&mut db, 20261001), None);
         assert_eq!(amount(&mut db, 20261009), Some(-123.45));
@@ -1530,7 +1508,7 @@ mod tests {
         assert_eq!(db.payments[0].get_hilighting(20261009), 0x234567);
         assert_eq!(db.payments[0].get_hilighting(20261001), -1);
         let loaded = bgt::load_str(&db.to_text(None).unwrap(), 20261027, None).unwrap();
-        let mut reopened = from_loaded(loaded, &Cal::from_int(20261001), 12, false);
+        let mut reopened = BudgetDb::from_loaded(loaded, &Cal::from_int(20261001), 12, false);
         assert_eq!(amount(&mut reopened, 20261001), None);
         assert_eq!(amount(&mut reopened, 20261009), Some(-123.45));
         assert_eq!(reopened.payments[0].get_flag(20261009), FLAG_PAID);
@@ -1543,7 +1521,7 @@ mod tests {
         let mut db = db(false); let id = db.payments[0].id;
         db.payments[0].set_end_mode(budget_core::END_MODE_N_PAYS);
         db.payments[0].n_pays = 1;
-        update_preserving_details(&mut db, 0);
+        db.update_payment(0);
         assert!(move_transaction(&mut db, id, 20261001, 20260930, -100.0).unwrap());
         assert_eq!(amount(&mut db, 20261001), None);
         assert_eq!(amount(&mut db, 20260930), Some(-100.0));
@@ -1562,7 +1540,7 @@ mod tests {
             p.set_note(20261101, Some("Old skipped transaction"));
             p.set_hilighting(20261101, 0x654321);
             p.set_note(20261201, Some("Unrelated note"));
-            update_preserving_details(&mut db, 0);
+            db.update_payment(0);
             assert!(move_transaction(&mut db, id, 20261001, 20261101, -100.0).unwrap());
             assert_eq!(amount(&mut db, 20261001), None);
             assert_eq!(amount(&mut db, 20261101), Some(-100.0));
@@ -1574,7 +1552,7 @@ mod tests {
             assert_eq!(moved.default_hilighting(), 0x123456);
             assert_eq!(moved.get_note(20261201).as_deref(), Some("Unrelated note"));
             let loaded = bgt::load_str(&db.to_text(None).unwrap(), 20261027, None).unwrap();
-            let reopened = from_loaded(loaded, &Cal::from_int(20261001), 12, false);
+            let reopened = BudgetDb::from_loaded(loaded, &Cal::from_int(20261001), 12, false);
             assert_eq!(reopened.payments[0].get_flag(20261101), default_flag);
             assert_eq!(reopened.payments[0].get_note(20261101), None);
             assert_eq!(reopened.payments[0].get_hilighting(20261101), -1);
@@ -1590,7 +1568,7 @@ mod tests {
         p.set_flag(20261001, FLAG_NONE);
         p.set_no_transaction(20261101);
         p.set_flag(20261101, budget_core::FLAG_IMPORTANT);
-        update_preserving_details(&mut db, 0);
+        db.update_payment(0);
         assert!(move_transaction(&mut db, id, 20261001, 20261101, -100.0).unwrap());
         assert_eq!(db.payments[0].get_flag(20261101), FLAG_NONE);
         assert!(!db.payments[0].flag.iter().any(|f| f.date == 20261001));
@@ -1618,7 +1596,7 @@ mod tests {
                         p.hilighting.push(budget_core::Hilight { date: duplicate_at, bg_color: 0x654321 });
                     }
                 }
-                update_preserving_details(&mut db, 0);
+                db.update_payment(0);
                 let before = db.to_text(None).unwrap(); let updates = db.update_count;
                 assert!(move_transaction(&mut db, id, 20261001, 20261101, -100.0).is_err());
                 assert_eq!(db.to_text(None).unwrap(), before);
@@ -1658,7 +1636,7 @@ mod tests {
         db.payments[0].set_custom_amount(20261107, -45.0);
         // A custom option must be protected even if outside the visible window.
         db.payments[0].set_custom_amount(20311107, -45.0);
-        update_preserving_details(&mut db, 0);
+        db.update_payment(0);
         let before = db.to_text(None).unwrap();
         for destination in [20261101, 20261107, 20311107, 20311101] {
             assert!(move_transaction(&mut db, id, 20261001, destination, -100.0).is_err());
@@ -1672,7 +1650,7 @@ mod tests {
         db.payments[0].add_no_transaction(20261009);
         db.payments[0].add_custom_amount(20261009, -45.0);
         db.payments[0].add_no_transaction(20261009);
-        update_preserving_details(&mut db, 0);
+        db.update_payment(0);
         assert_eq!(amount(&mut db, 20261009), None);
         let before = db.to_text(None).unwrap();
         assert!(move_transaction(&mut db, id, 20261001, 20261009, -100.0).is_err());
@@ -1686,7 +1664,7 @@ mod tests {
             let p = &mut db.payments[0];
             p.freq_type = 'd'; p.set_no_weekends(true); p.set_early_pay(early);
             p.set_custom_amount(20261004, -80.0);
-            rebuild(&mut db, &Cal::from_int(20261001), 12, false);
+            db.rebuild_db(&Cal::from_int(20261001), 12, false);
             // The Friday/Monday group is the selected visible occurrence;
             // the destination is an empty weekend date.
             // The group adds up the business day's own occurrence and the weekend ones moved onto it.
@@ -1709,7 +1687,7 @@ mod tests {
         p.start_date = 20260901; p.disabled = true; p.set_tentative(true);
         p.set_custom_amount(20260901, -150.0);
         p.set_no_transaction(20261001);
-        rebuild(&mut db, &Cal::from_int(20261001), 12, false);
+        db.rebuild_db(&Cal::from_int(20261001), 12, false);
         assert_eq!(amount(&mut db, 20261027), Some(-150.0));
         assert!(move_transaction(&mut db, id, 20260901, 20260830, -150.0).unwrap());
         assert_eq!(amount(&mut db, 20260901), None);
@@ -1722,10 +1700,10 @@ mod tests {
     fn move_queries_source_and_destination_outside_current_window() {
         let mut db = db(false); let id = db.payments[0].id;
         db.update_adjustment(&Cal::from_int(20290101), 500.0);
-        rebuild(&mut db, &Cal::from_int(20290601), 0, false);
+        db.rebuild_db(&Cal::from_int(20290601), 0, false);
         assert!(db.get_day(&Cal::from_int(20261001)).is_none());
         assert!(move_transaction(&mut db, id, 20261001, 20301004, -100.0).unwrap());
-        rebuild(&mut db, &Cal::from_int(20301001), 0, true);
+        db.rebuild_db(&Cal::from_int(20301001), 0, true);
         assert_eq!(amount(&mut db, 20261001), None);
         assert_eq!(amount(&mut db, 20301004), Some(-100.0));
         assert_eq!(amount(&mut db, 20301101), Some(-100.0));
@@ -1736,7 +1714,7 @@ mod tests {
         for (source, destination) in [(20261001, 20261210), (20261201, 20261010)] {
             let mut db = db(true); let id = db.payments[0].id;
             db.payments[0].set_custom_amount(source, -150.0);
-            update_preserving_details(&mut db, 0);
+            db.update_payment(0);
             assert!(move_transaction(&mut db, id, source, destination, -150.0).unwrap());
             assert_eq!(amount(&mut db, source), None);
             assert_eq!(amount(&mut db, destination), Some(-150.0));
@@ -1753,7 +1731,7 @@ mod tests {
         db.payments[0].set_custom_amount(20261015, -80.0);
         db.payments[0].set_no_transaction(20261101);
         db.payments[0].set_note(20261015, Some("Keep this override"));
-        update_preserving_details(&mut db, 0);
+        db.update_payment(0);
         assert!(move_transaction(&mut db, id, 20261001, 20261111, -150.0).unwrap());
         assert_eq!(amount(&mut db, 20261015), Some(-80.0));
         assert_eq!(amount(&mut db, 20261101), None);
@@ -1769,7 +1747,7 @@ mod tests {
         db.payments[0].set_no_weekends(true);
         db.payments[0].set_custom_amount(20261001, -150.0);
         db.payments[0].set_custom_amount(20261101, -80.0);
-        rebuild(&mut db, &Cal::from_int(20261001), 12, false);
+        db.rebuild_db(&Cal::from_int(20261001), 12, false);
         assert!(move_transaction(&mut db, id, 20261001, 20261210, -150.0).unwrap());
         assert_eq!(amount(&mut db, 20261101), Some(-80.0));
         assert_eq!(amount(&mut db, 20261102), Some(-150.0));
@@ -1777,7 +1755,7 @@ mod tests {
         assert_eq!(amount(&mut db, 20261210), Some(-150.0));
         assert_eq!(amount(&mut db, 20270101), Some(-80.0));
         let loaded = bgt::load_str(&db.to_text(None).unwrap(), 20261027, None).unwrap();
-        let mut reopened = from_loaded(loaded, &Cal::from_int(20261001), 12, false);
+        let mut reopened = BudgetDb::from_loaded(loaded, &Cal::from_int(20261001), 12, false);
         assert_eq!(amount(&mut reopened, 20270101), Some(-80.0));
     }
 
@@ -1788,7 +1766,7 @@ mod tests {
         db.payments[0].set_tentative(true);
         db.payments[0].set_custom_amount(20261103, -65.0);
         db.payments[0].set_note(20261103, Some("Future period"));
-        rebuild(&mut db, &Cal::from_int(20261001), 12, false);
+        db.rebuild_db(&Cal::from_int(20261001), 12, false);
         assert_eq!(amount(&mut db, 20261027), Some(-100.0));
         assert!(move_transaction(&mut db, id, 20261027, 20261029, -100.0).unwrap());
         assert_eq!(amount(&mut db, 20261027), None);
@@ -1808,7 +1786,7 @@ mod tests {
                 db.payments[0].disabled = disabled;
                 db.payments[0].set_flag(20261027, FLAG_PAID);
                 db.payments[0].set_note(20261101, Some("Keep November"));
-                rebuild(&mut db, &Cal::from_int(20261001), 12, false);
+                db.rebuild_db(&Cal::from_int(20261001), 12, false);
                 assert_eq!(amount(&mut db, 20261027), Some(-100.0));
                 assert_eq!(amount(&mut db, 20261101), Some(-100.0));
                 assert!(move_transaction(&mut db, id, 20261027, 20261115, -100.0).unwrap());
@@ -1819,9 +1797,9 @@ mod tests {
                 assert_eq!(db.payments[0].get_flag(20261115), FLAG_PAID);
                 assert_eq!(db.payments[0].get_note(20261101).as_deref(), Some("Keep November"));
                 let loaded = bgt::load_str(&db.to_text(None).unwrap(), 20261027, None).unwrap();
-                let mut reopened = from_loaded(loaded, &Cal::from_int(20261001), 12, false);
+                let mut reopened = BudgetDb::from_loaded(loaded, &Cal::from_int(20261001), 12, false);
                 reopened.today = 20261027;
-                rebuild(&mut reopened, &Cal::from_int(20261001), 12, false);
+                reopened.rebuild_db(&Cal::from_int(20261001), 12, false);
                 assert_eq!(amount(&mut reopened, 20261101), Some(-100.0));
                 assert_eq!(amount(&mut reopened, 20261115), Some(-100.0));
             }
@@ -1840,7 +1818,7 @@ mod tests {
                 p.add_no_transaction(20261101);
                 p.add_no_transaction(20261101);
             }
-            update_preserving_details(&mut db, 0);
+            db.update_payment(0);
             let before = db.to_text(None).unwrap(); let updates = db.update_count;
             let value = if duplicate_at == 20261001 { -75.0 } else { -100.0 };
             let destination = if duplicate_at == 20261001 { 20261009 } else { 20261101 };
@@ -1855,7 +1833,7 @@ mod tests {
         let mut db = db(false); let id = db.payments[0].id;
         db.payments[0].set_end_mode(budget_core::END_MODE_LOAN_PAID);
         db.payments[0].loan_amount = 250.0;
-        update_preserving_details(&mut db, 0);
+        db.update_payment(0);
         assert!(move_transaction(&mut db, id, 20261001, 20261003, -100.0).unwrap());
         assert_eq!(amount(&mut db, 20261001), None);
         assert_eq!(amount(&mut db, 20261003), Some(-100.0));
@@ -1908,7 +1886,7 @@ mod tests {
         assert_eq!(db.adjustments.get_flag(20261201), budget_core::FLAG_IMPORTANT);
         assert!(set_balance(&mut db, 20261001, Some(4321.12)).unwrap());
         let loaded = bgt::load_str(&db.to_text(None).unwrap(), 20261027, None).unwrap();
-        let mut reopened = from_loaded(loaded, &Cal::from_int(20261001), 12, false);
+        let mut reopened = BudgetDb::from_loaded(loaded, &Cal::from_int(20261001), 12, false);
         assert_eq!(closing(&mut reopened, 20261001), 4321.12);
         assert_eq!(closing(&mut reopened, 20261201), 700.0);
         assert_eq!(reopened.day_note(&Cal::from_int(20261001)).as_deref(), Some("Day note"));
@@ -1944,7 +1922,7 @@ mod tests {
             db.adjustments.set_flag(20261020, FLAG_PAID);
             db.adjustments.set_note(20261020, Some("Keep this day note"));
             db.adjustments.add_custom_amount(20261120, 900.0);
-            rebuild(&mut db, &Cal::from_int(20261001), 12, false);
+            db.rebuild_db(&Cal::from_int(20261001), 12, false);
             assert_eq!(closing(&mut db, 20261020), 200.0);
             assert!(set_balance(&mut db, 20261020, Some(requested)).unwrap());
             assert_eq!(closing(&mut db, 20261020), requested);
@@ -1960,7 +1938,7 @@ mod tests {
         let mut db = db(false);
         db.adjustments.add_custom_amount(20261020, 100.0);
         db.adjustments.add_custom_amount(20261020, 200.0);
-        rebuild(&mut db, &Cal::from_int(20261001), 12, false);
+        db.rebuild_db(&Cal::from_int(20261001), 12, false);
         assert!(set_balance(&mut db, 20261020, None).unwrap());
         assert_eq!(closing(&mut db, 20261020), -100.0);
         assert!(!db.adjustments.opt.iter().any(|o| o.date == 20261020));
@@ -2006,7 +1984,7 @@ mod tests {
         for sticky in [false, true] {
             let mut db = db(sticky); db.today = 20261027;
             db.payments[0].set_tentative(true);
-            rebuild(&mut db, &Cal::from_int(20261001), 12, false);
+            db.rebuild_db(&Cal::from_int(20261001), 12, false);
             let id = db.payments[0].id;
             assert_eq!(amount(&mut db, 20261027), Some(-100.0));
             change_transaction(&mut db, id, 20261027, -100.0, "", FLAG_PAID).unwrap();
@@ -2015,9 +1993,9 @@ mod tests {
             assert!(!db.payments[0].opt.iter().any(|o| o.date != 20261027), "no extra anchors for tentative payments");
             let text = db.to_text(None).unwrap();
             let loaded = bgt::load_str(&text, 20261029, None).unwrap();
-            let mut reopened = from_loaded(loaded, &Cal::from_int(20261001), 12, false);
+            let mut reopened = BudgetDb::from_loaded(loaded, &Cal::from_int(20261001), 12, false);
             reopened.today = 20261029;
-            rebuild(&mut reopened, &Cal::from_int(20261001), 12, false);
+            reopened.rebuild_db(&Cal::from_int(20261001), 12, false);
             let day = reopened.get_day(&Cal::from_int(20261027)).unwrap().transactions[0].clone();
             assert_eq!(day.amount, -100.0);
             assert_eq!(day.suffix, budget_core::SUFFIX_ADJUSTED);

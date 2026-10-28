@@ -33,6 +33,7 @@ pub fn add_period(cal: &mut Cal, field: Field, frequency: i32, start_date: i32, 
 
 /// Whether a slot date is on the calendar. Every schedule walk stops after `DATE_MAX`, so absurd
 /// frequency × count combinations cannot hang a load (or overflow the year).
+#[inline]
 pub fn in_calendar(c: &Cal) -> bool { c.get() <= DATE_MAX }
 
 /// A payment's nominal slot dates (before weekend shifting or tentative sliding) in order: the
@@ -53,6 +54,7 @@ pub struct Slots {
 
 impl Iterator for Slots {
     type Item = Cal;
+    #[inline]
     fn next(&mut self) -> Option<Cal> {
         if self.n >= 0 {
             if !in_calendar(&self.c) { return None; }
@@ -313,10 +315,14 @@ impl BudgetDb {
         if remove_first { self.remove_from_budget_days(i); }
         self.in_sync = false;
 
-        let (tentative, sticky, no_weekends, early_pay, n_pays, amount, disabled) = {
-            let p = &self.payments[i];
-            (p.is_tentative(), p.is_sticky(), p.is_no_weekends(), p.is_early_pay(), p.n_pays, p.amount, p.disabled)
-        };
+        let p = &self.payments[i];
+        let (tentative, sticky, no_weekends, early_pay, n_pays, amount, disabled, end_date) =
+            (p.is_tentative(), p.is_sticky(), p.is_no_weekends(), p.is_early_pay(), p.n_pays, p.amount, p.disabled, p.end_date);
+        // Placement reads and prunes a working copy of the payment's dated options and flags: the
+        // original's in-pass clean-ups (tentative periods, analysis/01 §3.7; the options pass, §3.9)
+        // shape this placement exactly as there, but scheduling never changes the stored per-date
+        // data (SPEC.md §6).
+        let mut work = Payment { amount, opt: p.opt.clone(), flag: p.flag.clone(), ..Payment::default() };
         let today = self.today;
         let mut is_last = false;
         for (n, c) in self.scheduled_slots(i).take_while(in_calendar).enumerate() {
@@ -324,10 +330,10 @@ impl BudgetDb {
             let mut amt = amount;
             if mode == END_MODE_LOAN_PAID && n + 1 == n_pays {
                 amt = last_payment_amount;
-                if !self.payments[i].has_options_after(cv) { is_last = true; }
+                if !work.has_options_after(cv) { is_last = true; }
             }
-            if sticky { amt = self.payments[i].amount_before_date(cv); }
-            if !is_last && mode != END_MODE_INDEFINITE && n + 1 == n_pays && !self.payments[i].has_options_after(cv) {
+            if sticky { amt = work.amount_before_date(cv); }
+            if !is_last && mode != END_MODE_INDEFINITE && n + 1 == n_pays && !work.has_options_after(cv) {
                 is_last = true;
             }
             if tentative {
@@ -337,7 +343,7 @@ impl BudgetDb {
                 if period_end.gt(&c) {
                     let first = cv;
                     let last = period_end.get();
-                    let opts = self.payments[i].options_in(first, last);
+                    let opts = work.options_in(first, last);
                     let mut current_or_future = first >= today;
                     let today_in_period = first <= today && today <= last;
                     let target = if today_in_period { current_or_future = true; Cal::from_int(today) } else { c };
@@ -348,12 +354,12 @@ impl BudgetDb {
                     } else if sticky && disabled {
                         let tv = target.get();
                         for o in &opts {
-                            if o.deleted && o.date != first && o.date != tv { self.payments[i].clear(o.date); }
+                            if o.deleted && o.date != first && o.date != tv { work.clear(o.date); }
                         }
-                        if !self.payments[i].is_paid(first, last) {
+                        if !work.is_paid(first, last) {
                             if let Some(d) = self.cal_index(&target) {
                                 if today_in_period {
-                                    let a = self.payments[i].amount_before_date(tv);
+                                    let a = work.amount_before_date(tv);
                                     self.day_add_regular(d, i, a, SUFFIX_NONE);
                                 } else if current_or_future {
                                     self.day_add_regular(d, i, amount, SUFFIX_NONE);
@@ -363,10 +369,10 @@ impl BudgetDb {
                     } else {
                         let mut n_deleted = 0;
                         for o in &opts {
-                            if o.deleted { n_deleted += 1; self.payments[i].clear(o.date); }
+                            if o.deleted { n_deleted += 1; work.clear(o.date); }
                         }
                         if opts.len() == n_deleted && current_or_future {
-                            self.payments[i].set_no_transaction(target.get());
+                            work.set_no_transaction(target.get());
                         }
                     }
                 }
@@ -382,8 +388,8 @@ impl BudgetDb {
 
         // options pass
         let mut k = 0;
-        while k < self.payments[i].opt.len() {
-            let o = self.payments[i].opt[k].clone();
+        while k < work.opt.len() {
+            let o = work.opt[k].clone();
             let Some(di) = self.cal_index_int(o.date) else { k += 1; continue };
             if o.deleted {
                 let removed = self.day_mut(di).remove(i);
@@ -391,19 +397,18 @@ impl BudgetDb {
                     self.day_add_restorable(di, i);
                     k += 1;
                 } else {
-                    self.payments[i].opt.remove(k);
+                    work.opt.remove(k); // a stale deletion marker
                 }
                 continue;
             }
             let mut suffix = SUFFIX_ADJUSTED;
-            let end_date = self.payments[i].end_date;
-            if mode != END_MODE_INDEFINITE && !self.payments[i].has_options_after(o.date) && o.date >= end_date {
+            if mode != END_MODE_INDEFINITE && !work.has_options_after(o.date) && o.date >= end_date {
                 suffix = SUFFIX_LAST;
             }
             let existing = self.day_mut(di).get(i).map(|t| (t.amount, t.suffix));
             match existing {
                 None => { self.day_add(di, i, o.amount, suffix); k += 1; }
-                Some((amt, _)) if amt == o.amount && !tentative => { self.payments[i].opt.remove(k); }
+                Some((amt, _)) if amt == o.amount && !tentative => { work.opt.remove(k); } // a redundant custom amount
                 Some(_) => {
                     let t = self.day_mut(di).get_mut(i).unwrap();
                     t.amount = o.amount;
