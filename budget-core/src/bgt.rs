@@ -428,20 +428,51 @@ fn friendly_io_error(e: &std::io::Error) -> String {
     }
 }
 
-/// Skip byte-identical saves; otherwise stage a complete file and retain the prior `.bak[.N]`.
-pub fn save_file(path: &Path, content: &str) -> Result<(), String> {
+/// `path` with `suffix` appended to its native name. Appending to the path rather than its display
+/// text keeps names that are not valid Unicode intact.
+fn sibling(path: &Path, suffix: &str) -> std::path::PathBuf {
+    let mut name = path.as_os_str().to_os_string();
+    name.push(suffix);
+    std::path::PathBuf::from(name)
+}
+
+/// Create a new, uniquely named file beside `path` to stage a replacement of it.
+fn create_temp(path: &Path) -> std::io::Result<(std::path::PathBuf, std::fs::File)> {
     use std::fs::{self, OpenOptions};
-    use std::io::{ErrorKind, Write};
+    use std::io::ErrorKind;
     use std::sync::atomic::{AtomicU64, Ordering};
 
     static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
 
-    // Append to the native path rather than its display text, which can be lossy.
-    let sibling = |suffix: &str| {
-        let mut name = path.as_os_str().to_os_string();
-        name.push(suffix);
-        std::path::PathBuf::from(name)
-    };
+    loop {
+        let id = NEXT_TEMP.fetch_add(1, Ordering::Relaxed);
+        let candidate = sibling(path, &format!(".tmp.{}.{id}", std::process::id()));
+        match OpenOptions::new().write(true).create_new(true).open(&candidate) {
+            Ok(file) => return Ok((candidate, file)),
+            Err(error) if error.kind() == ErrorKind::AlreadyExists || fs::symlink_metadata(&candidate).is_ok() => continue,
+            Err(error) => return Err(error),
+        }
+    }
+}
+
+/// Replace `path` with `bytes` through a synced temporary file in the same directory and a rename,
+/// so the previous contents survive any failure before the rename. Nothing is left behind on failure.
+pub(crate) fn replace_file(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+
+    let (temp_path, mut temp_file) = create_temp(path)?;
+    let staged = temp_file.write_all(bytes).and_then(|()| temp_file.sync_all());
+    drop(temp_file);
+    let result = staged.and_then(|()| std::fs::rename(&temp_path, path));
+    if result.is_err() { let _ = std::fs::remove_file(&temp_path); }
+    result
+}
+
+/// Skip byte-identical saves; otherwise stage a complete file and retain the prior `.bak[.N]`.
+pub fn save_file(path: &Path, content: &str) -> Result<(), String> {
+    use std::fs::{self, OpenOptions};
+    use std::io::{ErrorKind, Write};
+
     let bytes = latin1_encode(content);
     let original = match fs::read(path) {
         Ok(old) if old == bytes => return Ok(()),
@@ -450,15 +481,7 @@ pub fn save_file(path: &Path, content: &str) -> Result<(), String> {
         Err(error) => return Err(format!("File Save: cannot read original: {error}")),
     };
 
-    let (temp_path, mut temp_file) = loop {
-        let id = NEXT_TEMP.fetch_add(1, Ordering::Relaxed);
-        let candidate = sibling(&format!(".tmp.{}.{id}", std::process::id()));
-        match OpenOptions::new().write(true).create_new(true).open(&candidate) {
-            Ok(file) => break (candidate, file),
-            Err(error) if error.kind() == ErrorKind::AlreadyExists || fs::symlink_metadata(&candidate).is_ok() => continue,
-            Err(error) => return Err(format!("File Save: cannot create temporary file: {error}")),
-        }
-    };
+    let (temp_path, mut temp_file) = create_temp(path).map_err(|error| format!("File Save: cannot create temporary file: {error}"))?;
 
     let mut backup_path: Option<std::path::PathBuf> = None;
     let result = (|| -> Result<(), String> {
@@ -472,7 +495,7 @@ pub fn save_file(path: &Path, content: &str) -> Result<(), String> {
             let mut index = existing_backups(path).last().map_or(0, |(newest, _)| newest + 1);
             let mut backup = loop {
                 let suffix = if index == 0 { ".bak".to_string() } else { format!(".bak.{index}") };
-                let candidate = sibling(&suffix);
+                let candidate = sibling(path, &suffix);
                 match OpenOptions::new().write(true).create_new(true).open(&candidate) {
                     Ok(file) => { backup_path = Some(candidate.clone()); break file }
                     // Windows may return AccessDenied for an existing directory.

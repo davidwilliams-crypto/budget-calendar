@@ -1,5 +1,6 @@
 //! File saving preserves the current document and the newest `bgt::MAX_BACKUPS` backups.
 
+use budget_core::config::BudgetConfig;
 use budget_core::{bgt, BudgetDb, Cal};
 use std::fs;
 use std::path::PathBuf;
@@ -148,6 +149,37 @@ fn only_the_newest_backups_are_kept_and_numbering_continues() {
     for other in ["budget.bgt.bak.old", "budget.bgt.bak.1a", "other.bgt.bak", "budget.bgt.backup"] {
         assert_eq!(fs::read(dir.file(other)).unwrap(), b"keep");
     }
+}
+
+#[test]
+fn budgetrc_save_replaces_the_settings_without_leftover_files() {
+    let dir = TestDir::new();
+    let rc = dir.file(".budgetrc");
+    let mut config = BudgetConfig { currency_prefix: "EUR".into(), ..Default::default() };
+    config.save(&rc).unwrap();
+    config.currency_prefix = "CHF".into();
+    config.save(&rc).unwrap();
+
+    assert_eq!(BudgetConfig::load(&rc).currency_prefix, "CHF");
+    assert_eq!(dir.entries(), [".budgetrc"]);
+}
+
+#[cfg(windows)]
+#[test]
+fn failed_budgetrc_save_keeps_the_previous_settings_and_leaves_no_backup() {
+    use std::os::windows::fs::OpenOptionsExt;
+
+    let dir = TestDir::new();
+    let rc = dir.file(".budgetrc");
+    BudgetConfig { currency_prefix: "EUR".into(), ..Default::default() }.save(&rc).unwrap();
+    // Readable by others, but not writable or replaceable while held.
+    let held = fs::OpenOptions::new().read(true).share_mode(1).open(&rc).unwrap();
+
+    assert!(BudgetConfig { currency_prefix: "CHF".into(), ..Default::default() }.save(&rc).is_err());
+
+    drop(held);
+    assert_eq!(BudgetConfig::load(&rc).currency_prefix, "EUR");
+    assert_eq!(dir.entries(), [".budgetrc"]);
 }
 
 #[test]
