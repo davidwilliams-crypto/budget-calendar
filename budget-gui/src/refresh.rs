@@ -2,70 +2,24 @@
 //!
 //! Every editing operation in `document` already reschedules the payment it changed in place
 //! (`BudgetDb::update_payment`), and deleting a payment re-places all of them. A full rebuild
-//! (`document::rebuild`) after that gives the same transactions and balances unless it would
+//! (`BudgetDb::rebuild_db`) after that gives the same transactions and balances unless it would
 //! choose another date window, or the in-place update left equal transactions (whose running
 //! balances depend on their order) or restorable payments in another order than a rebuild places
 //! them (by payment index): only then is it run.
 //!
-//! One order is left as the in-place update makes it: a day's list of scheduled payments, which
-//! only decides the order in which the statistics first meet categories, and so the order of
-//! summary rows whose totals are exactly equal. (Sorting that list in `stats::calc_statistics`'s
-//! planned pass would make even that independent of how the schedule was built.)
+//! A day's list of scheduled payments is left in the in-place order; `stats::calc_statistics`
+//! sorts it before use, so the summary rows do not depend on how the schedule was built.
 
-use budget_core::date::{SATURDAY, SUNDAY};
-use budget_core::{BudgetDb, Cal, Field, Payment, END_MODE_LOAN_PAID};
+use budget_core::{BudgetDb, Cal, Field};
 
 /// Rebuilds `db` around `cal` unless its in-place updates already equal a rebuild. Returns
 /// whether it rebuilt.
 pub fn after_edit(db: &mut BudgetDb, cal: &Cal, future_months: i32, unlimited_history: bool) -> bool {
     let current = (db.start_date.get(), db.end_date.get());
-    if window(db, cal, future_months, unlimited_history) == current && in_rebuild_order(db) { return false; }
-    crate::document::rebuild(db, cal, future_months, unlimited_history);
+    let (start, end) = db.window(cal, future_months, unlimited_history);
+    if (start.get(), end.get()) == current && in_rebuild_order(db) { return false; }
+    db.rebuild_db(cal, future_months, unlimited_history);
     true
-}
-
-/// The date window (first and last day) `BudgetDb::rebuild_db(cal, …)` would choose for `db`:
-/// from the month of the latest balance checkpoint two months before `cal` (else of the earliest
-/// transaction), or every year with unlimited history, widened to cover a loan running across the
-/// start; through December of the year `future_months` after `cal`.
-pub fn window(db: &BudgetDb, cal: &Cal, future_months: i32, unlimited_history: bool) -> (i32, i32) {
-    // Where the first occurrence is actually placed: early pay moves a weekend start to the Friday.
-    let placed_start = |p: &Payment| -> i32 {
-        if p.is_no_weekends() && p.is_early_pay() && !p.is_tentative() {
-            let c = Cal::from_int(p.start_date);
-            let back = match c.day_of_week() { SATURDAY => 1, SUNDAY => 2, _ => 0 };
-            if back != 0 { let mut d = c; d.add(Field::Day, -back); return d.get(); }
-        }
-        p.start_date
-    };
-    let earliest_payment = |from: i32| db.payments.iter()
-        .flat_map(|p| std::iter::once(placed_start(p)).chain(p.opt.iter().filter(|o| !o.deleted).map(|o| o.date)))
-        .fold(from, i32::min);
-    let mut base = *cal;
-    base.add(Field::Month, -2);
-    let b = base.get();
-    let mut latest_before = 0;
-    let mut earliest = b;
-    for a in &db.adjustments.opt {
-        if a.date < b && latest_before < a.date { latest_before = a.date; }
-        if earliest > a.date { earliest = a.date; }
-    }
-    if latest_before == 0 { latest_before = earliest_payment(b); }
-    if unlimited_history { earliest = earliest_payment(earliest); }
-    let mut start = Cal::from_int(if unlimited_history { earliest } else { latest_before });
-    if unlimited_history { start.set(Field::Month, 0); start.set(Field::Day, 1); }
-    for i in 0..db.payments.len() {
-        if db.payments[i].end_mode() != END_MODE_LOAN_PAID { continue; }
-        let ls = db.calc_loan_schedule(i, None);
-        if start.gt(&ls.actual_start) && start.lt(&ls.actual_end) { start.set_cal(&ls.actual_start); }
-    }
-    start.set(Field::Day, 1);
-    let mut end = *cal;
-    end.add(Field::Month, future_months);
-    end.set(Field::Month, 11);
-    let last = end.max_day();
-    end.set(Field::Day, last);
-    (start.get(), end.get())
 }
 
 /// Whether every day lists its transactions and restorable payments in the order a rebuild
@@ -92,7 +46,7 @@ fn in_rebuild_order(db: &mut BudgetDb) -> bool {
 mod tests {
     use super::*;
     use crate::document;
-    use budget_core::{END_MODE_DATE, END_MODE_INDEFINITE, FLAG_NONE};
+    use budget_core::{Payment, END_MODE_DATE, END_MODE_INDEFINITE, END_MODE_LOAN_PAID, FLAG_NONE};
 
     type DaySnapshot = (i32, f64, f64, bool, f64, Vec<(usize, f64, f64, char)>, Vec<usize>, Vec<usize>);
     type MonthStats = Vec<(String, f64, f64, Option<usize>, bool)>;
@@ -151,7 +105,7 @@ mod tests {
         db.payments.push(payment("Insurance", 20250301, -600.0, 'y'));
         for (n, p) in db.payments.iter_mut().enumerate() { p.id = n as i32 + 1; }
         db.adjustments.set_custom_amount(20250601, 2500.0);
-        document::rebuild(&mut db, &cur, 12, false);
+        db.rebuild_db(&cur, 12, false);
         db
     }
 
@@ -165,7 +119,7 @@ mod tests {
         edit(&mut fast).unwrap();
         edit(&mut full).unwrap();
         let rebuilt = after_edit(&mut fast, &cal, 12, false);
-        document::rebuild(&mut full, &cal, 12, false);
+        full.rebuild_db(&cal, 12, false);
         assert!(snapshot(&mut fast) == snapshot(&mut full), "{name}: the in-place update must equal a rebuild");
         rebuilt
     }
@@ -212,7 +166,7 @@ mod tests {
                 db.payments.push(p);
             }
             db.adjustments.set_custom_amount(20250301, 1000.0);
-            document::rebuild(&mut db, &cur, 12, false);
+            db.rebuild_db(&cur, 12, false);
             (db, next)
         };
         let ((mut fast, mut next), (mut full, _)) = (build(), build());
@@ -233,7 +187,7 @@ mod tests {
             if edit(&mut fast).is_err() { continue; }
             edit(&mut full).unwrap();
             if !after_edit(&mut fast, &cal, 12, false) { skipped += 1; }
-            document::rebuild(&mut full, &cal, 12, false);
+            full.rebuild_db(&cal, 12, false);
             assert!(days(&mut fast) == days(&mut full), "round {round}: the in-place update must equal a rebuild");
         }
         assert!(skipped > 0);
@@ -274,8 +228,9 @@ mod tests {
                     let mut db = BudgetDb::new(&Cal::from_int(cur), months, history);
                     db.payments = payments.clone();
                     for date in &adjustments { db.adjustments.set_custom_amount(*date, 100.0); }
-                    let predicted = window(&db, &Cal::from_int(cur), months, history);
-                    document::rebuild(&mut db, &Cal::from_int(cur), months, history);
+                    let (start, end) = db.window(&Cal::from_int(cur), months, history);
+                    let predicted = (start.get(), end.get());
+                    db.rebuild_db(&Cal::from_int(cur), months, history);
                     assert_eq!(predicted, (db.start_date.get(), db.end_date.get()), "cur {cur}, {months} months, history {history}");
                 }
             }

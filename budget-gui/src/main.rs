@@ -172,9 +172,9 @@ fn load_budget(read: &file_probe::Reader, path: &Path, bytes: Option<Vec<u8>>, p
     let built = bgt::load_str(&text, s.today, password).map_err(|l| l.log).and_then(|loaded| {
         // A malformed file must surface as an error banner, never take the whole app down.
         std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let mut db = document::from_loaded(loaded, &cur, s.future_months, s.unlimited_history);
+            let mut db = BudgetDb::from_loaded(loaded, &cur, s.future_months, s.unlimited_history);
             // One "today" for the grid and the tentative scheduler (--today included).
-            if db.today != s.today { db.today = s.today; document::rebuild(&mut db, &cur, s.future_months, s.unlimited_history); }
+            if db.today != s.today { db.today = s.today; db.rebuild_db(&cur, s.future_months, s.unlimited_history); }
             db
         })).map_err(|_| "This budget file could not be built: it contains values the schedule engine cannot handle.".to_string())
     });
@@ -399,7 +399,7 @@ impl App {
         if !self.filter_text.trim().is_empty() { self.set_filter(); }
         if let Some(db) = &mut self.db {
             db.today = date;
-            document::rebuild(db, &self.cur, self.cfg.future_n_months, self.cfg.unlimited_history);
+            db.rebuild_db(&self.cur, self.cfg.future_n_months, self.cfg.unlimited_history);
         }
         self.view = None;
     }
@@ -464,7 +464,7 @@ impl App {
         if let Loaded::Budget(db, _) = &mut loaded {
             if settings != self.load_settings() {
                 db.today = self.today;
-                document::rebuild(db, &self.cur, self.cfg.future_n_months, self.cfg.unlimited_history);
+                db.rebuild_db(&self.cur, self.cfg.future_n_months, self.cfg.unlimited_history);
             }
         }
         self.apply_loaded(&path, password, loaded, quiet);
@@ -575,7 +575,7 @@ impl App {
         self.cur.set_day_one();
         if let Some(db) = &mut self.db {
             if !db.is_month_available(&self.cur) {
-                document::rebuild(db, &self.cur, self.cfg.future_n_months, self.cfg.unlimited_history);
+                db.rebuild_db(&self.cur, self.cfg.future_n_months, self.cfg.unlimited_history);
             }
         }
     }
@@ -778,7 +778,7 @@ impl App {
         ui.menu_button(RichText::new(format!("{} {}  {}", MONTHS_LONG[self.cur.month() as usize], self.cur.year(), ph::CARET_DOWN))
             .size(if compact { 17.0 } else { 20.0 }).family(egui::FontFamily::Name("semi".into())), |ui| {
             let mut year = self.cur.year();
-            ui.horizontal(|ui| { ui.label("Year"); ui.add(egui::DragValue::new(&mut year).range(1000..=9999).update_while_editing(false)); });
+            ui.horizontal(|ui| { ui.label("Year"); ui.add(egui::DragValue::new(&mut year).range(budget_core::date::YEAR_MIN..=budget_core::date::YEAR_MAX).update_while_editing(false)); });
             if year != self.cur.year() { self.go((year - self.cur.year()) * 12); }
             egui::Grid::new("month_picker").num_columns(3).show(ui, |ui| {
                 for (month, label) in MONTHS.iter().enumerate() {
@@ -1264,7 +1264,7 @@ impl App {
         let Some(db) = &mut self.db else { return };
         let cal = Cal::from_int(date);
         if db.get_day(&cal).is_none() {
-            document::rebuild(db, &cal, self.cfg.future_n_months, self.cfg.unlimited_history);
+            db.rebuild_db(&cal, self.cfg.future_n_months, self.cfg.unlimited_history);
             self.view = None;
         }
         if let Some(day) = db.get_day(&cal) {
@@ -2231,7 +2231,7 @@ mod lifecycle_tests {
             db.payments[0].start_date = 20260927;
             db.payments[0].amount = -150.0;
             db.payments[0].set_end_mode(budget_core::END_MODE_INDEFINITE);
-            document::rebuild(db, &app.cur, 12, false);
+            db.rebuild_db(&app.cur, 12, false);
             app.dirty = false;
             app.edit_transaction(id, 20261027, -150.0);
             let scope = if future { TransactionScope::Future } else { TransactionScope::Occurrence };
@@ -2242,7 +2242,7 @@ mod lifecycle_tests {
             assert!(app.save_to(&saved, None));
             assert!(!app.dirty);
             let loaded = bgt::load_file(&saved, app.today, None).unwrap();
-            let mut restored = document::from_loaded(loaded, &app.cur, 12, true);
+            let mut restored = BudgetDb::from_loaded(loaded, &app.cur, 12, true);
             for (date, expected) in [(20260927, -150.0), (20261027, -250.0),
                 (20261127, if future { -250.0 } else { -150.0 }),
                 (20261227, if future { -250.0 } else { -150.0 })] {
@@ -3127,7 +3127,7 @@ mod lifecycle_tests {
             }
             db.payments.push(p);
         }
-        document::rebuild(&mut db, cur, 12, false);
+        db.rebuild_db(cur, 12, false);
         db
     }
 

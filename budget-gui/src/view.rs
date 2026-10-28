@@ -360,7 +360,7 @@ mod build_tests {
         let cur = Cal::from_int(20261001);
         let mut db = BudgetDb::new(&cur, 12, false);
         for p in payments { db.add(p); }
-        crate::document::rebuild(&mut db, &cur, 12, false);
+        db.rebuild_db(&cur, 12, false);
         (db, cur)
     }
 

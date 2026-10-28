@@ -167,6 +167,34 @@ impl BudgetDb {
 
     /// `rebuildDB(cal, futureMonths, unlimitedHistory)`.
     pub fn rebuild_db(&mut self, cal: &Cal, future_months: i32, unlimited_history: bool) {
+        let (start, end) = self.window(cal, future_months, unlimited_history);
+        self.start_date = start;
+        self.end_date = end;
+        self.start_year = start.year();
+        let n_years = (end.year() - self.start_year + 1) as usize;
+        self.y_offset = Vec::with_capacity(n_years);
+        let mut y = start;
+        let mut total = 0;
+        for _ in 0..n_years {
+            self.y_offset.push(total);
+            total += y.max_day_of_year();
+            y.add(Field::Year, 1);
+        }
+        self.days = (0..total).map(|_| BudgetDay::default()).collect();
+        self.start_date_int = start.get();
+        self.end_date_int = end.get();
+        for i in 0..self.payments.len() {
+            self.payments[i].calendar_days.clear();
+            self.update_payment_inner(i, false);
+        }
+        self.update_adjustments(None);
+    }
+
+    /// The first and last day of the window `rebuild_db(cal, …)` builds: from the month of the
+    /// latest balance checkpoint two months before `cal` (else of the earliest transaction), or
+    /// every year with unlimited history, widened to cover a loan running across the start;
+    /// through December of the year `future_months` after `cal`.
+    pub fn window(&self, cal: &Cal, future_months: i32, unlimited_history: bool) -> (Cal, Cal) {
         // Where the first occurrence is actually placed: EARLY_PAY moves a weekend start to the prior Friday.
         let placed_start = |p: &Payment| -> i32 {
             let start = Cal::from_int(p.start_date);
@@ -203,31 +231,12 @@ impl BudgetDb {
             if start.gt(&ls.actual_start) && start.lt(&ls.actual_end) { start.set_cal(&ls.actual_start); }
         }
         start.set(Field::Day, 1);
-        self.start_date = start;
         let mut end = *cal;
         end.add(Field::Month, future_months);
         end.set(Field::Month, 11);
         let last = end.max_day();
         end.set(Field::Day, last);
-        self.end_date = end;
-        self.start_year = start.year();
-        let n_years = (end.year() - self.start_year + 1) as usize;
-        self.y_offset = Vec::with_capacity(n_years);
-        let mut y = start;
-        let mut total = 0;
-        for _ in 0..n_years {
-            self.y_offset.push(total);
-            total += y.max_day_of_year();
-            y.add(Field::Year, 1);
-        }
-        self.days = (0..total).map(|_| BudgetDay::default()).collect();
-        self.start_date_int = start.get();
-        self.end_date_int = end.get();
-        for i in 0..self.payments.len() {
-            self.payments[i].calendar_days.clear();
-            self.update_payment_inner(i, false);
-        }
-        self.update_adjustments(None);
+        (start, end)
     }
 
     /// `setLeftLimit`: start of the window becomes 1 January of its year (no rebuild).

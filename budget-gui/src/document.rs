@@ -757,16 +757,6 @@ fn preserve_future_amount(db: &mut BudgetDb, i: usize, date: i32, proposed: &mut
     Ok(())
 }
 
-// The core's scheduling leaves every payment's stored options, flags, notes and highlighting
-// alone, so these are plain calls. They remain only as the UI's entry points (main.rs, view.rs).
-pub fn rebuild(db: &mut BudgetDb, cal: &Cal, months: i32, history: bool) {
-    db.rebuild_db(cal, months, history);
-}
-
-pub fn from_loaded(loaded: bgt::Loaded, cal: &Cal, months: i32, history: bool) -> BudgetDb {
-    BudgetDb::from_loaded(loaded, cal, months, history)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

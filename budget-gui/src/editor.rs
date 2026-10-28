@@ -40,7 +40,6 @@ impl AmountKind {
 /// Seed text for an amount box: the grouped 2-decimal magnitude, as the original shows it.
 fn amount_seed(amount: f64) -> String { budget_core::numfmt::format_frac2(amount.abs()) }
 
-const WEEKDAY_HEADERS: [&str; 7] = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
 
 struct DatePicker { month: Cal, sunday_first: bool }
 impl DatePicker {
@@ -53,7 +52,7 @@ impl DatePicker {
     fn first_weekday(&self) -> i32 { if self.sunday_first { 0 } else { 1 } }
     /// Column headers starting at the configured first day of the week, like the calendar grid.
     fn headers(&self) -> [&'static str; 7] {
-        std::array::from_fn(|i| WEEKDAY_HEADERS[(self.first_weekday() as usize + i) % 7])
+        std::array::from_fn(|i| &crate::names::WEEKDAYS[(self.first_weekday() as usize + i) % 7][..2])
     }
     /// Blank cells before the 1st of the month.
     fn leading_blanks(&self) -> i32 { (self.month.day_of_week() + 7 - self.first_weekday()) % 7 }
@@ -799,7 +798,6 @@ fn date_field(ui: &mut egui::Ui, label: &str, id: &str, value: &mut String, pick
     entered
 }
 fn date_picker(ui: &mut egui::Ui, picker: &mut DatePicker, selected: &str, t: &Tokens) -> Option<i32> {
-    const MONTHS: [&str; 12] = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
     ui.set_width(266.0);
     ui.spacing_mut().item_spacing = egui::vec2(4.0, 5.0);
     let mut chosen = None;
@@ -807,7 +805,7 @@ fn date_picker(ui: &mut egui::Ui, picker: &mut DatePicker, selected: &str, t: &T
         if ui.add_enabled(picker.month.ym() > Cal::from_int(DATE_MIN).ym(), egui::Button::new("‹")).on_hover_text("Previous month").clicked() {
             picker.shift_month(-1);
         }
-        ui.add_sized([190.0, 34.0], egui::Label::new(RichText::new(format!("{} {}", MONTHS[picker.month.month() as usize], picker.month.year())).strong()));
+        ui.add_sized([190.0, 34.0], egui::Label::new(RichText::new(format!("{} {}", crate::names::MONTHS_LONG[picker.month.month() as usize], picker.month.year())).strong()));
         if ui.add_enabled(picker.month.ym() < Cal::from_int(DATE_MAX).ym(), egui::Button::new("›")).on_hover_text("Next month").clicked() {
             picker.shift_month(1);
         }

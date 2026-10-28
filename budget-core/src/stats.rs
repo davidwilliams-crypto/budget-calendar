@@ -136,7 +136,9 @@ pub fn calc_statistics_exact(db: &mut BudgetDb, start: &Cal, end: &Cal, full: bo
     let mut c = *start;
     while c.le(end) {
         if let Some(day) = db.get_day(&c) {
-            let regulars = day.regulars.clone();
+            // Sorted so the order of equal summary rows does not depend on how the schedule was built.
+            let mut regulars = day.regulars.clone();
+            regulars.sort_unstable();
             for pi in regulars {
                 let p = &db.payments[pi];
                 if let Some(f) = filter { if !f.is_match(p, p.amount, -1) { continue; } }
