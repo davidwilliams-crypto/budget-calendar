@@ -2748,4 +2748,145 @@ mod lifecycle_tests {
         assert!(app.auto_open.is_none());
         std::fs::remove_dir_all(dir).unwrap();
     }
+
+    // ---------- performance harness (ignored; run with `--release -- --ignored perf --nocapture`) ----------
+
+    /// A generated 3000-payment budget: monthly, weekly, fortnightly and yearly payments started
+    /// 2019–2026, a third of them ending, every fifth with a dated amount, note and flag, plus a
+    /// balance adjustment.
+    pub(crate) fn perf_db(cur: &Cal) -> BudgetDb {
+        const KINDS: [&str; 8] = ["Salary", "Groceries", "Gas", "Netflix", "Hydro", "Rent", "Visa", "Insurance"];
+        const CATS: [&str; 19] = ["Loans", "Phone", "Utilities", "Auto", "Housing", "Pets", "Internet", "Clothes", "Gifts",
+            "Food", "Tax", "Fun", "School", "Misc", "Travel", "Health", "Savings", "Kids", "Subscriptions"];
+        let mut seed: u64 = 42;
+        let mut next = move |n: u32| {
+            seed = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1_442_695_040_888_963_407);
+            ((seed >> 33) as u32) % n
+        };
+        let mut db = BudgetDb::new(cur, 12, false);
+        db.adjustments.set_custom_amount(20260101, 5000.0);
+        for n in 0..3000 {
+            let mut p = budget_core::Payment::new(20261027);
+            p.id = n + 1;
+            // Numbered out of order, so the list is not already sorted by name.
+            p.description = format!("Payment {:04} {}", (n * 1847) % 3000, KINDS[next(8) as usize]);
+            p.category = Some(CATS[next(19) as usize].to_string());
+            p.amount = next(4000) as f64 - 2400.0;
+            p.start_date = (2019 + next(8) as i32) * 10000 + (1 + next(12) as i32) * 100 + 1 + next(28) as i32;
+            let (freq, every) = match next(10) { 0..=4 => ('m', 1), 5 | 6 => ('w', 2), 7 | 8 => ('w', 1), _ => ('y', 1) };
+            (p.freq_type, p.frequency) = (freq, every);
+            if next(3) == 0 {
+                p.set_end_mode(budget_core::END_MODE_DATE);
+                p.end_date = p.start_date + 20000;
+            } else {
+                p.set_end_mode(budget_core::END_MODE_INDEFINITE);
+            }
+            if n % 5 == 0 {
+                p.set_custom_amount(20261015, -42.0);
+                p.set_note(20261015, Some("a note"));
+                p.set_flag(20261015, budget_core::FLAG_PAID);
+            }
+            db.payments.push(p);
+        }
+        document::rebuild(&mut db, cur, 12, false);
+        db
+    }
+
+    fn perf_app() -> (App, PathBuf) {
+        let (mut app, dir) = fixture();
+        app.db = Some(perf_db(&app.cur));
+        (app.dirty, app.title_dirty) = (false, false);
+        (app, dir)
+    }
+
+    fn ms(d: Duration) -> f64 { d.as_secs_f64() * 1000.0 }
+
+    fn report(name: &str, mut samples: Vec<f64>) {
+        samples.sort_by(f64::total_cmp);
+        let median = samples[samples.len() / 2];
+        println!("PERF {name}: median {median:.2} ms, max {:.2} ms, min {:.2} ms (n={})", samples[samples.len() - 1], samples[0], samples.len());
+    }
+
+    fn wide_frame(app: &mut App, ctx: &egui::Context) -> egui::FullOutput {
+        ctx.run(egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, Vec2::new(1920.0, 1080.0))), ..Default::default() }, |ctx| app.render(ctx))
+    }
+
+    #[test]
+    #[ignore]
+    fn perf_typing_in_the_search_box() {
+        let (mut app, dir) = perf_app();
+        let ctx = gui(&app);
+        for _ in 0..3 { wide_frame(&mut app, &ctx); }
+        let text = "payment 01 gas";
+        let (mut view, mut frames) = (Vec::new(), Vec::new());
+        for round in 0..3 {
+            for end in 1..=text.len() {
+                app.filter_text = text[..end].to_string();
+                app.set_filter();
+                let started = Instant::now();
+                app.ensure_view();
+                if round > 0 { view.push(ms(started.elapsed())); }
+                // The same keystroke rendered as a whole frame (filter parse, view, panels, grid).
+                app.filter_text = text[..end].to_string();
+                app.view = None;
+                let started = Instant::now();
+                app.set_filter();
+                wide_frame(&mut app, &ctx);
+                if round > 0 { frames.push(ms(started.elapsed())); }
+            }
+        }
+        report("keystroke: month view rebuild", view);
+        report("keystroke: full frame", frames);
+        let mut idle = Vec::new();
+        for _ in 0..20 { let started = Instant::now(); wide_frame(&mut app, &ctx); idle.push(ms(started.elapsed())); }
+        report("idle frame with a search", idle);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    #[ignore]
+    fn perf_editing_a_transaction() {
+        let (mut app, dir) = perf_app();
+        let ctx = gui(&app);
+        for _ in 0..2 { wide_frame(&mut app, &ctx); }
+        let (mut changed, mut with_view) = (Vec::new(), Vec::new());
+        for k in 0..12 {
+            let db = app.db.as_mut().unwrap();
+            // A payment shown this month: edit that occurrence's amount.
+            let (pmt, date, amount) = (20261001..=20261028).find_map(|date| {
+                db.get_day(&Cal::from_int(date)).and_then(|d| d.transactions.get(k % d.transactions.len().max(1)).map(|t| (t.pmt, date, t.amount)))
+            }).unwrap();
+            let id = db.payments[pmt].id;
+            document::change_transaction(db, id, date, amount - 1.0, "", budget_core::FLAG_NONE).unwrap();
+            let started = Instant::now();
+            app.changed();
+            let rebuilt = started.elapsed();
+            app.ensure_view();
+            if k > 1 { changed.push(ms(rebuilt)); with_view.push(ms(started.elapsed())); }
+        }
+        report("edit: App::changed", changed);
+        report("edit: App::changed + month view", with_view);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    #[ignore]
+    fn perf_payment_list_frames() {
+        let (mut app, dir) = perf_app();
+        app.show_payments = true;
+        let ctx = gui(&app);
+        for _ in 0..3 { wide_frame(&mut app, &ctx); }
+        let mut idle = Vec::new();
+        for _ in 0..20 { let started = Instant::now(); wide_frame(&mut app, &ctx); idle.push(ms(started.elapsed())); }
+        report("payment list: idle frame", idle);
+        let mut typing = Vec::new();
+        for (round, end) in (0..2).flat_map(|r| (1..=7).map(move |e| (r, e))) {
+            app.payment_list.search = "payment"[..end].to_string();
+            let started = Instant::now();
+            wide_frame(&mut app, &ctx);
+            if round > 0 { typing.push(ms(started.elapsed())); }
+        }
+        report("payment list: search keystroke frame", typing);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
 }
