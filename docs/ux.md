@@ -4,7 +4,7 @@
 
 The desktop interface uses Segoe UI, a restrained blue/slate palette, 14 px body and button text, 12 px captions, clear headings, consistent 34–36 px controls, and 10 px card corners. User-customized budget colors remain supported. Income and expense colors emphasize amounts; current-day and selection states use blue, and the lowest-day band and the adjusted marker use slate and violet so blue never means anything else.
 
-The application has a calendar brand mark and matching SVG, PNG, and Windows ICO assets in `budget-gui/assets`. The native window uses the PNG; the desktop shortcut uses the ICO.
+The application identity is a sculpted emerald calendar with rising cashflow shapes and a gold highlighted day on a midnight-blue tile. The high-resolution transparent master is `budget-gui/assets/budget-calendar-master.png`; `scripts/prepare-icon.ps1` produces the matching 256px PNG and ten-size Windows ICO. The header and native window share the PNG. The executable embeds the ICO for Explorer, shortcuts and file associations, and the installer uses it for setup and uninstall. The artwork was generated with the built-in image-generation tool, then mechanically resized without changing the design.
 
 ## Navigation and layout
 

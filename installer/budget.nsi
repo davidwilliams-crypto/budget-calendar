@@ -1,12 +1,16 @@
 ; Budget Calendar (Rust port) — NSIS installer script
 ; Build with installer\build-installer.ps1, which checks VERSION against budget-gui/Cargo.toml and packages the
-; archived executable. Direct form: makensis /DVERSION=<version> /DPAYLOAD=<archived budget-gui.exe> installer\budget.nsi
+; archived executable and icon. Direct form: makensis /DVERSION=<version> /DPAYLOAD=<archived budget-gui.exe>
+; /DICON_PAYLOAD=<archived budget-calendar.ico> installer\budget.nsi
 
 !ifndef VERSION
   !error "Pass /DVERSION=<budget-gui version from budget-gui/Cargo.toml> (use installer\build-installer.ps1)"
 !endif
 !ifndef PAYLOAD
   !error "Pass /DPAYLOAD=<archived budget-gui.exe> (use installer\build-installer.ps1)"
+!endif
+!ifndef ICON_PAYLOAD
+  !error "Pass /DICON_PAYLOAD=<archived budget-calendar.ico> (use installer\build-installer.ps1)"
 !endif
 !include "LogicLib.nsh"
 !define APPNAME "Budget Calendar"
@@ -20,6 +24,8 @@ InstallDir "$LOCALAPPDATA\Programs\BudgetCalendar"
 InstallDirRegKey HKCU "${UNINST_KEY}" "InstallLocation"
 RequestExecutionLevel user
 SetCompressor /SOLID lzma
+Icon "${ICON_PAYLOAD}"
+UninstallIcon "${ICON_PAYLOAD}"
 
 Page directory
 Page instfiles

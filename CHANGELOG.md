@@ -1,5 +1,10 @@
 # Changelog
 
+## [0.7.2] - 2026-10-28
+
+- **New app identity:** a sculpted emerald calendar and rising cashflow motif, a gold highlighted day, and a midnight-blue tile replace the plain blue calendar icon. The same artwork appears in the app header and native window.
+- **Windows icons:** the executable now embeds the icon, so Explorer, desktop shortcuts and file associations display the app's identity. Ten sizes from 16 to 256 pixels support small icons and high-DPI displays; setup and uninstall programs use the matching artwork.
+
 ## [0.7.1] - 2026-10-28
 
 Fourth review: wrong figures in reports and balances, emoji in text, safer files, keyboard and calendar contrast.

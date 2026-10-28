@@ -41,6 +41,27 @@ function Write-Text([string]$Path, [string]$Text) {
     [IO.File]::WriteAllText($Path, $Text, [Text.UTF8Encoding]::new($false))
 }
 
+function Write-FixtureIcon([string]$Path) {
+    # A generated 16px, 32-bit DIB icon is sufficient for a real NSIS compile. All test assets live
+    # under target/: neither the shipped artwork nor any user budget supplies fixture data.
+    [void][IO.Directory]::CreateDirectory([IO.Path]::GetDirectoryName($Path))
+    $stream = [IO.MemoryStream]::new()
+    $writer = [IO.BinaryWriter]::new($stream)
+    try {
+        foreach ($value in @(0, 1, 1)) { $writer.Write([uint16]$value) }
+        $writer.Write([byte[]](16, 16, 0, 0))
+        $writer.Write([uint16]1); $writer.Write([uint16]32)
+        $writer.Write([uint32]1128); $writer.Write([uint32]22)
+        $writer.Write([uint32]40); $writer.Write([int]16); $writer.Write([int]32)
+        $writer.Write([uint16]1); $writer.Write([uint16]32)
+        foreach ($value in @(0, 1024, 0, 0, 0, 0)) { $writer.Write([uint32]$value) }
+        for ($pixel = 0; $pixel -lt 256; $pixel++) { $writer.Write([byte[]](255, 120, 40, 255)) }
+        $writer.Write([byte[]]::new(64))
+        $writer.Flush()
+        [IO.File]::WriteAllBytes($Path, $stream.ToArray())
+    } finally { $writer.Dispose(); $stream.Dispose() }
+}
+
 function New-Fixture([string]$Name) {
     $root = Join-Path $testRoot $Name
     Write-Text (Join-Path $root 'scripts/archive-release.ps1') ([IO.File]::ReadAllText($scriptUnderTest))
@@ -55,7 +76,7 @@ function New-Fixture([string]$Name) {
     Write-Text (Join-Path $root 'budget-gui/Cargo.toml') "[package]`nname = `"budget-gui`"`nversion = `"0.3.0`"`n"
     Write-Text (Join-Path $root 'budget-gui/build.rs') 'fn main() {}'
     Write-Text (Join-Path $root 'budget-gui/src/main.rs') 'fn main() {}'
-    Write-Text (Join-Path $root 'budget-gui/assets/budget-calendar.ico') 'fixture icon'
+    Write-FixtureIcon (Join-Path $root 'budget-gui/assets/budget-calendar.ico')
     Write-Text (Join-Path $root 'budget-core/Cargo.toml') '[package]'
     Write-Text (Join-Path $root 'budget-core/src/lib.rs') 'pub fn fixture() {}'
     Write-Text (Join-Path $root 'budget-core/tests/example.rs') '#[test] fn fixture() {}'
@@ -411,7 +432,11 @@ Test-Case 'installer never clobbers or deletes user files and packages only the 
     Assert-True ($nsi -notmatch '!define VERSION "') 'Installer must not carry a stale default version.'
     Assert-True ($nsi -match '!ifndef VERSION') 'Installer must fail when VERSION is not supplied.'
     Assert-True ($nsi -match '!ifndef PAYLOAD') 'Installer must fail when the archived executable is not supplied.'
+    Assert-True ($nsi -match '!ifndef ICON_PAYLOAD') 'Installer must fail when the archived icon is not supplied.'
     Assert-True ($nsi -match [regex]::Escape('File "/oname=${EXE}" "${PAYLOAD}"')) 'Installer must package the supplied payload.'
+    Assert-True ($nsi -match '(?m)^Icon "\$\{ICON_PAYLOAD\}"\s*$') 'Setup must use the verified archived icon.'
+    Assert-True ($nsi -match '(?m)^UninstallIcon "\$\{ICON_PAYLOAD\}"\s*$') 'Uninstall must use the verified archived icon.'
+    Assert-True ($nsi -notmatch 'budget-gui\\assets\\budget-calendar\.ico') 'Installer must not read the current source icon.'
     Assert-True ($nsi -notmatch 'target\\release\\budget-gui\.exe') 'Installer must not package whatever is in target\release.'
     Assert-True ($nsi -match [regex]::Escape('"DisplayVersion" "${VERSION}"')) 'DisplayVersion must come from VERSION.'
 }
@@ -448,15 +473,50 @@ function New-InstallerFixture([string]$Name) {
     return $root
 }
 
-Test-Case 'installer wrapper packages the archived executable and passes VERSION and PAYLOAD to the compiler' {
+Test-Case 'installer wrapper passes the archived executable and icon even when the current icon changes' {
     $root = New-InstallerFixture 'installer passes archive'
+    Write-Text (Join-Path $root 'budget-gui/assets/budget-calendar.ico') 'new unarchived artwork'
     $fake = Join-Path $root 'tools/fake-makensis.cmd'
     Write-Text $fake "@echo off`r`necho %*> `"%~dp0args.txt`"`r`n"
     & (Join-Path $root 'installer/build-installer.ps1') -Makensis $fake | Out-Null
     $recorded = Get-Content -LiteralPath (Join-Path $root 'tools/args.txt') -Raw
     Assert-True ($recorded -match '/DVERSION=0\.3\.0') "Compiler did not receive VERSION: $recorded"
     Assert-True ($recorded -match '/DPAYLOAD=.*local-releases.v0\.3\.0.budget-gui\.exe') "Compiler did not receive the archived executable: $recorded"
+    $expectedIcon = '/DICON_PAYLOAD=' + (Join-Path $root 'local-releases/v0.3.0/budget-calendar.ico')
+    Assert-True ($recorded.Contains($expectedIcon)) "Compiler did not receive the archived icon: $recorded"
+    Assert-True (-not $recorded.Contains((Join-Path $root 'budget-gui/assets/budget-calendar.ico'))) 'Compiler received the unarchived current icon.'
     Assert-True ($recorded -match 'budget\.nsi') "Compiler did not receive the script: $recorded"
+}
+
+Test-Case 'installer wrapper refuses an archived icon that differs from its release manifest' {
+    $root = New-InstallerFixture 'installer tampered icon'
+    Write-Text (Join-Path $root 'local-releases/v0.3.0/budget-calendar.ico') 'tampered icon after archiving'
+    $caught = $null
+    try { & (Join-Path $root 'installer/build-installer.ps1') -Makensis 'unused' | Out-Null } catch { $caught = $_.Exception.Message }
+    Assert-True ($null -ne $caught -and $caught -match 'Archived icon differs') "Expected an icon tamper refusal before compiler lookup, received: $caught"
+}
+
+Test-Case 'installer wrapper refuses a missing archived icon even when a current source icon exists' {
+    $root = New-InstallerFixture 'installer missing icon'
+    Remove-Item -LiteralPath (Join-Path $root 'local-releases/v0.3.0/budget-calendar.ico')
+    $caught = $null
+    try { & (Join-Path $root 'installer/build-installer.ps1') -Makensis 'unused' | Out-Null } catch { $caught = $_.Exception.Message }
+    Assert-True ($null -ne $caught -and $caught -match 'Archived icon is missing') "Expected a missing archive icon refusal, received: $caught"
+}
+
+Test-Case 'installer wrapper refuses missing or malformed archived icon checksums' {
+    foreach ($checksum in @($null, 'invalid-checksum')) {
+        $name = if ($null -eq $checksum) { 'missing' } else { 'malformed' }
+        $root = New-InstallerFixture "installer $name icon checksum"
+        $manifestPath = Join-Path $root 'local-releases/v0.3.0/release.json'
+        $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+        if ($null -eq $checksum) { $manifest.files.PSObject.Properties.Remove('budget-calendar.ico') }
+        else { $manifest.files.'budget-calendar.ico' = $checksum }
+        Write-Text $manifestPath ($manifest | ConvertTo-Json -Depth 5)
+        $caught = $null
+        try { & (Join-Path $root 'installer/build-installer.ps1') -Makensis 'unused' | Out-Null } catch { $caught = $_.Exception.Message }
+        Assert-True ($null -ne $caught -and $caught -match 'missing a valid SHA256 checksum') "Expected a $name icon checksum refusal, received: $caught"
+    }
 }
 
 Test-Case 'installer wrapper refuses an archived executable that differs from its release manifest' {

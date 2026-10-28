@@ -3,8 +3,8 @@
 Builds the Budget Calendar setup program from an archived local release.
 .DESCRIPTION
 Refuses unless VERSION equals the version in budget-gui/Cargo.toml and local-releases/vVERSION holds an
-archive whose executable still matches its release.json. The setup program therefore packages exactly
-the archived build. Run scripts/archive-release.ps1 first. Relative paths are resolved against the
+archive whose executable and icon still match its release.json. The setup program therefore packages
+the archived build and its matching icon. Run scripts/archive-release.ps1 first. Relative paths are resolved against the
 repository root, not the current directory.
 .PARAMETER Version
 Version to package. Default: the version in budget-gui/Cargo.toml. When given, it must equal that version.
@@ -71,12 +71,24 @@ $actual = (Get-FileHash -LiteralPath $payload -Algorithm SHA256).Hash.ToLowerInv
 if ($actual -cne $saved.sha256) {
     throw "Archived executable differs from its release.json; it will not be packaged. Restore the archive or archive a new version."
 }
+$iconPayload = Join-Path $release 'budget-calendar.ico'
+if (-not (Test-Path -LiteralPath $iconPayload -PathType Leaf)) { throw "Archived icon is missing: $iconPayload" }
+if ($null -eq $saved.PSObject.Properties['files'] -or $null -eq $saved.files -or
+    $null -eq $saved.files.PSObject.Properties['budget-calendar.ico'] -or
+    $saved.files.'budget-calendar.ico' -isnot [string] -or
+    $saved.files.'budget-calendar.ico' -cnotmatch '^[a-f0-9]{64}$') {
+    throw 'Archived release.json is missing a valid SHA256 checksum for budget-calendar.ico.'
+}
+$iconHash = (Get-FileHash -LiteralPath $iconPayload -Algorithm SHA256).Hash.ToLowerInvariant()
+if ($iconHash -cne $saved.files.'budget-calendar.ico') {
+    throw 'Archived icon differs from its release.json; it will not be packaged. Restore the archive or archive a new version.'
+}
 
 $compiler = Find-Makensis
 # Run from installer/ so the script's relative paths resolve the same way NSIS expects.
 Push-Location -LiteralPath (Join-Path $repository 'installer')
 try {
-    & $compiler "/DVERSION=$Version" "/DPAYLOAD=$payload" 'budget.nsi'
+    & $compiler "/DVERSION=$Version" "/DPAYLOAD=$payload" "/DICON_PAYLOAD=$iconPayload" 'budget.nsi'
     if ($LASTEXITCODE -ne 0) { throw "makensis failed with exit code $LASTEXITCODE." }
 } finally { Pop-Location }
 Write-Output "Built the setup program for Budget Calendar ${Version}: $(Join-Path $repository "target/BudgetCalendar-${Version}-setup.exe")"

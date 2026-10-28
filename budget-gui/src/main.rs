@@ -39,6 +39,13 @@ use names::{MONTHS, MONTHS_LONG};
 
 const SUMMARY_W: f32 = 292.0;
 
+/// The same artwork supplies the native window and the in-app brand mark.
+fn app_icon() -> egui::IconData {
+    let rgba = image::load_from_memory(include_bytes!("../assets/budget-calendar.png"))
+        .expect("embedded application icon must be a valid PNG").into_rgba8();
+    egui::IconData { width: rgba.width(), height: rgba.height(), rgba: rgba.into_raw() }
+}
+
 /// The colour of a figure: negative when its printed text shows a minus sign, so the colour and the
 /// sign a reader sees always agree (a value such as -0.7 prints "−" in whole-dollar mode).
 fn sign_colour(t: &Tokens, v: f64, decimals: bool) -> egui::Color32 {
@@ -348,6 +355,7 @@ struct App {
     show_summary: bool,
     focus_filter: bool,
     title_dirty: bool,
+    brand_texture: Option<egui::TextureHandle>,
     t: Tokens,
 }
 
@@ -387,7 +395,7 @@ impl App {
             show_payments: false, payment_list: payment_list::PaymentList::default(), allow_close: false,
             filter_text: String::new(), filter: None, filter_error: None, generation: 0, month: None, view: None, haystacks: None,
             toast: None, banner: None,
-            screenshot: cli.screenshot, frames: 0, dark: cli.dark, show_summary: true, focus_filter: false, title_dirty: true, t,
+            screenshot: cli.screenshot, frames: 0, dark: cli.dark, show_summary: true, focus_filter: false, title_dirty: true, brand_texture: None, t,
         };
         if let Some(m) = cli.month { app.cur = Cal::from_int(m); app.cur.set_day_one(); }
         if let Some(f) = cli.filter { app.filter_text = f; app.set_filter(); }
@@ -794,11 +802,15 @@ impl App {
         // Room for the file name: what is left after the brand, the status pill and the right-hand actions.
         // The "Unsaved changes" pill is 61 px wider than "Saved".
         let name_w = (ui.available_width() - 880.0 - if self.dirty { 62.0 } else { 0.0 }).clamp(0.0, 300.0);
+        let brand = self.brand_texture.get_or_insert_with(|| {
+            let icon = app_icon();
+            ui.ctx().load_texture("budget-calendar-brand",
+                egui::ColorImage::from_rgba_unmultiplied([icon.width as usize, icon.height as usize], &icon.rgba),
+                egui::TextureOptions::LINEAR)
+        }).id();
         ui.horizontal(|ui| {
             let (mark, _) = ui.allocate_exact_size(Vec2::splat(30.0), Sense::hover());
-            ui.painter().rect_filled(mark, 8, t.accent);
-            ui.painter().text(mark.center(), Align2::CENTER_CENTER, ph::CALENDAR_DOTS,
-                egui::FontId::new(22.0, egui::FontFamily::Proportional), theme::on(t.accent));
+            ui.painter().image(brand, mark, egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0)), egui::Color32::WHITE);
             ui.add_space(SP1);
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = SP2;
@@ -2143,13 +2155,9 @@ fn main() -> eframe::Result {
     let cli = parse_cli();
     let size = cli.size.unwrap_or([1280.0, 840.0]);
     let maximized = cli.size.is_none();
-    let icon = image::load_from_memory(include_bytes!("../assets/budget-calendar.png")).ok().map(|img| {
-        let rgba = img.into_rgba8();
-        egui::IconData { width: rgba.width(), height: rgba.height(), rgba: rgba.into_raw() }
-    });
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default().with_inner_size(size).with_min_inner_size([900.0, 600.0]).with_maximized(maximized).with_title(version::window_title(None, false))
-            .with_icon(icon.unwrap_or_default()),
+            .with_icon(app_icon()),
         ..Default::default()
     };
     let result = eframe::run_native("Budget Calendar", options, Box::new(|cc| {
@@ -2271,7 +2279,7 @@ mod lifecycle_tests {
             show_payments: false, payment_list: payment_list::PaymentList::default(), allow_close: false, cur, today: 20261027,
             filter_text: String::new(), filter: None, filter_error: None, generation: 0, month: None, view: None, haystacks: None,
             toast: None, banner: None,
-            screenshot: None, frames: 0, dark: false, show_summary: true, focus_filter: false, title_dirty: true, t,
+            screenshot: None, frames: 0, dark: false, show_summary: true, focus_filter: false, title_dirty: true, brand_texture: None, t,
         };
         (app, dir)
     }

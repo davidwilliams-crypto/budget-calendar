@@ -542,7 +542,7 @@ dependencies = [
 
 [[package]]
 name = "budget-gui"
-version = "0.7.1"
+version = "0.7.2"
 dependencies = [
  "budget-core",
  "eframe",

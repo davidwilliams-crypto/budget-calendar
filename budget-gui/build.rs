@@ -67,9 +67,128 @@ fn main() {
         manifest,
     )
     .expect("write build input manifest");
+    if target.contains("-windows-") {
+        // Use the same snapshot as the fingerprint so an edit during the build cannot silently
+        // embed pixels from a different source revision. The PNG still supplies the live window icon.
+        let icon = inputs
+            .iter()
+            .find(|input| relative_name(&input.path) == "budget-gui/assets/budget-calendar.ico")
+            .expect("application icon in build input inventory");
+        embed_windows_icon(&icon.identity, &output, &target)
+            .expect("embed Windows application icon");
+    }
     println!("cargo:rustc-env=BUDGET_BUILD_ID={build_id}");
     println!("cargo:rustc-env=BUDGET_BUILD_TARGET={target}");
     println!("cargo:rustc-env=BUDGET_BUILD_PROFILE={profile}");
+}
+
+/// Produce a standard Windows .res file without depending on an SDK resource compiler. Each ICO
+/// image becomes RT_ICON; RT_GROUP_ICON keeps the size metadata and references those image IDs.
+/// MSVC accepts this directly. MinGW's linker needs the same resource converted to a COFF object.
+fn icon_resources(ico: &[u8]) -> io::Result<Vec<u8>> {
+    let invalid = || {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            "invalid application ICO directory or image bounds",
+        )
+    };
+    if ico.len() < 6 || ico[..4] != [0, 0, 1, 0] {
+        return Err(invalid());
+    }
+    let count = u16::from_le_bytes([ico[4], ico[5]]);
+    let directory_end = 6 + usize::from(count) * 16;
+    if count == 0 || directory_end > ico.len() {
+        return Err(invalid());
+    }
+    let mut resource = Vec::new();
+    append_resource(&mut resource, 0, 0, &[]); // Required null resource marks the 32-bit .res format.
+    let mut group = ico[..6].to_vec();
+    for index in 0..count {
+        let start = 6 + usize::from(index) * 16;
+        let entry = &ico[start..start + 16];
+        let size = u32::from_le_bytes(entry[8..12].try_into().unwrap()) as usize;
+        let offset = u32::from_le_bytes(entry[12..16].try_into().unwrap()) as usize;
+        let end = offset.checked_add(size).ok_or_else(invalid)?;
+        if size == 0 || offset < directory_end || end > ico.len() {
+            return Err(invalid());
+        }
+        let id = index + 1;
+        append_resource(&mut resource, 3, id, &ico[offset..end]);
+        group.extend_from_slice(&entry[..12]);
+        group.extend_from_slice(&id.to_le_bytes());
+    }
+    append_resource(&mut resource, 14, 1, &group);
+    Ok(resource)
+}
+
+fn append_resource(output: &mut Vec<u8>, kind: u16, id: u16, data: &[u8]) {
+    output.extend_from_slice(&(data.len() as u32).to_le_bytes());
+    output.extend_from_slice(&32u32.to_le_bytes()); // Header size, including DataSize/HeaderSize.
+    for value in [0xffff, kind, 0xffff, id] {
+        output.extend_from_slice(&value.to_le_bytes());
+    }
+    output.extend_from_slice(&0u32.to_le_bytes()); // DataVersion
+    output.extend_from_slice(&(if kind == 0 { 0u16 } else { 0x1030u16 }).to_le_bytes()); // moveable, pure, discardable
+    output.extend_from_slice(&0u16.to_le_bytes()); // Neutral language
+    output.extend_from_slice(&0u32.to_le_bytes()); // Version
+    output.extend_from_slice(&0u32.to_le_bytes()); // Characteristics
+    output.extend_from_slice(data);
+    while output.len() % 4 != 0 {
+        output.push(0);
+    }
+}
+
+fn embed_windows_icon(ico: &[u8], output: &Path, target: &str) -> io::Result<()> {
+    let resource = output.join("budget-calendar.res");
+    fs::write(&resource, icon_resources(ico)?)?;
+    let link_input = if target.ends_with("-gnu") || target.ends_with("-gnullvm") {
+        println!("cargo:rerun-if-env-changed=WINDRES");
+        let object = output.join("budget-calendar-icon.o");
+        let candidates = if let Some(configured) = env::var_os("WINDRES") {
+            vec![configured]
+        } else {
+            let architecture = target.split('-').next().unwrap_or("x86_64");
+            vec![
+                format!("{architecture}-w64-mingw32-windres").into(),
+                "windres".into(),
+            ]
+        };
+        let mut found = false;
+        for compiler in candidates {
+            let result = Command::new(&compiler)
+                .args(["--input-format=res", "--output-format=coff", "--input"])
+                .arg(&resource)
+                .arg("--output")
+                .arg(&object)
+                .output();
+            match result {
+                Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+                Err(error) => return Err(error),
+                Ok(result) if !result.status.success() => {
+                    return Err(io::Error::other(format!(
+                        "{} failed to convert the application icon: {}",
+                        compiler.to_string_lossy(),
+                        String::from_utf8_lossy(&result.stderr)
+                    )))
+                }
+                Ok(_) => {
+                    found = true;
+                    break;
+                }
+            }
+        }
+        if !found {
+            return Err(io::Error::new(io::ErrorKind::NotFound, "Windows GNU builds require MinGW windres on PATH or the WINDRES environment variable"));
+        }
+        object
+    } else {
+        resource
+    };
+    println!(
+        "cargo:rustc-link-arg-bin=budget-gui={}",
+        link_input.display()
+    );
+    Ok(())
 }
 
 fn source_inputs(root: &Path) -> io::Result<Vec<PathBuf>> {
@@ -298,6 +417,97 @@ fn json_string(value: &str) -> String {
 mod tests {
     use super::*;
     use std::sync::atomic::{AtomicU64, Ordering};
+
+    fn icon_fixture() -> Vec<u8> {
+        // Two different-sized payloads deliberately require different amounts of resource padding.
+        // The encoder preserves PNG/DIB bytes; Windows is responsible for decoding their pixels.
+        let mut ico = vec![0, 0, 1, 0, 2, 0];
+        for (size, length, offset) in [(16u8, 5u32, 38u32), (0, 7, 43)] {
+            ico.extend_from_slice(&[size, size, 0, 0, 1, 0, 32, 0]);
+            ico.extend_from_slice(&length.to_le_bytes());
+            ico.extend_from_slice(&offset.to_le_bytes());
+        }
+        ico.extend_from_slice(b"smallLARGE!!");
+        ico
+    }
+
+    #[test]
+    fn icon_resources_preserve_every_frame_and_group_reference_with_dword_alignment() {
+        let ico = icon_fixture();
+        let res = icon_resources(&ico).unwrap();
+        let mut offset = 0;
+        let mut entries = Vec::new();
+        while offset < res.len() {
+            assert_eq!(offset % 4, 0, "resource header must be DWORD-aligned");
+            let data_size =
+                u32::from_le_bytes(res[offset..offset + 4].try_into().unwrap()) as usize;
+            let header_size =
+                u32::from_le_bytes(res[offset + 4..offset + 8].try_into().unwrap()) as usize;
+            assert_eq!(header_size, 32);
+            assert_eq!(&res[offset + 8..offset + 10], &[0xff, 0xff]);
+            assert_eq!(&res[offset + 12..offset + 14], &[0xff, 0xff]);
+            let kind = u16::from_le_bytes(res[offset + 10..offset + 12].try_into().unwrap());
+            let id = u16::from_le_bytes(res[offset + 14..offset + 16].try_into().unwrap());
+            let start = offset + header_size;
+            let end = start + data_size;
+            entries.push((kind, id, &res[start..end]));
+            offset = (end + 3) & !3;
+            assert!(res[end..offset].iter().all(|byte| *byte == 0));
+        }
+        assert_eq!(offset, res.len());
+        assert_eq!(entries.len(), 4);
+        assert_eq!(entries[0], (0, 0, &[][..]), "Windows .res signature");
+        assert_eq!(entries[1], (3, 1, &b"small"[..]));
+        assert_eq!(entries[2], (3, 2, &b"LARGE!!"[..]));
+        let (kind, id, group) = entries[3];
+        assert_eq!((kind, id), (14, 1));
+        assert_eq!(&group[..6], &ico[..6]);
+        assert_eq!(group.len(), 6 + 2 * 14);
+        for frame in 0..2 {
+            let source = 6 + frame * 16;
+            let destination = 6 + frame * 14;
+            assert_eq!(
+                &group[destination..destination + 12],
+                &ico[source..source + 12]
+            );
+            assert_eq!(
+                u16::from_le_bytes(
+                    group[destination + 12..destination + 14]
+                        .try_into()
+                        .unwrap()
+                ),
+                frame as u16 + 1
+            );
+        }
+    }
+
+    #[test]
+    fn icon_resources_reject_invalid_directory_and_out_of_bounds_frames() {
+        let valid = icon_fixture();
+        for length in 0..38 {
+            assert!(
+                icon_resources(&valid[..length]).is_err(),
+                "accepted truncated directory of {length} bytes"
+            );
+        }
+        for (position, bytes) in [
+            (0, vec![1]),           // reserved header
+            (2, vec![2]),           // a cursor is not an icon
+            (4, vec![0, 0]),        // empty icon group
+            (14, vec![0, 0, 0, 0]), // zero-length first payload
+            (18, vec![0, 0, 0, 0]), // payload points into directory
+            (18, u32::MAX.to_le_bytes().to_vec()),
+            (14, u32::MAX.to_le_bytes().to_vec()),
+        ] {
+            let mut malformed = valid.clone();
+            malformed[position..position + bytes.len()].copy_from_slice(&bytes);
+            assert!(
+                icon_resources(&malformed).is_err(),
+                "accepted malformed entry at {position}"
+            );
+        }
+        assert!(icon_resources(&valid[..valid.len() - 1]).is_err());
+    }
 
     static NEXT_FIXTURE: AtomicU64 = AtomicU64::new(0);
 
