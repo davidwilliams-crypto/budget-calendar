@@ -1174,7 +1174,8 @@ impl App {
 
     fn payments_panel(&mut self, ui: &mut egui::Ui) {
         let Some(db) = &self.db else { return };
-        if let Some(action) = self.payment_list.show(ui, db, &self.t, self.today) { self.calendar_action(action); }
+        let revision = (self.generation, db.update_count);
+        if let Some(action) = self.payment_list.show(ui, db, &self.t, self.today, revision) { self.calendar_action(action); }
     }
 
     fn day_window(&mut self, ctx: &egui::Context) {
@@ -2956,6 +2957,8 @@ mod lifecycle_tests {
         app.show_payments = true;
         let ctx = gui(&app);
         for _ in 0..3 { wide_frame(&mut app, &ctx); }
+        let rows = rendered_text(&wide_frame(&mut app, &ctx)).iter().filter(|(t, _)| t.galley.job.text.starts_with("Payment ")).count();
+        assert!(rows >= 10, "the list shows its rows ({rows})");
         let mut idle = Vec::new();
         for _ in 0..20 { let started = Instant::now(); wide_frame(&mut app, &ctx); idle.push(ms(started.elapsed())); }
         report("payment list: idle frame", idle);
