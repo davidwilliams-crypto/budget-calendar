@@ -1,6 +1,6 @@
 //! Editing operations and optimistic disk-change checks, independent of the UI.
 use budget_core::date::{is_calendar_date, DATE_MAX, YEAR_MAX};
-use budget_core::{add_period, bgt, calendar_field, BudgetDb, Cal, Field, Payment,
+use budget_core::{add_period, bgt, calendar_field, in_calendar, BudgetDb, Cal, Field, Payment,
     END_MODE_DATE, END_MODE_INDEFINITE, END_MODE_LOAN_PAID, END_MODE_N_PAYS};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
@@ -279,19 +279,14 @@ fn cut(p: &Payment, date: i32) -> Cut {
 /// slots in order with their index, as the scheduler places them, until `visit` returns false.
 /// Count-limited schedules (and loans) use the synchronised `n_pays`; dated ones stop after `end_date`.
 fn nominal_slots(p: &Payment, mut visit: impl FnMut(i32, i32) -> bool) {
-    let field = calendar_field(p.freq_type);
-    let mut c = Cal::from_int(p.start_date);
-    let mut n = 0;
-    loop {
-        let date = c.get();
+    for (n, c) in p.slots().enumerate() {
+        let (n, date) = (n as i32, c.get());
         let ended = match p.end_mode() {
             END_MODE_INDEFINITE => false,
             END_MODE_DATE => n > 0 && date > p.end_date,
             _ => n >= p.n_pays.max(1),
         };
-        if ended || date > DATE_MAX || !visit(n, date) { return; }
-        n += 1;
-        add_period(&mut c, field, p.frequency, p.start_date, n);
+        if ended || !in_calendar(&c) || !visit(n, date) { return; }
     }
 }
 
@@ -667,13 +662,9 @@ fn regular_on_or_before(db: &BudgetDb, date: i32) -> Option<i32> {
     Some(right)
 }
 
+/// The date a (non-tentative) payment shows its occurrence scheduled on `scheduled`.
 fn actual_date(p: &Payment, scheduled: i32) -> i32 {
-    let mut actual = Cal::from_int(scheduled);
-    if p.is_no_weekends() && actual.is_weekend() {
-        let sunday = actual.day_of_week() == budget_core::date::SUNDAY;
-        actual.add(Field::Day, if p.is_early_pay() { if sunday { -2 } else { -1 } } else if sunday { 1 } else { 2 });
-    }
-    actual.get()
+    p.shown_date(&Cal::from_int(scheduled)).get()
 }
 
 fn validate_loan(proposed: &Payment) -> Result<(), String> {

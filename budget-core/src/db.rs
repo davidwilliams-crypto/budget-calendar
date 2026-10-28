@@ -2,7 +2,7 @@
 //! Scheduling (`update`, `addPeriod`, loan schedule) lives in `schedule.rs`.
 
 use crate::bgt;
-use crate::date::{Cal, Field, SATURDAY, SUNDAY};
+use crate::date::{Cal, Field};
 use crate::model::*;
 use std::cmp::Ordering;
 use std::path::Path;
@@ -160,12 +160,9 @@ impl BudgetDb {
     pub fn rebuild_db(&mut self, cal: &Cal, future_months: i32, unlimited_history: bool) {
         // Where the first occurrence is actually placed: EARLY_PAY moves a weekend start to the prior Friday.
         let placed_start = |p: &Payment| -> i32 {
-            if p.is_no_weekends() && p.is_early_pay() && !p.is_tentative() {
-                let c = Cal::from_int(p.start_date);
-                let back = match c.day_of_week() { SATURDAY => 1, SUNDAY => 2, _ => 0 };
-                if back != 0 { let mut d = c; d.add(Field::Day, -back); return d.get(); }
-            }
-            p.start_date
+            let start = Cal::from_int(p.start_date);
+            let shown = p.shown_date(&start);
+            if p.is_early_pay() && shown != start { shown.get() } else { p.start_date }
         };
         let mut base = *cal;
         base.add(Field::Month, -2);
