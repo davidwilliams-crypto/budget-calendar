@@ -29,13 +29,11 @@ pub struct BudgetDay {
     pub restorable: Vec<usize>,
     /// Payments that had a scheduled transaction placed on this day (duplicates possible).
     pub regulars: Vec<usize>,
+    /// `transactions` is in display order (see `sort_transactions`).
     sorted: bool,
-    /// `transactions == null` in the original: nothing was ever added.
-    has_list: bool,
 }
 
 impl BudgetDay {
-    pub fn has_transactions(&self) -> bool { self.has_list }
     pub fn get(&self, pmt: usize) -> Option<&Transaction> { self.transactions.iter().find(|t| t.pmt == pmt) }
     pub fn get_mut(&mut self, pmt: usize) -> Option<&mut Transaction> { self.transactions.iter_mut().find(|t| t.pmt == pmt) }
     pub fn is_restorable(&self, pmt: usize) -> bool { self.restorable.contains(&pmt) }
@@ -64,6 +62,22 @@ impl BudgetDay {
     pub fn closing_balance_display(&self, exact: bool) -> f64 {
         crate::numfmt::balance_display(self.closing_balance, exact)
     }
+}
+
+/// Put a day's transactions in display order once after they change (`disabled` tells whether a
+/// payment is disabled): enabled payments first, then by amount.
+fn sort_transactions(day: &mut BudgetDay, disabled: impl Fn(usize) -> bool) {
+    if day.sorted { return; }
+    if day.transactions.len() > 1 {
+        day.transactions.sort_by(|a, b| {
+            let (da, db) = (disabled(a.pmt), disabled(b.pmt));
+            if da == db {
+                if a.amount < 0.0 && b.amount < 0.0 { b.amount.partial_cmp(&a.amount).unwrap_or(Ordering::Equal).reverse() }
+                else { a.amount.partial_cmp(&b.amount).unwrap_or(Ordering::Equal).reverse() }
+            } else if da && !db { Ordering::Greater } else { Ordering::Less }
+        });
+    }
+    day.sorted = true;
 }
 
 #[derive(Debug, Default)]
@@ -232,7 +246,6 @@ impl BudgetDb {
 
     pub(crate) fn day_add(&mut self, day: usize, pmt: usize, amount: f64, suffix: char) {
         let d = &mut self.days[day];
-        d.has_list = true;
         d.remove(pmt);
         d.transactions.push(Transaction { pmt, amount, balance: 0.0, suffix });
         d.sorted = false;
@@ -267,24 +280,12 @@ impl BudgetDb {
     }
     pub(crate) fn day_mut(&mut self, day: usize) -> &mut BudgetDay { &mut self.days[day] }
 
-    fn sort_day(&mut self, day: usize) {
-        if self.days[day].sorted { return; }
-        let disabled: Vec<bool> = self.payments.iter().map(|p| p.disabled).collect();
-        self.days[day].transactions.sort_by(|a, b| {
-            let (da, db) = (disabled[a.pmt], disabled[b.pmt]);
-            if da == db {
-                if a.amount < 0.0 && b.amount < 0.0 { b.amount.partial_cmp(&a.amount).unwrap_or(Ordering::Equal).reverse() }
-                else { a.amount.partial_cmp(&b.amount).unwrap_or(Ordering::Equal).reverse() }
-            } else if da && !db { Ordering::Greater } else { Ordering::Less }
-        });
-        self.days[day].sorted = true;
-    }
-
     /// `getDay(cal)`: `None` outside the window; balances are brought up to date first.
     pub fn get_day(&mut self, c: &Cal) -> Option<&BudgetDay> {
         let i = self.cal_index(c)?;
         if !self.in_sync { self.calc_balances(None); }
-        self.sort_day(i);
+        let payments = &self.payments;
+        sort_transactions(&mut self.days[i], |p| payments[p].disabled);
         Some(&self.days[i])
     }
 
@@ -304,9 +305,8 @@ impl BudgetDb {
             }
         }
         let disabled: Vec<bool> = self.payments.iter().map(|p| p.disabled).collect();
-        for i in start..self.days.len() {
-            self.sort_day(i);
-            let day = &mut self.days[i];
+        for day in &mut self.days[start..] {
+            sort_transactions(day, |p| disabled[p]);
             day.opening_balance = running;
             for t in day.transactions.iter_mut() {
                 if !disabled[t.pmt] { running += t.amount; }
