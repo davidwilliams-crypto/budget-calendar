@@ -63,7 +63,10 @@ fn first_positional(args: &[String]) -> Option<String> {
 }
 
 fn parse_cli_from(args: Vec<String>) -> Cli {
-    let val = |flag: &str| args.iter().position(|a| a == flag).and_then(|i| args.get(i + 1).cloned());
+    // `--flag value` and `--flag=value` both give the value.
+    let val = |flag: &str| args.iter().enumerate().find_map(|(i, a)| {
+        if a == flag { args.get(i + 1).cloned() } else { a.strip_prefix(flag)?.strip_prefix('=').map(str::to_string) }
+    });
     Cli {
         file: first_positional(&args),
         month: val("--month").and_then(|m| m.parse().ok()),
@@ -134,7 +137,16 @@ fn load_error_summary(log: &str) -> String {
 }
 
 #[derive(Clone)]
-enum PendingAction { Open(PathBuf), Close }
+enum PendingAction { Open(PathBuf), Close, New(PathBuf), CloseBudget }
+
+/// Adds `.bgt` unless the name already ends with it (any case). Only the end of the name counts:
+/// `Household 2026.10` becomes `Household 2026.10.bgt`.
+fn with_bgt_extension(path: PathBuf) -> PathBuf {
+    if path.extension().is_some_and(|e| e.eq_ignore_ascii_case("bgt")) { return path; }
+    let mut name = path.into_os_string();
+    name.push(".bgt");
+    PathBuf::from(name)
+}
 #[derive(Clone, Copy)]
 struct DeleteTarget { id: i32, date: Option<i32> }
 
@@ -194,6 +206,8 @@ struct Opening {
     quiet: bool,
     settings: LoadSettings,
     task: file_probe::Task<Loaded>,
+    /// The finished read, kept while an unsaved-changes prompt is showing.
+    loaded: Option<Loaded>,
 }
 
 /// The unsaved-changes prompt's answers.
@@ -426,6 +440,77 @@ impl App {
     /// result.
     fn open_unchecked(&mut self, path: &Path) { self.start_opening(path, None, None, false); }
 
+    /// File > New budget: asks where the new budget is saved, then creates it.
+    fn new_budget_dialog(&mut self) {
+        let dialog = rfd::FileDialog::new().add_filter("Budget", &["bgt"]).set_file_name("budget.bgt");
+        if let Some(path) = dialog.save_file() { self.start_new_budget(with_bgt_extension(path)); }
+    }
+
+    /// File > New budget, once a destination was chosen. Unsaved changes are asked about first;
+    /// the file is written only when the new budget is created.
+    fn start_new_budget(&mut self, path: PathBuf) {
+        let path = resolve_path(&path);
+        if path.exists() {
+            self.fail(format!("{} already exists. Choose a new name for the new budget.", file_name(&path)));
+            return;
+        }
+        self.auto_open = None;
+        if self.dirty || self.has_draft() {
+            self.dialogs.pending = Some(PendingAction::New(path));
+            return;
+        }
+        self.create_budget(&path);
+    }
+
+    /// Writes an empty budget starting this month and opens it. An existing file is never replaced.
+    fn create_budget(&mut self, path: &Path) {
+        if path.exists() {
+            self.fail(format!("{} already exists. Choose a new name for the new budget.", file_name(path)));
+            return;
+        }
+        let mut cur = Cal::from_int(self.today);
+        cur.set_day_one();
+        let db = BudgetDb::new(&cur, self.cfg.future_n_months, self.cfg.unlimited_history);
+        match document::save_checked(&db, path, None, None) {
+            Ok(_) => self.open_unchecked(path),
+            Err(e) => self.fail(e),
+        }
+    }
+
+    /// File > Close budget: asks about unsaved changes first, then returns to the empty state.
+    fn request_close_budget(&mut self) {
+        if self.db.is_none() { return; }
+        if self.dirty || self.has_draft() {
+            self.dialogs.pending = Some(PendingAction::CloseBudget);
+            return;
+        }
+        self.close_budget();
+    }
+
+    /// Drops the open budget and its editors; the window shows the empty state. The closed budget is
+    /// not reopened at the next start.
+    fn close_budget(&mut self) {
+        self.db = None;
+        self.file = None;
+        self.password = None;
+        self.saved_bytes = None;
+        self.dirty = false;
+        self.month = None;
+        self.view = None;
+        self.haystacks = None;
+        self.dialogs.payment_editor = None;
+        self.dialogs.transaction_editor = None;
+        self.dialogs.balance_editor = None;
+        self.dialogs.day = None;
+        self.dialogs.confirm_delete = None;
+        self.drag_month_hover = None;
+        self.payment_list.selected = None;
+        self.banner = None;
+        self.title_dirty = true;
+        self.cfg.last_file_name = None;
+        self.save_config();
+    }
+
     fn open_dialog(&mut self) {
         if let Some(p) = rfd::FileDialog::new().add_filter("Budget", &["bgt"]).pick_file() { self.open(&p); }
     }
@@ -448,21 +533,25 @@ impl App {
         let settings = self.load_settings();
         let (job_path, job_password) = (path.to_path_buf(), password.clone());
         let task = self.files.spawn(move |read| load_budget(read, &job_path, bytes, job_password.as_deref(), settings));
-        self.opening = Some(Opening { path: path.to_path_buf(), password, edits: self.edits, quiet, settings, task });
+        self.opening = Some(Opening { path: path.to_path_buf(), password, edits: self.edits, quiet, settings, task, loaded: None });
     }
 
     /// Takes a finished background open. Edits made while the file was read, or an editor opened
     /// meanwhile, are never replaced unasked: the open then waits for the unsaved-changes prompt,
-    /// as any open does. A close or another open requested meanwhile wins.
+    /// as any open does. A close or another open requested meanwhile wins. A finished read also
+    /// waits, unapplied, while a prompt is showing, so the open this user asked for is not lost.
     fn finish_opening(&mut self) {
-        let Some(opening) = &self.opening else { return };
-        let mut loaded = match opening.task.poll() {
-            TaskState::Running => return,
-            TaskState::Done(loaded) => loaded,
-            TaskState::Lost => Loaded::Failed("The budget could not be read.".into()),
-        };
-        let Some(Opening { path, password, edits, quiet, settings, .. }) = self.opening.take() else { return };
+        let Some(opening) = &mut self.opening else { return };
+        if opening.loaded.is_none() {
+            opening.loaded = match opening.task.poll() {
+                TaskState::Running => return,
+                TaskState::Done(loaded) => Some(loaded),
+                TaskState::Lost => Some(Loaded::Failed("The budget could not be read.".into())),
+            };
+        }
         if self.dialogs.pending.is_some() { return; }
+        let Some(Opening { path, password, edits, quiet, settings, loaded, .. }) = self.opening.take() else { return };
+        let Some(mut loaded) = loaded else { return };
         if edits != self.edits || self.has_draft() {
             self.dialogs.pending = Some(PendingAction::Open(path));
             return;
@@ -525,8 +614,8 @@ impl App {
     fn save_as(&mut self) -> bool {
         let dialog = rfd::FileDialog::new().add_filter("Budget", &["bgt"])
             .set_file_name(self.file.as_deref().map(file_name).unwrap_or_else(|| "budget.bgt".into()));
-        let Some(mut path) = dialog.save_file() else { return false };
-        if path.extension().is_none() { path.set_extension("bgt"); }
+        let Some(path) = dialog.save_file() else { return false };
+        let path = with_bgt_extension(path);
         let expected = match self.save_as_baseline(&path) {
             Ok(expected) => expected,
             Err(e) => { self.fail(e); return false; }
@@ -548,6 +637,9 @@ impl App {
     /// Record the open budget in .budgetrc, except in screenshot automation runs.
     fn remember_file(&mut self, path: &Path) {
         if self.screenshot.is_some() { return; }
+        // The same budget may be spelled differently (drive letter or folder case): one entry only.
+        let key = recent_key(path);
+        self.cfg.recent_file.retain(|f| recent_key(Path::new(f)) != key);
         self.cfg.last_file_name = Some(path.display().to_string());
         self.cfg.add_recent_file(&path.display().to_string());
         let _ = self.cfg.save(&self.rc_path);
@@ -569,6 +661,8 @@ impl App {
                 if let Some(db) = &mut self.db { db.file_name = Some(path.display().to_string()); }
                 self.saved_bytes = Some(bytes);
                 self.dirty = false;
+                // The edits just saved must not make a background open that is pending ask again.
+                if let Some(opening) = &mut self.opening { opening.edits = self.edits; }
                 self.title_dirty = true;
                 self.banner = None;
                 self.remember_file(path);
@@ -668,22 +762,17 @@ impl App {
                 if ui.add(Button::new(RichText::new(format!("v{}", version::VERSION)).text_style(ts(CAPTION)).color(t.text_muted)).frame(false))
                     .on_hover_cursor(egui::CursorIcon::PointingHand)
                     .on_hover_text("Current version and change history").clicked() { self.dialogs.about = true; }
-                match self.file.as_deref() {
-                    Some(path) => {
-                        let full = path.display().to_string();
-                        ui.label(RichText::new(ph::FILE_TEXT).text_style(ts(ICON)).color(t.text_muted)).on_hover_text(&full);
-                        if name_w >= 60.0 {
-                            let label = ui.scope(|ui| {
-                                ui.set_max_width(name_w);
-                                ui.add(egui::Label::new(RichText::new(file_name(path)).text_style(ts(SEMI)).color(t.text)).truncate())
-                            }).inner;
-                            label.on_hover_text(&full);
-                        }
+                // With no file open the slot stays empty.
+                if let Some(path) = self.file.as_deref() {
+                    let full = path.display().to_string();
+                    ui.label(RichText::new(ph::FILE_TEXT).text_style(ts(ICON)).color(t.text_muted)).on_hover_text(&full);
+                    if name_w >= 60.0 {
+                        let label = ui.scope(|ui| {
+                            ui.set_max_width(name_w);
+                            ui.add(egui::Label::new(RichText::new(file_name(path)).text_style(ts(SEMI)).color(t.text)).truncate())
+                        }).inner;
+                        label.on_hover_text(&full);
                     }
-                    None if name_w >= 60.0 => {
-                        ui.add_sized(Vec2::new(name_w, 20.0), egui::Label::new(RichText::new("Your money, one day at a time").text_style(ts(CAPTION)).color(t.text_muted)).truncate());
-                    }
-                    None => {}
                 }
                 if self.db.is_some() {
                     let (text, dot) = if self.dirty { ("Unsaved changes", t.important) } else { ("Saved", t.positive) };
@@ -706,7 +795,9 @@ impl App {
                 ui.menu_button("File", |ui| {
                     ui.set_min_width(210.0);
                     if menu_item(ui, "Open budget…", "Ctrl+O").clicked() { ui.close_menu(); self.open_dialog(); }
+                    if ui.button("New budget…").clicked() { ui.close_menu(); self.new_budget_dialog(); }
                     if ui.add_enabled(self.db.is_some(), menu_btn("Save as…", "")).clicked() { ui.close_menu(); self.save_as(); }
+                    if ui.add_enabled(self.db.is_some(), egui::Button::new("Close budget")).clicked() { ui.close_menu(); self.request_close_budget(); }
                     ui.separator();
                     for recent in self.cfg.recent_file.clone() {
                         if ui.button(file_name(Path::new(&recent))).on_hover_text(&recent).clicked() { ui.close_menu(); self.open(Path::new(&recent)); }
@@ -780,35 +871,57 @@ impl App {
     }
 
     fn month_navigation(&mut self, ui: &mut egui::Ui, t: &Tokens, compact: bool) {
+        // Months move only through a budget: without one the controls stay visible but inert.
+        let open = self.db.is_some();
         ui.add_space(if compact { SP1 } else { SP3 });
-        let previous = icon_button(ui, ph::CARET_LEFT).on_hover_text("Previous month (PgUp)\nHold a dragged payment here to move to this month");
-        if previous.clicked() { self.go(-1); }
-        self.drag_month_navigation(ui.ctx(), &previous, -1);
-        ui.menu_button(RichText::new(format!("{} {}  {}", MONTHS_LONG[self.cur.month() as usize], self.cur.year(), ph::CARET_DOWN))
-            .size(if compact { 17.0 } else { 20.0 }).family(egui::FontFamily::Name("semi".into())), |ui| {
-            let mut year = self.cur.year();
-            ui.horizontal(|ui| { ui.label("Year"); ui.add(egui::DragValue::new(&mut year).range(budget_core::date::YEAR_MIN..=budget_core::date::YEAR_MAX).update_while_editing(false)); });
-            if year != self.cur.year() { self.go((year - self.cur.year()) * 12); }
-            egui::Grid::new("month_picker").num_columns(3).show(ui, |ui| {
-                for (month, label) in MONTHS.iter().enumerate() {
-                    if ui.selectable_label(month as i32 == self.cur.month(), *label).clicked() {
-                        self.go(month as i32 - self.cur.month()); ui.close_menu();
+        ui.add_enabled_ui(open, |ui| {
+            let previous = icon_button(ui, ph::CARET_LEFT).on_hover_text("Previous month (PgUp)\nHold a dragged payment here to move to this month");
+            if previous.clicked() { self.go(-1); }
+            self.drag_month_navigation(ui.ctx(), &previous, -1);
+            ui.menu_button(RichText::new(format!("{} {}  {}", MONTHS_LONG[self.cur.month() as usize], self.cur.year(), ph::CARET_DOWN))
+                .size(if compact { 17.0 } else { 20.0 }).family(egui::FontFamily::Name("semi".into())), |ui| {
+                let mut year = self.cur.year();
+                ui.horizontal(|ui| { ui.label("Year"); ui.add(egui::DragValue::new(&mut year).range(budget_core::date::YEAR_MIN..=budget_core::date::YEAR_MAX).update_while_editing(false)); });
+                if year != self.cur.year() { self.go((year - self.cur.year()) * 12); }
+                egui::Grid::new("month_picker").num_columns(3).show(ui, |ui| {
+                    for (month, label) in MONTHS.iter().enumerate() {
+                        if ui.selectable_label(month as i32 == self.cur.month(), *label).clicked() {
+                            self.go(month as i32 - self.cur.month()); ui.close_menu();
+                        }
+                        if month % 3 == 2 { ui.end_row(); }
                     }
-                    if month % 3 == 2 { ui.end_row(); }
-                }
+                });
             });
+            let next = icon_button(ui, ph::CARET_RIGHT).on_hover_text("Next month (PgDn)\nHold a dragged payment here to move to this month");
+            if next.clicked() { self.go(1); }
+            self.drag_month_navigation(ui.ctx(), &next, 1);
         });
-        let next = icon_button(ui, ph::CARET_RIGHT).on_hover_text("Next month (PgDn)\nHold a dragged payment here to move to this month");
-        if next.clicked() { self.go(1); }
-        self.drag_month_navigation(ui.ctx(), &next, 1);
-        // Today is a call to action only when another month is on screen.
-        let away = self.cur.get() / 100 != self.today / 100;
+        // Today is the call to action only with a budget open and another month on screen.
+        let away = open && self.cur.get() / 100 != self.today / 100;
         if away {
             if theme::primary_button(ui, format!("{}  Today", ph::DOT_OUTLINE), t).on_hover_text("Jump to the current month (Home or T)").clicked() { self.go_today(); }
-        } else {
+        } else if open {
             ui.add_enabled(false, Button::new(RichText::new("Today").color(t.text_muted)).min_size(Vec2::new(0.0, 32.0)))
                 .on_disabled_hover_text("You are already viewing the current month");
+        } else {
+            // No budget: a plain secondary control that is off, not a blue button.
+            ui.add_enabled_ui(false, |ui| theme::secondary_button(ui, format!("{}  Today", ph::DOT_OUTLINE), t))
+                .inner.on_disabled_hover_text("Open a budget to move between months");
         }
+    }
+
+    /// "Showing 7 of 20 · cat:Auto ×": the active search above the grid, with a × that clears it.
+    fn filter_chip(&mut self, ui: &mut egui::Ui, t: &Tokens, shown: usize, total: usize) {
+        let mut clear = false;
+        Frame::new().fill(tint(t.surface, t.accent, 0.12)).stroke(Stroke::new(1.0_f32, t.accent))
+            .corner_radius(theme::RADIUS).inner_margin(Margin::symmetric(10, 3)).show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = SP2;
+                    ui.label(RichText::new(format!("Showing {shown} of {total} · {}", self.filter_text.trim())).text_style(ts(CAPTION)).color(t.text));
+                    if ui.add(Button::new(RichText::new("×").color(t.accent)).frame(false)).on_hover_text("Clear the search").clicked() { clear = true; }
+                });
+            });
+        if clear { self.filter_text.clear(); self.set_filter(); }
     }
 
     fn filter_box(&mut self, ui: &mut egui::Ui, t: &Tokens, width: f32) {
@@ -903,7 +1016,9 @@ impl App {
                         if ui.button("Edit balance").clicked() { action = Some(calendar::Action::EditBalance(date.get())); ui.close_menu(); }
                     });
                 }
-                tile.on_hover_text(format!("{label}: {}\nNet change: {}\nLowest balance: {}\nAverage balance: {}\nHighest balance: {}",
+                // With cents hidden the calendar shows whole dollars; say so where the tile's cents are explained.
+                let precision = if self.cfg.show_decimals_in_cv { String::new() } else { "\nCalendar shows whole dollars; View > Show cents".to_string() };
+                tile.on_hover_text(format!("{label}: {}\nNet change: {}\nLowest balance: {}\nAverage balance: {}\nHighest balance: {}{precision}",
                     money(*value, true), money(q.income + q.expenses, true), money(q.min, true), money(q.avg, true), money(q.max, true)));
             }
         });
@@ -915,8 +1030,8 @@ impl App {
         let Some(v) = &self.view else { return };
         let active = self.filter_text.trim().to_string();
         let mut clicked: Option<String> = None;
+        // The card wraps its rows; it does not stretch to the panel's full height.
         t.card().inner_margin(Margin::symmetric(12, 12)).show(ui, |ui| {
-            ui.set_min_height(ui.available_height());
             ui.horizontal(|ui| {
                 ui.label(RichText::new("Summary").text_style(ts(SECTION)));
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -1007,6 +1122,7 @@ impl App {
         let t = self.t.clone();
         let h = ui.available_height();
         let mut to_open: Option<String> = None;
+        let mut to_remove: Option<String> = None;
         ui.vertical_centered(|ui| {
             ui.add_space((h * 0.10).max(SP3));
             // A dashed accent outline invites a drop anywhere inside it.
@@ -1061,16 +1177,25 @@ impl App {
                     let g = ui.painter().layout_job(job);
                     ui.painter().galley(egui::pos2(rect.min.x + 48.0, rect.min.y + 29.0), g, t.text_muted);
                     if resp.clicked() { to_open = Some(r.clone()); }
+                    // A budget that moved or was deleted can be dropped from the list, or looked for again.
+                    resp.context_menu(|ui| {
+                        if ui.button("Remove from recent list").clicked() { to_remove = Some(r.clone()); ui.close_menu(); }
+                        if ui.button("Check again").clicked() { self.files.forget(path); ui.close_menu(); }
+                    });
                 }
             }
         });
+        if let Some(r) = to_remove {
+            self.cfg.recent_file.retain(|f| *f != r);
+            self.save_config();
+        }
         if let Some(r) = to_open { self.open(Path::new(&r)); }
     }
 
     /// First-run card shown over the calendar while the budget has no payments.
     fn onboarding_card(&mut self, ctx: &egui::Context, area: egui::Rect) {
         let t = self.t.clone();
-        let (mut add, mut open) = (false, false);
+        let mut add = false;
         egui::Area::new(egui::Id::new("onboarding")).order(egui::Order::Middle).pivot(Align2::CENTER_CENTER)
             .fixed_pos(area.center()).show(ctx, |ui| {
                 t.card().inner_margin(SP4).shadow(ctx.style().visuals.popup_shadow).show(ui, |ui| {
@@ -1082,12 +1207,8 @@ impl App {
                         ui.label(RichText::new("Add your first payment").text_style(ts(TITLE)));
                         ui.add(egui::Label::new(RichText::new("Enter your salary and recurring bills once. Budget Calendar projects every future date and balance for you.").color(t.text_muted)).wrap());
                         ui.add_space(SP1);
-                        ui.horizontal(|ui| {
-                            let w = ui.available_width();
-                            ui.add_space(((w - 330.0) / 2.0).max(0.0));
-                            if theme::primary_button(ui, format!("{}  New payment (Ctrl+N)", ph::PLUS), &t).clicked() { add = true; }
-                            if theme::secondary_button(ui, "Open a budget", &t).clicked() { open = true; }
-                        });
+                        // The card only shows over an open budget, so its one action is to add a payment.
+                        if theme::primary_button(ui, format!("{}  New payment (Ctrl+N)", ph::PLUS), &t).clicked() { add = true; }
                     });
                     ui.add_space(SP2);
                     ui.separator();
@@ -1102,7 +1223,6 @@ impl App {
                 });
             });
         if add { self.new_payment(self.today); }
-        if open { self.open_dialog(); }
     }
 
     fn banner(&mut self, ui: &mut egui::Ui) {
@@ -1492,6 +1612,8 @@ impl App {
         match action {
             PendingAction::Open(path) => self.open_unchecked(&path),
             PendingAction::Close => { self.allow_close = true; ctx.send_viewport_cmd(egui::ViewportCommand::Close); }
+            PendingAction::New(path) => self.create_budget(&path),
+            PendingAction::CloseBudget => self.close_budget(),
         }
     }
 
@@ -1594,6 +1716,8 @@ impl App {
             egui::DragAndDrop::clear_payload(ctx); self.drag_month_hover = None; return;
         }
         let typing = ctx.wants_keyboard_input();
+        // The month keys move the calendar, which is hidden on the Payments page: they act only while it shows.
+        let calendar = !self.show_payments;
         let (o, s, f, n, p, pgdn, pgup, home) = ctx.input_mut(|i| (
             i.consume_key(Modifiers::COMMAND, Key::O),
             i.consume_key(Modifiers::COMMAND, Key::S),
@@ -1601,9 +1725,9 @@ impl App {
             i.consume_key(Modifiers::COMMAND, Key::N),
             i.consume_key(Modifiers::COMMAND, Key::P),
             // Alt+Right / Alt+Left mirror Page Down / Page Up and also work while the search box has focus.
-            i.consume_key(Modifiers::ALT, Key::ArrowRight) | (!typing && i.consume_key(Modifiers::NONE, Key::PageDown)),
-            i.consume_key(Modifiers::ALT, Key::ArrowLeft) | (!typing && i.consume_key(Modifiers::NONE, Key::PageUp)),
-            (!typing && i.consume_key(Modifiers::NONE, Key::Home)) | (!typing && i.consume_key(Modifiers::NONE, Key::T)),
+            calendar && (i.consume_key(Modifiers::ALT, Key::ArrowRight) | (!typing && i.consume_key(Modifiers::NONE, Key::PageDown))),
+            calendar && (i.consume_key(Modifiers::ALT, Key::ArrowLeft) | (!typing && i.consume_key(Modifiers::NONE, Key::PageUp))),
+            calendar && ((!typing && i.consume_key(Modifiers::NONE, Key::Home)) | (!typing && i.consume_key(Modifiers::NONE, Key::T))),
         ));
         // Dialogs and view switches wait until a dragged transaction is dropped; month paging still works.
         if o && !dragging { self.open_dialog(); }
@@ -1739,6 +1863,14 @@ fn ago(time: std::time::SystemTime) -> String {
 /// Absolute spelling of a path, so .budgetrc entries work from any working directory.
 fn resolve_path(p: &Path) -> PathBuf { std::path::absolute(p).unwrap_or_else(|_| p.to_path_buf()) }
 
+/// The spelling-independent identity of a budget path: absolute, with the platform's separators,
+/// and case-folded on Windows, where folder and drive letter case never matter. It is lexical
+/// only, so a budget on an unreachable share is never touched.
+fn recent_key(path: &Path) -> String {
+    let text = resolve_path(path).display().to_string().replace('/', std::path::MAIN_SEPARATOR_STR);
+    if cfg!(windows) { text.to_lowercase() } else { text }
+}
+
 /// Whether two spellings name the same existing file (case, `..`, relative forms).
 fn same_file(a: &Path, b: &Path) -> bool {
     a == b || matches!((std::fs::canonicalize(a), std::fs::canonicalize(b)), (Ok(x), Ok(y)) if x == y)
@@ -1798,10 +1930,18 @@ impl App {
                     if let Some(db) = &self.db {
                         ui.label(RichText::new(format!("{} {}", db.size(), payment_list::payments_noun(db.size()))).text_style(ts(CAPTION)).color(t.text_muted));
                         if self.filter.is_some() && !self.show_payments {
-                            if let Some(view) = &self.view { ui.label(RichText::new(format!("·  {} of {} transactions", view.shown, view.total)).text_style(ts(CAPTION)).color(t.text_muted)); }
+                            // The count of a search takes the accent, so a narrowed grid is not missed.
+                            if let Some(view) = &self.view { ui.label(RichText::new(format!("·  {} of {} transactions", view.shown, view.total)).text_style(ts(CAPTION)).color(t.accent)); }
                         }
                         ui.label(RichText::new("·").color(t.text_faint));
                         ui.label(RichText::new(if self.dirty { "Changes waiting to be saved" } else { "All changes saved" }).text_style(ts(CAPTION)).color(if self.dirty { t.important } else { t.text_muted }));
+                        // The calendar's gestures have no other cue; the wide window names all three.
+                        if !self.show_payments {
+                            let hint = if ctx.screen_rect().width() >= 1200.0 { "Double-click a day to add · Drag a payment to move · Right-click for more" }
+                                else { "Double-click a day to add · Right-click for more" };
+                            ui.label(RichText::new("·").color(t.text_faint));
+                            ui.label(RichText::new(hint).text_style(ts(CAPTION)).color(t.text_muted));
+                        }
                     } else if self.opening.is_none() { ui.label(RichText::new("Open a budget to get started").text_style(ts(CAPTION)).color(t.text_muted)); }
                     if let Some(opening) = &self.opening {
                         if self.db.is_some() { ui.label(RichText::new("·").color(t.text_faint)); }
@@ -1834,6 +1974,8 @@ impl App {
             if let Some(error) = &self.filter_error { ui.colored_label(t.negative, error); }
             let Some(view) = self.view.take() else { return };
             let balance_action = self.stats(ui, &view);
+            // A search hides rows, so the chip says how many are shown and offers to clear the search.
+            if view.filtered { self.filter_chip(ui, &t, view.shown, view.total); }
             let grid_top = ui.cursor().min.y;
             let clicked = calendar::show(ui, &view, &t, self.cfg.first_day_of_week_is_sunday, self.today, self.cfg.show_decimals_in_cv);
             let grid_area = egui::Rect::from_min_max(egui::pos2(ui.max_rect().min.x, grid_top), ui.max_rect().max);
@@ -1943,6 +2085,16 @@ mod cli_tests {
         assert_eq!(parse_cli_from(a(&["--screenshot", "x.png", "--dark", "Plan.Bgt"])).file.as_deref(), Some("Plan.Bgt"));
         assert_eq!(parse_cli_from(a(&["--filter", "x.bgt"])).file, None);
         assert_eq!(parse_cli_from(a(&["--dark"])).file, None);
+    }
+
+    #[test]
+    fn value_flags_accept_the_equals_form_as_well_as_the_separate_form() {
+        let cli = parse_cli_from(a(&["--month=202610", "--today=20261028", "--size=1200x800", "--filter=cat:Auto", "Home.bgt"]));
+        assert_eq!((cli.month, cli.today, cli.size, cli.filter.as_deref(), cli.file.as_deref()),
+            (Some(202610), Some(20261028), Some([1200.0, 800.0]), Some("cat:Auto"), Some("Home.bgt")));
+        assert_eq!(parse_cli_from(a(&["--screenshot=shot.png", "--dark"])).screenshot, Some(PathBuf::from("shot.png")));
+        // A flag without its value stays unset rather than taking the next flag.
+        assert_eq!(parse_cli_from(a(&["--month", "--dark"])).month, None);
     }
 }
 
@@ -3149,6 +3301,380 @@ mod lifecycle_tests {
         }
         assert_eq!(app.file.as_deref(), Some(path.as_path()));
         assert!(app.auto_open.is_none());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    // ---------- review round 3: lifecycle, navigation, layout and recent files ----------
+
+    fn shown(texts: &Texts, s: &str) -> bool { texts.iter().any(|(t, _)| t.galley.job.text == s) }
+
+    /// The painted extent of a rendered text.
+    fn ink(text: &egui::epaint::TextShape) -> egui::Rect { text.galley.mesh_bounds.translate(text.pos.to_vec2()) }
+
+    fn window(width: f32, height: f32) -> egui::RawInput {
+        egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, Vec2::new(width, height))), ..Default::default() }
+    }
+
+    fn secondary_click(app: &mut App, ctx: &egui::Context, pos: egui::Pos2) -> Texts {
+        for (events, pressed) in [(vec![egui::Event::PointerMoved(pos)], true), (Vec::new(), false)] {
+            let button = egui::Event::PointerButton { pos, button: egui::PointerButton::Secondary, pressed, modifiers: Modifiers::NONE };
+            frame(app, ctx, events.into_iter().chain([button]).collect(), false);
+        }
+        // A new popup is laid out over its first frame and shown from the next.
+        frame(app, ctx, vec![], false);
+        rendered_text(&frame(app, ctx, vec![], false))
+    }
+
+    #[test]
+    fn a_new_budget_is_written_empty_opens_cleanly_and_never_replaces_a_file() {
+        let (mut app, dir) = fixture();
+        app.dirty = false;
+        let ctx = gui(&app);
+        let path = dir.join("New plan.bgt");
+        app.start_new_budget(path.clone());
+        settle(&mut app, &ctx, |app| app.file.as_deref() == Some(path.as_path()) && app.db.is_some());
+        assert!(app.db.as_ref().unwrap().payments.is_empty(), "a new budget has no payments");
+        assert!(!app.dirty && app.banner.is_none());
+        let written = std::fs::read(&path).unwrap();
+        app.start_new_budget(path.clone());
+        assert!(app.banner.as_ref().is_some_and(|b| b.text.contains("already exists")), "an existing file is never replaced");
+        assert_eq!(std::fs::read(&path).unwrap(), written);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_new_budget_with_unsaved_edits_asks_before_anything_is_written() {
+        let (mut app, dir) = fixture();
+        let path = dir.join("Second.bgt");
+        app.start_new_budget(path.clone());
+        assert!(matches!(&app.dialogs.pending, Some(PendingAction::New(p)) if *p == path), "the unsaved changes are asked about first");
+        assert!(!path.exists() && app.db.is_some() && app.dirty);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn close_budget_with_unsaved_edits_asks_first_and_closes_once_discarded() {
+        let (mut app, dir) = fixture();
+        app.request_close_budget();
+        assert!(matches!(app.dialogs.pending, Some(PendingAction::CloseBudget)), "unsaved edits are asked about");
+        assert!(app.db.is_some() && app.dirty);
+        let ctx = gui(&app);
+        app.perform_pending(PendingAction::CloseBudget, &ctx);
+        assert!(app.db.is_none() && app.file.is_none() && !app.dirty);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn close_budget_without_edits_returns_to_the_empty_state() {
+        let (mut app, dir) = fixture();
+        app.dirty = false;
+        app.request_close_budget();
+        assert!(app.dialogs.pending.is_none() && app.db.is_none() && app.file.is_none());
+        let ctx = gui(&app);
+        let texts = rendered_text(&frame(&mut app, &ctx, vec![], false));
+        assert!(shown(&texts, "Open a budget"), "the empty state is back");
+        assert!(app.cfg.last_file_name.is_none(), "a closed budget is not reopened at the next start");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn the_file_menu_offers_new_and_close_budget() {
+        let (mut app, dir) = fixture();
+        app.dirty = false;
+        let ctx = gui(&app);
+        let mut texts = Vec::new();
+        for _ in 0..3 { texts = rendered_text(&frame(&mut app, &ctx, vec![], false)); }
+        let file = text_center(&texts, |s| s == "File").expect("the File menu");
+        let texts = click_at(&mut app, &ctx, file);
+        assert!(shown(&texts, "New budget…") && shown(&texts, "Close budget"), "File lists New budget and Close budget");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_save_as_name_gets_bgt_unless_it_already_ends_with_it() {
+        assert_eq!(with_bgt_extension(PathBuf::from("Household 2026.10")), PathBuf::from("Household 2026.10.bgt"));
+        assert_eq!(with_bgt_extension(PathBuf::from("Plan.BGT")), PathBuf::from("Plan.BGT"));
+        assert_eq!(with_bgt_extension(PathBuf::from("notes.txt")), PathBuf::from("notes.txt.bgt"));
+        assert_eq!(with_bgt_extension(PathBuf::from("dir.v2/Plan")), PathBuf::from("dir.v2/Plan.bgt"));
+    }
+
+    #[test]
+    #[cfg(windows)]
+    fn a_budget_spelled_with_other_case_is_listed_once_in_the_recent_list() {
+        let (mut app, dir) = fixture();
+        let path = dir.join("Case.bgt");
+        assert!(app.save_to(&path, None));
+        // Windows names the same file in any case: the drive letter and folder case differ here.
+        app.cfg.recent_file = vec![path.display().to_string().to_uppercase()];
+        app.load(&path, None);
+        assert_eq!(app.cfg.recent_file, vec![path.display().to_string()], "one entry for one budget");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn without_a_budget_the_month_controls_do_nothing_and_today_is_not_a_call_to_action() {
+        let (mut app, dir) = fixture();
+        (app.db, app.file, app.dirty) = (None, None, false);
+        app.cur = Cal::from_int(20260901);
+        let ctx = gui(&app);
+        let accent = app.t.accent;
+        let mut output = frame(&mut app, &ctx, vec![], false);
+        for _ in 0..2 { output = frame(&mut app, &ctx, vec![], false); }
+        let texts = rendered_text(&output);
+        let today = text_center(&texts, |s| s.ends_with("Today")).expect("the Today control");
+        assert!(!output.shapes.iter().any(|s| matches!(&s.shape, egui::Shape::Rect(r) if r.fill == accent && r.rect.contains(today))),
+            "Today is not the accent call to action without a budget");
+        let next = text_center(&texts, |s| s == ph::CARET_RIGHT).expect("the next-month arrow");
+        let title = text_center(&texts, |s| s.starts_with("September 2026")).expect("the month title");
+        click_at(&mut app, &ctx, next);
+        assert_eq!(app.cur.get(), 20260901, "the next-month arrow is disabled without a budget");
+        let texts = click_at(&mut app, &ctx, title);
+        assert!(!shown(&texts, "Year"), "the month chooser stays closed without a budget");
+        click_at(&mut app, &ctx, today);
+        assert_eq!(app.cur.get(), 20260901, "Today does nothing without a budget");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn an_active_search_shows_a_clearable_chip_and_an_accent_footer_count() {
+        let (mut app, dir) = dense_fixture();
+        let ctx = gui(&app);
+        app.filter_text = "Bill 8".into();
+        app.set_filter();
+        let mut texts = Vec::new();
+        for _ in 0..3 { texts = rendered_text(&frame(&mut app, &ctx, vec![], false)); }
+        assert!(shown(&texts, "Showing 5 of 23 · Bill 8"), "the chip says what is shown: {:?}", texts.iter().map(|(t, _)| &t.galley.job.text).collect::<Vec<_>>());
+        let (count, _) = texts.iter().find(|(t, _)| t.galley.job.text.contains("5 of 23 transactions")).expect("the footer count");
+        assert_eq!(count.galley.job.sections[0].format.color, app.t.accent, "the footer count takes the accent colour");
+        let clear = text_center(&texts, |s| s == "×").expect("the chip's clear button");
+        click_at(&mut app, &ctx, clear);
+        assert!(app.filter_text.is_empty() && app.filter.is_none(), "the chip's × clears the search");
+        let texts = rendered_text(&frame(&mut app, &ctx, vec![], false));
+        assert!(!texts.iter().any(|(t, _)| t.galley.job.text.starts_with("Showing ")), "the chip is gone once cleared");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn the_filter_chip_leaves_the_last_week_of_the_month_on_screen_at_the_smallest_window() {
+        let (mut app, dir) = dense_fixture();
+        let ctx = gui(&app);
+        app.filter_text = "Bill 8".into();
+        app.set_filter();
+        let mut output = ctx.run(window(900.0, 600.0), |ctx| app.render(ctx));
+        for _ in 0..2 { output = ctx.run(window(900.0, 600.0), |ctx| app.render(ctx)); }
+        let texts = rendered_text(&output);
+        assert!(shown(&texts, "Showing 5 of 23 · Bill 8"), "the chip is shown");
+        // October 2026 ends on the 31st in the fifth week: its day number must stay above the footer.
+        let last_day = texts.iter().find(|(t, _)| t.galley.job.text == "31").map(|(t, _)| ink(t)).expect("the 31st is drawn");
+        assert!(last_day.max.y <= 600.0 - 30.0, "the 31st sits above the footer: {last_day:?}");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn the_first_payment_card_is_opaque_centred_and_offers_no_open_button() {
+        let (mut app, dir) = fixture();
+        app.db = Some(BudgetDb::new(&app.cur, 12, false));
+        app.dirty = false;
+        let ctx = gui(&app);
+        let mut output = frame(&mut app, &ctx, vec![], false);
+        for _ in 0..2 { output = frame(&mut app, &ctx, vec![], false); }
+        let texts = rendered_text(&output);
+        let title = text_center(&texts, |s| s == "Add your first payment").expect("the first-payment card");
+        assert!(!shown(&texts, "Open a budget"), "a budget is open, so the card does not offer to open one");
+        let button = text_center(&texts, |s| s.ends_with("New payment (Ctrl+N)")).expect("the card's button");
+        assert!((title.x - button.x).abs() < 2.0, "the button sits centred under the card's title: {title:?} {button:?}");
+        let card = output.shapes.iter().filter_map(|s| match &s.shape {
+            egui::Shape::Rect(r) if r.rect.contains(title) && r.rect.width() >= 300.0 => Some((r.rect, r.fill)),
+            _ => None,
+        }).min_by(|a, b| a.0.area().total_cmp(&b.0.area())).expect("the card background");
+        assert_eq!(card.1.a(), 255, "the card is opaque in a settled frame: {:?}", card.1);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn the_footer_names_the_calendar_gestures_and_its_texts_never_overlap() {
+        let (mut app, dir) = fixture();
+        app.dirty = false;
+        let ctx = gui(&app);
+        for (width, hint) in [
+            (1400.0, "Double-click a day to add · Drag a payment to move · Right-click for more"),
+            (900.0, "Double-click a day to add · Right-click for more"),
+        ] {
+            let mut output = ctx.run(window(width, 600.0), |ctx| app.render(ctx));
+            for _ in 0..2 { output = ctx.run(window(width, 600.0), |ctx| app.render(ctx)); }
+            let texts = rendered_text(&output);
+            assert!(shown(&texts, hint), "{width} px: the footer names the gestures; shown {:?}", texts.iter().map(|(t, _)| &t.galley.job.text).collect::<Vec<_>>());
+            // Empty texts (spacers) paint nothing; only the visible footer texts are compared.
+            let footer: Vec<(String, egui::Rect)> = texts.iter().filter(|(t, _)| !t.galley.job.text.is_empty()).map(|(t, _)| (t.galley.job.text.clone(), ink(t)))
+                .filter(|(_, r)| r.min.y > 580.0).collect();
+            for (i, (name, a)) in footer.iter().enumerate() {
+                assert!(a.max.x <= width, "{name} is off the window at {width} px: {a:?}");
+                for (other, b) in &footer[i + 1..] {
+                    let overlap = a.intersect(*b);
+                    assert!(!(overlap.width() > 0.5 && overlap.height() > 0.5), "{name} overlaps {other} at {width} px: {a:?} {b:?}");
+                }
+            }
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn the_summary_card_is_no_taller_than_its_content() {
+        let (mut app, dir) = fixture();
+        app.dirty = false;
+        let ctx = gui(&app);
+        let mut output = ctx.run(window(1600.0, 900.0), |ctx| app.render(ctx));
+        for _ in 0..2 { output = ctx.run(window(1600.0, 900.0), |ctx| app.render(ctx)); }
+        let title = text_center(&rendered_text(&output), |s| s == "Summary").expect("the summary card");
+        let card = output.shapes.iter().filter_map(|s| match &s.shape {
+            egui::Shape::Rect(r) if r.rect.contains(title) && r.rect.width() > 200.0 => Some(r.rect),
+            _ => None,
+        }).min_by(|a, b| a.area().total_cmp(&b.area())).expect("the card background");
+        assert!(card.height() < 600.0, "the card wraps its content instead of filling the 900 px panel: {card:?}");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn the_empty_header_shows_no_tagline_in_the_file_name_slot() {
+        let (mut app, dir) = fixture();
+        (app.db, app.file, app.dirty) = (None, None, false);
+        let ctx = gui(&app);
+        let texts = rendered_text(&frame(&mut app, &ctx, vec![], false));
+        assert!(!texts.iter().any(|(t, _)| t.galley.job.text.contains("one day at a time")), "no tagline floats in the header");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn summary_tiles_say_the_calendar_shows_whole_dollars_while_cents_are_hidden() {
+        let (mut app, dir) = fixture();
+        app.dirty = false;
+        app.cfg.show_decimals_in_cv = false;
+        let ctx = gui(&app);
+        ctx.style_mut(|style| style.interaction.tooltip_delay = 0.0);
+        let note = "Calendar shows whole dollars; View > Show cents";
+        let mut texts = Vec::new();
+        for time in [0.0, 0.1, 0.2] {
+            texts = rendered_text(&ctx.run(egui::RawInput { time: Some(time), ..window(1280.0, 840.0) }, |ctx| app.render(ctx)));
+        }
+        let closing = text_center(&texts, |s| s == "Closing balance").expect("the closing balance tile");
+        for time in [1.0, 1.1, 1.2] {
+            texts = rendered_text(&ctx.run(egui::RawInput { time: Some(time), events: vec![egui::Event::PointerMoved(closing)], ..window(1280.0, 840.0) }, |ctx| app.render(ctx)));
+        }
+        assert!(texts.iter().any(|(t, _)| t.galley.job.text.contains(note)), "the tile's tooltip explains the whole dollars");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn month_keys_act_on_the_calendar_only_while_the_calendar_page_shows() {
+        let (mut app, dir) = fixture();
+        app.dirty = false;
+        let ctx = gui(&app);
+        frame(&mut app, &ctx, vec![], false);
+        app.show_payments = true;
+        for (name, key_event) in [
+            ("PageDown", key(Key::PageDown, Modifiers::NONE)), ("PageUp", key(Key::PageUp, Modifiers::NONE)),
+            ("Home", key(Key::Home, Modifiers::NONE)), ("T", key(Key::T, Modifiers::NONE)),
+            ("Alt+Right", key(Key::ArrowRight, Modifiers::ALT)), ("Alt+Left", key(Key::ArrowLeft, Modifiers::ALT)),
+        ] {
+            frame(&mut app, &ctx, vec![key_event], false);
+            assert_eq!(app.cur.get(), 20261001, "{name} must not move the calendar that is hidden behind the Payments page");
+        }
+        app.show_payments = false;
+        frame(&mut app, &ctx, vec![key(Key::PageDown, Modifiers::NONE)], false);
+        assert_eq!(app.cur.get(), 20261101, "the calendar page still pages with PageDown");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_background_open_finished_while_a_close_prompt_waits_is_kept_until_the_prompt_is_answered() {
+        let (mut app, dir) = fixture();
+        app.dirty = false;
+        let (other, gate) = other_budget(&mut app, &dir);
+        let ctx = gui(&app);
+        frame(&mut app, &ctx, vec![], false);
+        app.open(&other);
+        app.dialogs.pending = Some(PendingAction::Close);
+        gate.open();
+        for _ in 0..60 {
+            std::thread::sleep(Duration::from_millis(5));
+            frame(&mut app, &ctx, vec![], false);
+        }
+        assert!(app.opening.is_some(), "the finished open is kept while the prompt waits, not dropped");
+        assert!(matches!(app.dialogs.pending, Some(PendingAction::Close)));
+        assert_eq!(app.file.as_deref(), Some(dir.join("current.bgt").as_path()));
+        // Cancelling the close prompt lets the open this user asked for proceed.
+        app.dialogs.pending = None;
+        settle(&mut app, &ctx, |app| app.file.as_deref() == Some(other.as_path()));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn saving_during_a_background_open_does_not_ask_again_when_the_open_finishes() {
+        let (mut app, dir) = fixture();
+        app.dirty = false;
+        let (other, gate) = other_budget(&mut app, &dir);
+        let ctx = gui(&app);
+        frame(&mut app, &ctx, vec![], false);
+        app.open(&other);
+        let id = app.db.as_ref().unwrap().payments[0].id;
+        document::change_transaction(app.db.as_mut().unwrap(), id, 20261027, -20.0, "", budget_core::FLAG_NONE).unwrap();
+        app.changed();
+        assert!(app.save(), "the edited budget saves while the other one is read");
+        gate.open();
+        settle(&mut app, &ctx, |app| app.opening.is_none());
+        assert!(app.dialogs.pending.is_none(), "the saved edit is not asked about again");
+        assert_eq!(app.file.as_deref(), Some(other.as_path()));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_recent_budget_whose_file_is_gone_can_be_removed_from_the_list() {
+        let (mut app, dir) = fixture();
+        (app.db, app.file, app.dirty) = (None, None, false);
+        let missing = dir.join("Gone.bgt");
+        app.cfg.recent_file = vec![missing.display().to_string()];
+        let ctx = gui(&app);
+        let mut texts = Vec::new();
+        for _ in 0..200 {
+            texts = rendered_text(&frame(&mut app, &ctx, vec![], false));
+            if shown(&texts, "File not found") { break; }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert!(shown(&texts, "File not found"), "the missing budget is reported");
+        let card = text_center(&texts, |s| s == "Gone.bgt").expect("the recent card");
+        let texts = secondary_click(&mut app, &ctx, card);
+        let remove = text_center(&texts, |s| s == "Remove from recent list").expect("the card's menu offers removal");
+        click_at(&mut app, &ctx, remove);
+        assert!(app.cfg.recent_file.is_empty(), "the entry is removed from the recent list");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_recent_budget_that_reappears_is_checked_again_from_its_menu() {
+        let (mut app, dir) = fixture();
+        (app.db, app.file, app.dirty) = (None, None, false);
+        let back = dir.join("Back.bgt");
+        app.cfg.recent_file = vec![back.display().to_string()];
+        let ctx = gui(&app);
+        let mut texts = Vec::new();
+        for _ in 0..200 {
+            texts = rendered_text(&frame(&mut app, &ctx, vec![], false));
+            if shown(&texts, "File not found") { break; }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        std::fs::write(&back, b"restored").unwrap();
+        let card = text_center(&texts, |s| s == "Back.bgt").expect("the recent card");
+        let texts = secondary_click(&mut app, &ctx, card);
+        let again = text_center(&texts, |s| s == "Check again").expect("the card's menu offers a new check");
+        click_at(&mut app, &ctx, again);
+        let mut texts = Vec::new();
+        for _ in 0..200 {
+            texts = rendered_text(&frame(&mut app, &ctx, vec![], false));
+            if texts.iter().any(|(t, _)| t.galley.job.text.starts_with("Modified ")) { break; }
+            std::thread::sleep(Duration::from_millis(5));
+        }
+        assert!(texts.iter().any(|(t, _)| t.galley.job.text.starts_with("Modified ")), "the card now shows the file it found");
+        assert!(!shown(&texts, "File not found"));
         std::fs::remove_dir_all(dir).unwrap();
     }
 

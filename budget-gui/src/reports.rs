@@ -462,6 +462,10 @@ fn menu_with(ui: &mut egui::Ui, t: &Tokens, db: Option<&mut BudgetDb>, cur: &Cal
                     .on_hover_text(kind.description()).on_disabled_hover_text(NO_SPREADSHEET);
                 if item.clicked() {
                     chosen = Some(Some(kind));
+                    // Enter on the focused item chose it; the range dialog drawn in this same frame
+                    // must not read that Enter as "create the report". The dialog opens and waits.
+                    ui.input_mut(|i| { i.consume_key(egui::Modifiers::NONE, egui::Key::Enter); });
+                    if let Some(focused) = ui.ctx().memory(|m| m.focused()) { ui.ctx().memory_mut(|m| m.surrender_focus(focused)); }
                     ui.close_menu();
                 }
             }
@@ -564,8 +568,10 @@ impl Draft {
         });
         if (self.from, self.to) != (before.0, before.1) && !self.other_chosen { self.other = self.previous_period(); }
         if (self.from, self.to, self.other) != before { self.error = None; }
-        // Enter creates the report, as Enter applies the other dialogs.
-        if action == DraftAction::None && !ctx.memory(|m| m.any_popup_open()) && ctx.input(|i| i.key_pressed(egui::Key::Enter)) {
+        // Enter creates the report, as Enter applies the other dialogs, unless a control has keyboard
+        // focus: then Enter is that control's (a range shortcut, a month chooser or a button).
+        let control_focused = ctx.memory(|m| m.focused().is_some() || m.any_popup_open());
+        if action == DraftAction::None && !control_focused && ctx.input(|i| i.key_pressed(egui::Key::Enter)) {
             action = DraftAction::Create;
         }
         action
@@ -1021,6 +1027,121 @@ mod tests {
         let _ = ctx.run(input(vec![enter()]), |ctx| outcome = dialog_with(ctx, &t, Some(&mut db), &cfg, &shell));
         assert!(outcome.unwrap().is_ok() && !is_open(&ctx));
         assert_eq!(files(&shell.dir).len(), 1);
+    }
+
+    fn tab() -> egui::Event {
+        egui::Event::Key { key: egui::Key::Tab, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::NONE }
+    }
+
+    /// Presses Tab, one frame at a time as a person does, until the widget at `at` has focus.
+    /// `frame` runs one frame with the given events.
+    fn tab_to(ctx: &egui::Context, at: egui::Pos2, mut frame: impl FnMut(Vec<egui::Event>)) {
+        for _ in 0..60 {
+            let focused = ctx.memory(|m| m.focused()).and_then(|id| ctx.read_response(id)).is_some_and(|r| r.rect.contains(at));
+            if focused { return; }
+            frame(vec![tab()]);
+            frame(Vec::new());
+        }
+        panic!("Tab never reached the widget at {at:?}");
+    }
+
+    fn position(texts: &[(String, egui::Pos2)], label: &str) -> egui::Pos2 {
+        texts.iter().find(|(text, _)| text == label).map(|(_, pos)| *pos)
+            .unwrap_or_else(|| panic!("{label} is not shown: {:?}", texts.iter().map(|(text, _)| text).collect::<Vec<_>>()))
+    }
+
+    #[test]
+    fn enter_on_a_focused_report_item_opens_the_range_dialog_and_creates_nothing() {
+        // Each report item, as the app draws the menu and then the dialog in one frame.
+        for kind in GROUPS.iter().flat_map(|(_, kinds)| kinds.iter().copied()) {
+            let (ctx, t) = gui();
+            let cfg = BudgetConfig::default();
+            let shell = shell(true);
+            let mut db = fixture();
+            let cur = month(20260601);
+            let mut run = |events: Vec<egui::Event>| {
+                let mut outcome = None;
+                let output = ctx.run(input(events), |ctx| {
+                    egui::CentralPanel::default().show(ctx, |ui| {
+                        if let Some(o) = menu_with(ui, &t, Some(&mut db), &cur, &cfg, &shell) { outcome = Some(o); }
+                    });
+                    if let Some(o) = dialog_with(ctx, &t, Some(&mut db), &cfg, &shell) { outcome = Some(o); }
+                });
+                (texts(&output), outcome)
+            };
+            let (shown, _) = run(Vec::new());
+            let reports = position(&shown, "Reports");
+            for events in click(reports) { run(events); }
+            // A new popup is laid out, then shown, over its first two frames.
+            run(Vec::new());
+            let (shown, _) = run(Vec::new());
+            let item = position(&shown, kind.menu_label());
+            tab_to(&ctx, item, |events| { run(events); });
+            let (_, outcome) = run(vec![enter()]);
+            let label = kind.menu_label();
+            assert!(outcome.is_none(), "{label}: Enter on the item must not create the report");
+            assert!(is_open(&ctx), "{label}: the range dialog opens and waits");
+            let draft = ctx.data(|d| d.get_temp::<Draft>(draft_id())).expect("the item opened the dialog");
+            assert_eq!(draft.kind, kind);
+            assert!(shell.opened.borrow().is_empty() && files(&shell.dir).is_empty(), "{label}: nothing is written or opened");
+        }
+    }
+
+    #[test]
+    fn a_report_chosen_with_the_mouse_is_created_by_enter_in_its_dialog() {
+        let (ctx, t) = gui();
+        let cfg = BudgetConfig::default();
+        let shell = shell(true);
+        let mut db = fixture();
+        let cur = month(20260601);
+        let mut run = |events: Vec<egui::Event>| {
+            let mut outcome = None;
+            let output = ctx.run(input(events), |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    if let Some(o) = menu_with(ui, &t, Some(&mut db), &cur, &cfg, &shell) { outcome = Some(o); }
+                });
+                if let Some(o) = dialog_with(ctx, &t, Some(&mut db), &cfg, &shell) { outcome = Some(o); }
+            });
+            (texts(&output), outcome)
+        };
+        run(Vec::new());
+        let (shown, _) = run(Vec::new());
+        for events in click(position(&shown, "Reports")) { run(events); }
+        run(Vec::new());
+        let (shown, _) = run(Vec::new());
+        for events in click(position(&shown, "Excel Report…")) { run(events); }
+        // The item was chosen with the mouse: the dialog is open and nothing is focused, so Enter creates the report.
+        run(Vec::new());
+        assert!(is_open(&ctx) && files(&shell.dir).is_empty(), "the dialog waits after a mouse choice");
+        let (_, outcome) = run(vec![enter()]);
+        assert!(outcome.is_some_and(|result| result.is_ok()), "Enter creates the report from the open dialog");
+        assert!(!is_open(&ctx) && files(&shell.dir).len() == 1);
+    }
+
+    #[test]
+    fn enter_on_a_range_shortcut_fills_the_range_and_keeps_the_dialog_open() {
+        let (ctx, t) = gui();
+        let cfg = BudgetConfig::default();
+        let shell = shell(true);
+        let mut db = fixture();
+        let (min, max) = months_available(&db);
+        ctx.data_mut(|d| d.insert_temp(draft_id(), Draft::new(ReportKind::MonthlyDetailed, &month(20260601), min, max)));
+        let mut run = |events: Vec<egui::Event>| {
+            let mut outcome = None;
+            let output = ctx.run(input(events), |ctx| outcome = dialog_with(ctx, &t, Some(&mut db), &cfg, &shell));
+            (texts(&output), outcome)
+        };
+        // A new dialog is laid out over its first frames before its text is shown.
+        run(Vec::new());
+        run(Vec::new());
+        let (shown, _) = run(Vec::new());
+        let shortcut = position(&shown, "Last 12 months");
+        tab_to(&ctx, shortcut, |events| { run(events); });
+        let (_, outcome) = run(vec![enter()]);
+        assert!(outcome.is_none() && is_open(&ctx), "Enter on the shortcut button keeps the dialog open");
+        let draft = ctx.data(|d| d.get_temp::<Draft>(draft_id())).unwrap();
+        assert_eq!(draft.from.get(), 20260401, "the shortcut filled the range: April to June 2026");
+        assert!(shell.opened.borrow().is_empty() && files(&shell.dir).is_empty(), "the shortcut creates nothing");
     }
 
     #[test]
