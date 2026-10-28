@@ -53,7 +53,7 @@ Apply changes in memory, then Save changes / Ctrl+S to write the budget. A clean
 
 Opening a different budget or closing prompts to save, discard or cancel; an unapplied draft must first be finished or explicitly discarded. Failed/cancelled Save as keeps the current path and unsaved state. Disk changes made by another app are detected, also when Save as targets the open file under a different spelling; Save as can keep edits separately. If the open budget was deleted or moved away, Save writes it again at its original location. Budgets are remembered in `.budgetrc` by absolute path, and View preferences are written when the app closes; `--screenshot` runs leave `.budgetrc` untouched. A rejected password clears the field and keeps keyboard focus there. Typing a year in the month chooser navigates once the year is committed (Enter or leaving the field).
 
-Writes stage the full file and retain the previous version as `.bak`, then `.bak.1`, `.bak.2`, etc. Existing per-date exceptions, notes, encryption and balance adjustments remain supported.
+Writes stage the full file and retain the previous version as `.bak`, then `.bak.1`, `.bak.2`, etc. The newest 10 backups are kept; older ones are removed after a successful save, and numbering continues upward so higher numbers are always newer. Existing per-date exceptions, notes, encryption and balance adjustments remain supported.
 
 ## Verification and captures
 

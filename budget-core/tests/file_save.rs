@@ -1,4 +1,4 @@
-//! File saving preserves both the current document and every earlier backup.
+//! File saving preserves the current document and the newest `bgt::MAX_BACKUPS` backups.
 
 use budget_core::bgt;
 use std::fs;
@@ -101,6 +101,50 @@ fn repeated_changes_keep_all_prior_versions() {
     assert_eq!(fs::read(dir.file("budget.bgt.bak")).unwrap(), b"version one");
     assert_eq!(fs::read(dir.file("budget.bgt.bak.1")).unwrap(), b"version two");
     assert_eq!(dir.entries(), ["budget.bgt", "budget.bgt.bak", "budget.bgt.bak.1"]);
+}
+
+#[test]
+fn only_the_newest_backups_are_kept_and_numbering_continues() {
+    let dir = TestDir::new();
+    let path = dir.file("budget.bgt");
+    fs::write(&path, b"v0").unwrap();
+    // Look-alikes that are not this budget's backups must survive pruning.
+    for other in ["budget.bgt.bak.old", "budget.bgt.bak.1a", "other.bgt.bak", "budget.bgt.backup"] {
+        fs::write(dir.file(other), b"keep").unwrap();
+    }
+
+    for n in 1..=bgt::MAX_BACKUPS + 2 {
+        bgt::save_file(&path, &format!("v{n}")).unwrap();
+    }
+
+    // Twelve saves made backups .bak (v0) .. .bak.11 (v11); the two oldest were pruned.
+    assert!(!dir.file("budget.bgt.bak").exists());
+    assert!(!dir.file("budget.bgt.bak.1").exists());
+    for index in 2..=11 {
+        assert_eq!(fs::read(dir.file(&format!("budget.bgt.bak.{index}"))).unwrap(), format!("v{index}").as_bytes());
+    }
+    bgt::save_file(&path, "v13").unwrap();
+    assert_eq!(fs::read(dir.file("budget.bgt.bak.12")).unwrap(), b"v12", "a gap left by pruning is not reused");
+    assert!(!dir.file("budget.bgt.bak.2").exists());
+    for other in ["budget.bgt.bak.old", "budget.bgt.bak.1a", "other.bgt.bak", "budget.bgt.backup"] {
+        assert_eq!(fs::read(dir.file(other)).unwrap(), b"keep");
+    }
+}
+
+#[test]
+fn pruning_never_removes_a_directory_named_like_a_backup() {
+    let dir = TestDir::new();
+    let path = dir.file("budget.bgt");
+    fs::write(&path, b"v0").unwrap();
+    fs::create_dir(dir.file("budget.bgt.bak")).unwrap();
+
+    for n in 1..=bgt::MAX_BACKUPS + 1 {
+        bgt::save_file(&path, &format!("v{n}")).unwrap();
+    }
+
+    assert!(dir.file("budget.bgt.bak").is_dir());
+    assert!(!dir.file("budget.bgt.bak.1").exists());
+    assert_eq!(fs::read(dir.file("budget.bgt.bak.11")).unwrap(), b"v10");
 }
 
 #[test]

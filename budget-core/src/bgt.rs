@@ -431,7 +431,8 @@ pub fn save_file(path: &Path, content: &str) -> Result<(), String> {
         drop(temp_file);
 
         if let Some(old) = original {
-            let mut index = 0_u64;
+            // Continue after the newest backup so index order is age order even after pruning.
+            let mut index = existing_backups(path).last().map_or(0, |(newest, _)| newest + 1);
             let mut backup = loop {
                 let suffix = if index == 0 { ".bak".to_string() } else { format!(".bak.{index}") };
                 let candidate = sibling(&suffix);
@@ -457,8 +458,45 @@ pub fn save_file(path: &Path, content: &str) -> Result<(), String> {
         // original is untouched, so a backup of it would only pile up on every retry.
         let _ = fs::remove_file(&temp_path);
         if let Some(b) = &backup_path { let _ = fs::remove_file(b); }
+    } else if backup_path.is_some() {
+        prune_backups(path);
     }
     result
+}
+
+/// Backups kept beside a budget; older ones are removed after a successful save.
+pub const MAX_BACKUPS: usize = 10;
+
+/// `(index, path)` of every `.bak` (index 0) and `.bak.N` entry beside `path`, oldest first.
+/// Entries of any kind count so a stray directory still reserves its index.
+fn existing_backups(path: &Path) -> Vec<(u64, std::path::PathBuf)> {
+    let (Some(dir), Some(name)) = (path.parent(), path.file_name().and_then(|n| n.to_str())) else { return Vec::new() };
+    let dir = if dir.as_os_str().is_empty() { Path::new(".") } else { dir };
+    let prefix = format!("{name}.bak");
+    let Ok(entries) = std::fs::read_dir(dir) else { return Vec::new() };
+    let mut found: Vec<(u64, std::path::PathBuf)> = entries.flatten().filter_map(|entry| {
+        let file_name = entry.file_name();
+        let rest = file_name.to_str()?.strip_prefix(&prefix)?;
+        let index = if rest.is_empty() { 0 } else {
+            let digits = rest.strip_prefix('.')?;
+            if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) { return None }
+            digits.parse().ok()?
+        };
+        Some((index, entry.path()))
+    }).collect();
+    found.sort();
+    found
+}
+
+/// Delete all but the newest `MAX_BACKUPS` backup files. Failures are ignored: the save
+/// itself already succeeded, and anything that is not a regular file is left alone.
+fn prune_backups(path: &Path) {
+    let files: Vec<_> = existing_backups(path).into_iter()
+        .filter(|(_, p)| std::fs::symlink_metadata(p).is_ok_and(|m| m.is_file()))
+        .collect();
+    for (_, old) in &files[..files.len().saturating_sub(MAX_BACKUPS)] {
+        let _ = std::fs::remove_file(old);
+    }
 }
 
 #[cfg(test)]
