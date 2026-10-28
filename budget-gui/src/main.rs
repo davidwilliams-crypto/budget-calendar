@@ -34,7 +34,7 @@ use view::{money, MonthView};
 use editor::{PaymentAction, PaymentEditor, TransactionAction, TransactionEditor, TransactionScope};
 use balance_editor::{BalanceAction, BalanceEditor};
 use date_watch::DateWatch;
-use file_probe::{FileProbes, FileStatus};
+use file_probe::{FileProbes, FileStatus, TaskState};
 use names::{MONTHS, MONTHS_LONG};
 
 const SUMMARY_W: f32 = 292.0;
@@ -138,6 +138,64 @@ enum PendingAction { Open(PathBuf), Close }
 #[derive(Clone, Copy)]
 struct DeleteTarget { id: i32, date: Option<i32> }
 
+/// An encrypted budget that was read and waits for its password.
+struct PasswordPrompt {
+    path: PathBuf,
+    /// The file as read: unlocking builds the budget from these, without reading the file again.
+    bytes: Vec<u8>,
+    typed: String,
+    error: String,
+}
+
+/// What reading a budget found.
+enum Loaded {
+    Budget(Box<BudgetDb>, Vec<u8>),
+    /// Encrypted and no password given: the bytes wait for the password prompt.
+    Locked(Vec<u8>),
+    Failed(String),
+}
+
+/// What building a budget depends on besides the file.
+#[derive(Clone, Copy, PartialEq)]
+struct LoadSettings { today: i32, month: i32, future_months: i32, unlimited_history: bool }
+
+/// Reads `path` (unless its bytes are given) and builds the budget. A background open runs this on
+/// a worker thread, so a budget on an unreachable share never freezes the window.
+fn load_budget(read: &file_probe::Reader, path: &Path, bytes: Option<Vec<u8>>, password: Option<&str>, s: LoadSettings) -> Loaded {
+    let bytes = match bytes.map_or_else(|| read(path), Ok) {
+        Ok(bytes) => bytes,
+        Err(e) => return Loaded::Failed(e.to_string()),
+    };
+    let text = bgt::latin1_decode(&bytes);
+    if password.is_none() && bgt::is_encrypted_text(&text) { return Loaded::Locked(bytes); }
+    let cur = Cal::from_int(s.month);
+    let built = bgt::load_str(&text, s.today, password).map_err(|l| l.log).and_then(|loaded| {
+        // A malformed file must surface as an error banner, never take the whole app down.
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let mut db = document::from_loaded(loaded, &cur, s.future_months, s.unlimited_history);
+            // One "today" for the grid and the tentative scheduler (--today included).
+            if db.today != s.today { db.today = s.today; document::rebuild(&mut db, &cur, s.future_months, s.unlimited_history); }
+            db
+        })).map_err(|_| "This budget file could not be built: it contains values the schedule engine cannot handle.".to_string())
+    });
+    match built {
+        Ok(mut db) => { db.file_name = Some(path.display().to_string()); Loaded::Budget(Box::new(db), bytes) }
+        Err(log) => Loaded::Failed(log),
+    }
+}
+
+/// A budget being read and built on a worker thread.
+struct Opening {
+    path: PathBuf,
+    password: Option<String>,
+    /// The edit count when the open was decided: a later edit is never replaced unasked.
+    edits: u64,
+    /// Opened automatically (the last budget): no "Opened" notice.
+    quiet: bool,
+    settings: LoadSettings,
+    task: file_probe::Task<Loaded>,
+}
+
 /// The unsaved-changes prompt's answers.
 #[derive(Clone, Copy)]
 enum UnsavedChoice {
@@ -175,8 +233,8 @@ struct Dialogs {
     confirm_delete: Option<DeleteTarget>,
     /// An open or close waiting for the unsaved-changes prompt.
     pending: Option<PendingAction>,
-    /// An encrypted budget waiting for its password: (path, typed password, error).
-    password: Option<(PathBuf, String, String)>,
+    /// An encrypted budget waiting for its password.
+    password: Option<PasswordPrompt>,
     about: bool,
     legend: bool,
     shortcuts: bool,
@@ -226,6 +284,10 @@ struct App {
     files: FileProbes,
     /// The last budget, opened once its background check finds it.
     auto_open: Option<PathBuf>,
+    /// A budget being read and built in the background.
+    opening: Option<Opening>,
+    /// Counts applied edits, so an open finishing later never replaces newer ones unasked.
+    edits: u64,
     /// The control that had keyboard focus when a dialog opened; it gets focus back on close.
     focus_return: Option<egui::Id>,
     db: Option<BudgetDb>,
@@ -274,7 +336,7 @@ impl App {
         let t = Tokens::new(&cfg.colors, cli.dark);
         let mut app = App {
             date_watch: if cli.today.is_some() { DateWatch::fixed() } else { DateWatch::system() },
-            files: FileProbes::default(), auto_open: None, focus_return: None,
+            files: FileProbes::default(), auto_open: None, opening: None, edits: 0, focus_return: None,
             cfg, rc_path, db: None, file: None, password: None, cur, today: cli.today.unwrap_or_else(|| Cal::today().get()),
             saved_bytes: None, dirty: false, dialogs: Dialogs::default(), drag_month_hover: None,
             show_payments: false, payment_list: payment_list::PaymentList::default(), allow_close: false,
@@ -287,14 +349,14 @@ impl App {
         if let Some(f) = cli.file {
             // A file named on the command line never falls back to the last-used budget.
             let p = resolve_path(Path::new(f.trim()));
-            if p.is_file() { app.open(&p); app.toast = None; }
+            if p.is_file() { app.load(&p, None); app.toast = None; }
             else { app.banner = Some(Banner { text: format!("No file was found at {}.", p.display()), details: None, ..Banner::load_failure(&p, "") }); }
         } else if let Some(f) = app.cfg.last_file_name.clone() {
             // The last budget may sit on an unreachable share, whose check blocks for ~20 s: look for
             // it off the UI thread and open it when it turns up (see `finish_auto_open`).
             let p = resolve_path(Path::new(f.trim()));
             match app.files.wait(&p, Duration::from_millis(250)) {
-                FileStatus::Present(_) => { app.open(&p); app.toast = None; }
+                FileStatus::Present(_) => { app.load(&p, None); app.toast = None; }
                 FileStatus::Checking => app.auto_open = Some(p),
                 FileStatus::Missing => {}
             }
@@ -311,7 +373,7 @@ impl App {
             FileStatus::Present(_) if self.has_modal() => {}
             FileStatus::Present(_) => {
                 self.auto_open = None;
-                if self.db.is_none() { self.open(&path); self.toast = None; }
+                if self.db.is_none() { self.start_opening(&path, None, None, true); }
             }
             FileStatus::Missing => self.auto_open = None,
         }
@@ -359,43 +421,70 @@ impl App {
         self.open_unchecked(path);
     }
 
-    fn open_unchecked(&mut self, path: &Path) {
-        match std::fs::read(path) {
-            Ok(bytes) if bgt::is_encrypted_text(&bgt::latin1_decode(&bytes)) => {
-                self.dialogs.password = Some((path.to_path_buf(), String::new(), String::new()));
-            }
-            Ok(_) => self.load(path, None),
-            Err(e) => self.fail_load(path, &e.to_string()),
-        }
-    }
+    /// Opens `path` once any unsaved changes were dealt with. The file is read and built on a
+    /// worker thread (an unreachable share must not freeze the window); `finish_opening` takes the
+    /// result.
+    fn open_unchecked(&mut self, path: &Path) { self.start_opening(path, None, None, false); }
 
     fn open_dialog(&mut self) {
         if let Some(p) = rfd::FileDialog::new().add_filter("Budget", &["bgt"]).pick_file() { self.open(&p); }
     }
 
+    fn load_settings(&self) -> LoadSettings {
+        LoadSettings { today: self.today, month: self.cur.get(), future_months: self.cfg.future_n_months, unlimited_history: self.cfg.unlimited_history }
+    }
+
+    /// Reads (unless `bytes` are given) and builds `path` in the background. Opening the budget
+    /// already being read changes nothing; another one replaces it.
+    fn start_opening(&mut self, path: &Path, bytes: Option<Vec<u8>>, password: Option<String>, quiet: bool) {
+        if bytes.is_none() && self.opening.as_ref().is_some_and(|o| o.path == path) { return; }
+        let settings = self.load_settings();
+        let (job_path, job_password) = (path.to_path_buf(), password.clone());
+        let task = self.files.spawn(move |read| load_budget(read, &job_path, bytes, job_password.as_deref(), settings));
+        self.opening = Some(Opening { path: path.to_path_buf(), password, edits: self.edits, quiet, settings, task });
+    }
+
+    /// Takes a finished background open. Edits made while the file was read, or an editor opened
+    /// meanwhile, are never replaced unasked: the open then waits for the unsaved-changes prompt,
+    /// as any open does. A close or another open requested meanwhile wins.
+    fn finish_opening(&mut self) {
+        let Some(opening) = &self.opening else { return };
+        let mut loaded = match opening.task.poll() {
+            TaskState::Running => return,
+            TaskState::Done(loaded) => loaded,
+            TaskState::Lost => Loaded::Failed("The budget could not be read.".into()),
+        };
+        let Some(Opening { path, password, edits, quiet, settings, .. }) = self.opening.take() else { return };
+        if self.dialogs.pending.is_some() { return; }
+        if edits != self.edits || self.has_draft() {
+            self.dialogs.pending = Some(PendingAction::Open(path));
+            return;
+        }
+        // Built around the month and date of the click: follow any change since, as a load now would.
+        if let Loaded::Budget(db, _) = &mut loaded {
+            if settings != self.load_settings() {
+                db.today = self.today;
+                document::rebuild(db, &self.cur, self.cfg.future_n_months, self.cfg.unlimited_history);
+            }
+        }
+        self.apply_loaded(&path, password, loaded, quiet);
+    }
+
+    /// Reads and builds `path` on this thread: at startup, before the window is shown.
     fn load(&mut self, path: &Path, password: Option<&str>) {
         let path = &resolve_path(path);
-        let today = self.today;
-        let parsed = std::fs::read(path).map_err(|e| e.to_string()).and_then(|bytes| {
-            let loaded = bgt::load_str(&bgt::latin1_decode(&bytes), self.today, password).map_err(|l| l.log)?;
-            // A malformed file must surface as an error banner, never take the whole app down.
-            let (cur, months, unlimited) = (self.cur, self.cfg.future_n_months, self.cfg.unlimited_history);
-            let mut db = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                let mut db = document::from_loaded(loaded, &cur, months, unlimited);
-                // One "today" for the grid and the tentative scheduler (--today included).
-                if db.today != today { db.today = today; document::rebuild(&mut db, &cur, months, unlimited); }
-                db
-            }))
-                .map_err(|_| "This budget file could not be built: it contains values the schedule engine cannot handle.".to_string())?;
-            db.file_name = Some(path.display().to_string());
-            Ok((db, bytes))
-        });
-        match parsed {
-            Ok((db, bytes)) => {
-                self.db = Some(db);
+        let read: file_probe::Reader = Arc::new(|path: &Path| std::fs::read(path));
+        let loaded = load_budget(&read, path, None, password, self.load_settings());
+        self.apply_loaded(path, password.map(str::to_string), loaded, false);
+    }
+
+    fn apply_loaded(&mut self, path: &Path, password: Option<String>, loaded: Loaded, quiet: bool) {
+        match loaded {
+            Loaded::Budget(db, bytes) => {
+                self.db = Some(*db);
                 self.generation += 1;
                 self.file = Some(path.to_path_buf());
-                self.password = password.map(str::to_string);
+                self.password = password;
                 self.saved_bytes = Some(bytes);
                 self.dirty = false;
                 self.dialogs.payment_editor = None;
@@ -408,9 +497,12 @@ impl App {
                 self.view = None;
                 self.banner = None;
                 self.title_dirty = true;
-                self.notify(format!("Opened {}", file_name(path)));
+                if !quiet { self.notify(format!("Opened {}", file_name(path))); }
             }
-            Err(log) => self.fail_load(path, &log),
+            Loaded::Locked(bytes) => {
+                self.dialogs.password = Some(PasswordPrompt { path: path.to_path_buf(), bytes, typed: String::new(), error: String::new() });
+            }
+            Loaded::Failed(log) => self.fail_load(path, &log),
         }
     }
 
@@ -934,6 +1026,8 @@ impl App {
                     let path = Path::new(r);
                     // Answered by a background check; a share that does not respond must not freeze the window.
                     let status = self.files.status(path);
+                    // So is reading it once clicked: the card says so until the budget opens.
+                    let opening = self.opening.as_ref().is_some_and(|o| o.path == resolve_path(path));
                     let (rect, resp) = ui.allocate_exact_size(Vec2::new(width, 52.0), Sense::click());
                     let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(r);
                     let p = ui.painter();
@@ -947,6 +1041,7 @@ impl App {
                     let g = ui.painter().layout_job(name);
                     ui.painter().galley(egui::pos2(rect.min.x + 48.0, rect.min.y + 9.0), g, t.text);
                     let sub = match status {
+                        _ if opening => "Opening…".into(),
                         FileStatus::Checking => "Checking…".into(),
                         FileStatus::Present(Some(m)) => format!("Modified {}", ago(m)),
                         FileStatus::Present(None) => "Available".into(),
@@ -1052,7 +1147,7 @@ impl App {
     }
 
     fn password_prompt(&mut self, ctx: &egui::Context) {
-        let Some((path, pw, err)) = &mut self.dialogs.password else { return };
+        let Some(PasswordPrompt { path, bytes, typed: pw, error: err }) = &mut self.dialogs.password else { return };
         let t = &self.t;
         let mut done: Option<Option<String>> = None;
         let name = file_name(path);
@@ -1077,11 +1172,11 @@ impl App {
             Some(Some(p)) => {
                 if p.is_empty() { err.clear(); err.push_str("Empty password!"); return; }
                 pw.clear();
-                let path = path.clone();
-                let text = std::fs::read(&path).map(|b| bgt::latin1_decode(&b)).unwrap_or_default();
-                if bgt::is_decryptable(&text, &p) {
+                // The file was read when it was opened; unlocking never reads it again here.
+                if bgt::is_decryptable(&bgt::latin1_decode(bytes), &p) {
+                    let (path, bytes) = (path.clone(), std::mem::take(bytes));
                     self.dialogs.password = None;
-                    self.load(&path, Some(&p));
+                    self.start_opening(&path, Some(bytes), Some(p), false);
                 } else {
                     err.clear();
                     err.push_str("The password appears to be invalid.");
@@ -1094,8 +1189,8 @@ impl App {
 
     fn screenshot_step(&mut self, ctx: &egui::Context) {
         let Some(path) = self.screenshot.clone() else { return };
-        // A remembered budget still being located would be missing from the capture.
-        if self.auto_open.is_some() { ctx.request_repaint(); return; }
+        // A remembered budget still being located or read would be missing from the capture.
+        if self.auto_open.is_some() || self.opening.is_some() { ctx.request_repaint(); return; }
         self.frames += 1;
         if self.frames == 6 { ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::UserData::default())); }
         let shot = ctx.input(|i| i.events.iter().find_map(|e| match e {
@@ -1121,6 +1216,7 @@ impl App {
     /// After an applied edit. Returns whether the schedule had to be rebuilt.
     fn changed(&mut self) -> bool {
         self.dirty = true;
+        self.edits += 1;
         self.title_dirty = true;
         self.view = None;
         // The edit already rescheduled its payment in place; rebuild only where that would differ.
@@ -1653,6 +1749,7 @@ impl App {
         let (modal_before, focus_before) = (self.has_modal(), ctx.memory(|m| m.focused()));
         self.files.wake(ctx);
         self.finish_auto_open();
+        self.finish_opening();
         self.check_date(ctx);
         self.screenshot_step(ctx);
         if ctx.input(|i| i.viewport().close_requested()) {
@@ -1694,7 +1791,11 @@ impl App {
                         }
                         ui.label(RichText::new("·").color(t.text_faint));
                         ui.label(RichText::new(if self.dirty { "Changes waiting to be saved" } else { "All changes saved" }).text_style(ts(CAPTION)).color(if self.dirty { t.important } else { t.text_muted }));
-                    } else { ui.label(RichText::new("Open a budget to get started").text_style(ts(CAPTION)).color(t.text_muted)); }
+                    } else if self.opening.is_none() { ui.label(RichText::new("Open a budget to get started").text_style(ts(CAPTION)).color(t.text_muted)); }
+                    if let Some(opening) = &self.opening {
+                        if self.db.is_some() { ui.label(RichText::new("·").color(t.text_faint)); }
+                        ui.label(RichText::new(format!("Opening {}…", file_name(&opening.path))).text_style(ts(CAPTION)).color(t.text_muted));
+                    }
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         // Added right to left: label first, then the keycaps from the last key to the first.
                         ui.spacing_mut().item_spacing.x = 3.0;
@@ -1876,7 +1977,7 @@ mod dialog_tests {
             ("day", |d| d.day = Some(20261027)),
             ("delete", |d| d.confirm_delete = Some(DeleteTarget { id: 1, date: None })),
             ("pending", |d| d.pending = Some(PendingAction::Close)),
-            ("password", |d| d.password = Some((PathBuf::from("x.bgt"), String::new(), String::new()))),
+            ("password", |d| d.password = Some(PasswordPrompt { path: PathBuf::from("x.bgt"), bytes: Vec::new(), typed: String::new(), error: String::new() })),
             ("about", |d| d.about = true),
             ("legend", |d| d.legend = true),
             ("shortcuts", |d| d.shortcuts = true),
@@ -1910,7 +2011,7 @@ mod lifecycle_tests {
         let mut p = budget_core::Payment::new(20261027); p.description = "Fixture payment".into(); p.amount = -12.0;
         db.add(p);
         let app = App {
-            date_watch: DateWatch::fixed(), files: FileProbes::default(), auto_open: None, focus_return: None,
+            date_watch: DateWatch::fixed(), files: FileProbes::default(), auto_open: None, opening: None, edits: 0, focus_return: None,
             cfg, rc_path: dir.join(".budgetrc"), db: Some(db), file: Some(dir.join("current.bgt")), password: None,
             saved_bytes: Some(b"previous budget".to_vec()), dirty: true, dialogs: Dialogs::default(), drag_month_hover: None,
             show_payments: false, payment_list: payment_list::PaymentList::default(), allow_close: false, cur, today: 20261027,
@@ -2399,6 +2500,16 @@ mod lifecycle_tests {
         ctx.run(input, |ctx| app.render(ctx))
     }
 
+    /// Renders frames until `done` holds (a background open finishing), for up to ten seconds.
+    fn settle(app: &mut App, ctx: &egui::Context, done: impl Fn(&App) -> bool) {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !done(app) && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(5));
+            frame(app, ctx, vec![], false);
+        }
+        assert!(done(app), "timed out waiting for the background open");
+    }
+
     fn gui(app: &App) -> egui::Context {
         let ctx = egui::Context::default();
         theme::install_fonts(&ctx);
@@ -2472,18 +2583,23 @@ mod lifecycle_tests {
         let text = app.db.as_ref().unwrap().to_text(Some("secret")).unwrap();
         bgt::save_file(&path, &text).unwrap();
         app.dirty = false;
-        app.dialogs.password = Some((path.clone(), String::new(), String::new()));
         let ctx = gui(&app);
+        app.open(&path);
+        settle(&mut app, &ctx, |app| app.dialogs.password.is_some());
+        // The file was read once, when it was opened: unlocking works from what was read.
+        std::fs::remove_file(&path).unwrap();
         frame(&mut app, &ctx, vec![], false);
         frame(&mut app, &ctx, vec![egui::Event::Text("wrong".into())], false);
         frame(&mut app, &ctx, vec![key(Key::Enter, Modifiers::NONE)], false);
-        assert_eq!(app.dialogs.password.as_ref().unwrap().2, "The password appears to be invalid.");
+        assert_eq!(app.dialogs.password.as_ref().unwrap().error, "The password appears to be invalid.");
         frame(&mut app, &ctx, vec![], false);
         assert!(ctx.memory(|m| m.focused()).is_some(), "the password field must regain focus");
         frame(&mut app, &ctx, vec![egui::Event::Text("secret".into())], false);
         frame(&mut app, &ctx, vec![key(Key::Enter, Modifiers::NONE)], false);
         assert!(app.dialogs.password.is_none(), "retyping and Enter must unlock");
+        settle(&mut app, &ctx, |app| app.opening.is_none());
         assert_eq!(app.file.as_deref().map(file_name).as_deref(), Some("secret.bgt"));
+        assert_eq!(app.password.as_deref(), Some("secret"));
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -2875,6 +2991,72 @@ mod lifecycle_tests {
         }
         assert!(shown(&texts, "Modified just now"));
         assert_eq!(gate.calls.load(Ordering::SeqCst), 1, "each path is checked once, not every frame");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn clicking_a_recent_budget_on_a_stalled_share_opens_it_without_blocking_the_window() {
+        let (mut app, dir) = fixture();
+        let path = dir.join("Home.bgt");
+        bgt::save_file(&path, &app.db.as_ref().unwrap().to_text(None).unwrap()).unwrap();
+        (app.db, app.file, app.dirty) = (None, None, false);
+        app.cfg.recent_file = vec![path.display().to_string()];
+        let (gate, probes) = file_probe::tests::Gate::reads();
+        app.files = probes;
+        let ctx = gui(&app);
+        let mut texts = Vec::new();
+        for _ in 0..3 { texts = rendered_text(&frame(&mut app, &ctx, vec![], false)); }
+        let card = text_center(&texts, |s| s == "Home.bgt").expect("the recent budget has a card");
+        // Pressed where the pointer arrives, before the card's tooltip can cover it.
+        let click = |app: &mut App| for (events, pressed) in [(vec![egui::Event::PointerMoved(card)], true), (Vec::new(), false)] {
+            let button = egui::Event::PointerButton { pos: card, button: egui::PointerButton::Primary, pressed, modifiers: Modifiers::NONE };
+            frame(app, &ctx, events.into_iter().chain([button]).collect(), false);
+        };
+        let started = Instant::now();
+        click(&mut app);
+        for _ in 0..2 { texts = rendered_text(&frame(&mut app, &ctx, vec![], false)); }
+        assert!(started.elapsed() < Duration::from_secs(2), "frames must not wait for the read");
+        let shown = |texts: &Texts, s: &str| texts.iter().any(|(t, _)| t.galley.job.text == s);
+        assert!(app.db.is_none() && shown(&texts, "Opening…") && shown(&texts, "Opening Home.bgt…"), "the card and the status bar say it is opening");
+        click(&mut app);
+        gate.open();
+        settle(&mut app, &ctx, |app| app.db.is_some());
+        assert_eq!(app.file.as_deref(), Some(path.as_path()));
+        assert!(app.toast.as_ref().is_some_and(|t| t.text == "Opened Home.bgt"));
+        assert_eq!(gate.calls.load(Ordering::SeqCst), 1, "a second click on the opening card does not read it again");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn an_edit_made_while_a_budget_is_read_is_kept_until_the_prompt_is_answered() {
+        let (mut app, dir) = fixture();
+        app.dirty = false;
+        let other = dir.join("other.bgt");
+        let mut db = BudgetDb::new(&app.cur, 12, false);
+        let mut p = budget_core::Payment::new(20261027); p.description = "Other payment".into(); p.amount = -5.0;
+        db.add(p);
+        bgt::save_file(&other, &db.to_text(None).unwrap()).unwrap();
+        let (gate, probes) = file_probe::tests::Gate::reads();
+        app.files = probes;
+        let ctx = gui(&app);
+        frame(&mut app, &ctx, vec![], false);
+        app.open(&other);
+        assert!(app.opening.is_some() && app.dialogs.pending.is_none(), "a clean budget opens without asking");
+        let id = app.db.as_ref().unwrap().payments[0].id;
+        document::change_transaction(app.db.as_mut().unwrap(), id, 20261027, -20.0, "", budget_core::FLAG_NONE).unwrap();
+        app.changed();
+        gate.open();
+        settle(&mut app, &ctx, |app| app.opening.is_none());
+        assert!(matches!(&app.dialogs.pending, Some(PendingAction::Open(p)) if *p == other), "the finished open asks first");
+        assert_eq!(app.file.as_deref(), Some(dir.join("current.bgt").as_path()));
+        assert!(app.dirty);
+        assert_eq!(app.db.as_mut().unwrap().get_day(&Cal::from_int(20261027)).unwrap().transactions[0].amount, -20.0);
+        // Discard changes: the budget opens.
+        app.dialogs.pending = None;
+        app.perform_pending(PendingAction::Open(other.clone()), &ctx);
+        settle(&mut app, &ctx, |app| app.opening.is_none());
+        assert_eq!(app.file.as_deref(), Some(other.as_path()));
+        assert!(!app.dirty);
         std::fs::remove_dir_all(dir).unwrap();
     }
 
