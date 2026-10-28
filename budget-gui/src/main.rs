@@ -13,6 +13,7 @@ mod editor;
 mod file_probe;
 mod names;
 mod payment_list;
+mod refresh;
 mod reports;
 mod theme;
 mod view;
@@ -1060,11 +1061,14 @@ impl App {
 
     fn has_modal(&self) -> bool { self.show_shortcuts || self.has_modal_other_than_shortcuts() }
 
-    fn changed(&mut self) {
+    /// After an applied edit. Returns whether the schedule had to be rebuilt.
+    fn changed(&mut self) -> bool {
         self.dirty = true;
         self.title_dirty = true;
         self.view = None;
-        if let Some(db) = &mut self.db { document::rebuild(db, &self.cur, self.cfg.future_n_months, self.cfg.unlimited_history); }
+        // The edit already rescheduled its payment in place; rebuild only where that would differ.
+        let Some(db) = &mut self.db else { return false };
+        refresh::after_edit(db, &self.cur, self.cfg.future_n_months, self.cfg.unlimited_history)
     }
 
     fn new_payment(&mut self, date: i32) {
@@ -2930,8 +2934,8 @@ mod lifecycle_tests {
         let (mut app, dir) = perf_app();
         let ctx = gui(&app);
         for _ in 0..2 { wide_frame(&mut app, &ctx); }
-        let (mut changed, mut with_view) = (Vec::new(), Vec::new());
-        for k in 0..12 {
+        let (mut fast, mut slow) = (Vec::new(), Vec::new());
+        for k in 0..32 {
             let db = app.db.as_mut().unwrap();
             // A payment shown this month: edit that occurrence's amount.
             let (pmt, date, amount) = (20261001..=20261028).find_map(|date| {
@@ -2940,13 +2944,21 @@ mod lifecycle_tests {
             let id = db.payments[pmt].id;
             document::change_transaction(db, id, date, amount - 1.0, "", budget_core::FLAG_NONE).unwrap();
             let started = Instant::now();
-            app.changed();
-            let rebuilt = started.elapsed();
+            let rebuilt = app.changed();
+            let changed_ms = ms(started.elapsed());
             app.ensure_view();
-            if k > 1 { changed.push(ms(rebuilt)); with_view.push(ms(started.elapsed())); }
+            let total_ms = ms(started.elapsed());
+            if k > 1 {
+                (if rebuilt { &mut slow } else { &mut fast }).push((changed_ms, total_ms));
+            }
         }
-        report("edit: App::changed", changed);
-        report("edit: App::changed + month view", with_view);
+        // Every fifth generated payment has an equal -42.00 dated amount on 15 October, and a few
+        // others share amounts by chance: editing those still rebuilds, to keep their order.
+        for (name, samples) in [("updated in place", fast), ("rebuilt (equal amounts on a day)", slow)] {
+            if samples.is_empty() { println!("PERF edit {name}: none"); continue; }
+            report(&format!("edit {name}: App::changed"), samples.iter().map(|s| s.0).collect());
+            report(&format!("edit {name}: App::changed + month view"), samples.iter().map(|s| s.1).collect());
+        }
         std::fs::remove_dir_all(dir).unwrap();
     }
 
