@@ -8,6 +8,8 @@ use std::path::Path;
 
 const EOD_PREFIX: &str = "## END-OF-DATA; line_no=";
 const EOD_TRAILER: &str = " ##";
+/// Upper bound for a loaded payment count (a daily schedule up to year 9999).
+const MAX_N_PAYS: i32 = 4_000_000;
 
 /// Result of parsing a file.
 #[derive(Debug, Default)]
@@ -24,7 +26,11 @@ pub struct Loaded {
 pub fn encode_description(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for c in s.chars() {
-        if (c as u32) >= 128 || c == ',' || c == '\n' || c == '\r' {
+        if (c as u32) > 0xFFFF {
+            // Java works on UTF-16 units: write the surrogate pair
+            let mut buf = [0u16; 2];
+            for u in c.encode_utf16(&mut buf) { out.push_str(&format!("&#x{:04x};", u)); }
+        } else if (c as u32) >= 128 || c == ',' || c == '\n' || c == '\r' {
             out.push_str(&format!("&#x{:04x};", c as u32));
         } else {
             out.push(c);
@@ -37,20 +43,29 @@ pub fn encode_description(s: &str) -> String {
 pub fn decode_description(s: &str) -> String {
     let v: Vec<char> = s.chars().collect();
     let mut out = String::with_capacity(v.len());
+    let mut pending: Vec<u16> = Vec::new();
+    fn flush(pending: &mut Vec<u16>, out: &mut String) {
+        for r in char::decode_utf16(pending.drain(..)) { out.push(r.unwrap_or('?')); }
+    }
     let mut i = 0;
     while i < v.len() {
         let c = v[i];
-        if c == '\u{ff}' { out.push(','); i += 1; }
-        else if c == '\u{fe}' { out.push('\n'); i += 1; }
-        else if v.len() - i >= 8 && c == '&' && v[i + 1] == '#' && v[i + 2] == 'x' && v[i + 7] == ';' {
+        if v.len() - i >= 8 && c == '&' && v[i + 1] == '#' && v[i + 2] == 'x' && v[i + 7] == ';' {
             let hex: String = v[i + 3..i + 7].iter().collect();
-            match u32::from_str_radix(&hex, 16).ok().and_then(char::from_u32) {
-                Some(ch) => out.push(ch),
-                None => out.push('?'),
+            match u16::from_str_radix(&hex, 16) {
+                Ok(u) => pending.push(u),
+                Err(_) => { flush(&mut pending, &mut out); out.push('?'); }
             }
             i += 8;
-        } else { out.push(c); i += 1; }
+            continue;
+        }
+        flush(&mut pending, &mut out);
+        if c == '\u{ff}' { out.push(','); }
+        else if c == '\u{fe}' { out.push('\n'); }
+        else { out.push(c); }
+        i += 1;
     }
+    flush(&mut pending, &mut out);
     out
 }
 
@@ -87,7 +102,7 @@ fn parse_options(p: &mut Payment, toks: &[&str]) -> Result<(), String> {
 }
 
 /// Parse one payment line (everything after the first token has been checked not to be `:`, `=`, `v`).
-fn parse_payment(mut first: &str, toks: &[&str], id: i32, today: i32, field: &mut &'static str) -> Result<Payment, String> {
+fn parse_payment(mut first: &str, toks: &[&str], id: i32, today: i32, field: &mut &'static str, log: &mut String, line_no: i32) -> Result<Payment, String> {
     let mut p = Payment::new(today);
     p.id = id;
     p.flag_value = FLAG_NONE;
@@ -131,8 +146,16 @@ fn parse_payment(mut first: &str, toks: &[&str], id: i32, today: i32, field: &mu
     if !"dwmyWL".contains(ft) {
         return Err(format!("Invalid frequency type '{ft}'"));
     }
+    // Deliberate deviation: clamp so corrupt files cannot hang or overflow the engine.
     if ft == 'W' { p.frequency = 1; }
+    let freq_in = p.frequency;
+    p.frequency = p.frequency.clamp(1, 100_000);
+    if p.frequency != freq_in { log.push_str(&format!("({line_no}): frequency {freq_in} out of range, using {}\n", p.frequency)); }
     p.n_pays = parse_int(next!("n_pays"))?;
+    let n_in = p.n_pays;
+    // A negative count is corrupt: use the default of 1 (not 0, which could read as "indefinite").
+    p.n_pays = if n_in < 0 { 1 } else { n_in.min(MAX_N_PAYS) };
+    if p.n_pays != n_in { log.push_str(&format!("({line_no}): n_pays {n_in} out of range, using {}\n", p.n_pays)); }
     p.end_date = parse_int(next!("end_date"))?;
     p.end_date = p.end_date.max(p.start_date);
     p.flags = parse_int(next!("flags"))?;
@@ -163,6 +186,19 @@ enum Mode<'a> { Plain, Xor(&'a str), Blowfish(LineCipher) }
 /// Parse the text of a `.bgt` file. `today` seeds new payments' default dates; `password` is used
 /// only when the first line is an encryption header (a plain file ignores it, like the original).
 pub fn load_str(text: &str, today: i32, password: Option<&str>) -> Result<Loaded, Loaded> {
+    let first = load_with(text, today, password, false);
+    if first.is_err() {
+        // Files saved by earlier builds with a 1-3 byte password used a zero-padded key.
+        if let Some(p) = password.filter(|p| !p.is_empty() && p.len() < 4) {
+            if text.split('\n').next().map(|l| l.trim_end_matches('\r')) == Some(HEADER_BLOWFISH) {
+                if let ok @ Ok(_) = load_with(text, today, Some(p), true) { return ok; }
+            }
+        }
+    }
+    first
+}
+
+fn load_with(text: &str, today: i32, password: Option<&str>, legacy_key: bool) -> Result<Loaded, Loaded> {
     let mut r = Loaded { version: "1".into(), ..Default::default() };
     let mut adjustments = Payment::new(today);
     let mut errors = 0;
@@ -178,7 +214,7 @@ pub fn load_str(text: &str, today: i32, password: Option<&str>) -> Result<Loaded
                 continue;
             }
             if raw_line == HEADER_BLOWFISH {
-                match password.map(LineCipher::new) {
+                match password.map(|p| if legacy_key { LineCipher::new_legacy(p) } else { LineCipher::new(p) }) {
                     Some(Ok(c)) => { mode = Mode::Blowfish(c); continue; }
                     Some(Err(e)) => { r.log.push_str(&format!("unable to open file.\nException: {e}\nfailed")); return Err(r); }
                     None => { r.log.push_str("unable to open file.\nException: NullPointerException (no password)\nfailed"); return Err(r); }
@@ -222,7 +258,7 @@ pub fn load_str(text: &str, today: i32, password: Option<&str>) -> Result<Loaded
                 "v" => { field = "version"; if let Some(t) = toks.get(1) { r.version = decode_description(t); } Ok(()) }
                 _ => {
                     let id = next_id;
-                    let p = parse_payment(first, &toks[1..], id, today, &mut field);
+                    let p = parse_payment(first, &toks[1..], id, today, &mut field, &mut r.log, line_no);
                     // the original increments the id right after the amount parses
                     if field != "amount" && field != "loan amount" { next_id += 1; }
                     r.payments.push(p?);
@@ -265,12 +301,12 @@ pub fn opts_string(p: &Payment) -> String {
     let mut s = String::new();
     if let Some(c) = &p.category { s.push_str(", $"); s.push_str(&encode_description(c)); }
     for o in &p.opt {
-        if o.deleted { s.push_str(&format!(", {}", o.date)); }
-        else { s.push_str(&format!(", {}:{}", o.date, java_double(o.amount))); }
+        if o.deleted { s.push_str(&format!(", {:08}", o.date)); }
+        else { s.push_str(&format!(", {:08}:{}", o.date, java_double(o.amount))); }
     }
-    for f in &p.flag { s.push_str(&format!(", {}{}", f.date, f.value)); }
-    for n in &p.note { s.push_str(&format!(", {}={}", n.date, encode_description(&n.note))); }
-    for h in &p.hilighting { s.push_str(&format!(", {}&{:x}", h.date, h.bg_color)); }
+    for f in &p.flag { s.push_str(&format!(", {:08}{}", f.date, f.value)); }
+    for n in &p.note { s.push_str(&format!(", {:08}={}", n.date, encode_description(&n.note))); }
+    for h in &p.hilighting { s.push_str(&format!(", {:08}&{:x}", h.date, h.bg_color)); }
     s
 }
 
@@ -306,33 +342,151 @@ pub fn save_str(payments: &[Payment], adjustments: &Payment, notes: &str, passwo
     Ok(out)
 }
 
-/// `BudgetDB.save` disk procedure: skip when byte-identical, back up to `.bak[.N]`, write, delete backup on success.
-pub fn save_file(path: &Path, content: &str) -> Result<(), String> {
-    let bytes = latin1_encode(content);
-    let mut backup: Option<std::path::PathBuf> = None;
-    if path.exists() {
-        if let Ok(old) = std::fs::read(path) {
-            if old == bytes { return Ok(()); }
-        }
-        let base = format!("{}.bak", path.display());
-        let mut cand = std::path::PathBuf::from(&base);
-        let mut i = 0;
-        while cand.exists() {
-            if i > 100 { return Err("Too many backup files, try using 'Save as..'!".into()); }
-            i += 1;
-            cand = std::path::PathBuf::from(format!("{base}.{i}"));
-        }
-        std::fs::copy(path, &cand).map_err(|_| "Failed to create a backup file, try using 'Save as..'!".to_string())?;
-        backup = Some(cand);
+/// Plain wording for the common Windows failures (5 = access denied, 32 = sharing violation).
+fn friendly_io_error(e: &std::io::Error) -> String {
+    match e.raw_os_error() {
+        Some(5) | Some(32) => "The file is read-only or open in another program.".to_string(),
+        _ => e.to_string(),
     }
-    std::fs::write(path, &bytes).map_err(|e| format!("File Save:{e}"))?;
-    if let Some(b) = backup { let _ = std::fs::remove_file(b); }
-    Ok(())
+}
+
+/// Skip byte-identical saves; otherwise stage a complete file and retain the prior `.bak[.N]`.
+pub fn save_file(path: &Path, content: &str) -> Result<(), String> {
+    use std::fs::{self, OpenOptions};
+    use std::io::{ErrorKind, Write};
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
+
+    // Append to the native path rather than its display text, which can be lossy.
+    let sibling = |suffix: &str| {
+        let mut name = path.as_os_str().to_os_string();
+        name.push(suffix);
+        std::path::PathBuf::from(name)
+    };
+    let bytes = latin1_encode(content);
+    let original = match fs::read(path) {
+        Ok(old) if old == bytes => return Ok(()),
+        Ok(old) => Some(old),
+        Err(error) if error.kind() == ErrorKind::NotFound => None,
+        Err(error) => return Err(format!("File Save: cannot read original: {error}")),
+    };
+
+    let (temp_path, mut temp_file) = loop {
+        let id = NEXT_TEMP.fetch_add(1, Ordering::Relaxed);
+        let candidate = sibling(&format!(".tmp.{}.{id}", std::process::id()));
+        match OpenOptions::new().write(true).create_new(true).open(&candidate) {
+            Ok(file) => break (candidate, file),
+            Err(error) if error.kind() == ErrorKind::AlreadyExists || fs::symlink_metadata(&candidate).is_ok() => continue,
+            Err(error) => return Err(format!("File Save: cannot create temporary file: {error}")),
+        }
+    };
+
+    let mut backup_path: Option<std::path::PathBuf> = None;
+    let result = (|| -> Result<(), String> {
+        temp_file.write_all(&bytes).map_err(|error| format!("File Save: {error}"))?;
+        temp_file.flush().map_err(|error| format!("File Save: {error}"))?;
+        temp_file.sync_all().map_err(|error| format!("File Save: {error}"))?;
+        drop(temp_file);
+
+        if let Some(old) = original {
+            let mut index = 0_u64;
+            let mut backup = loop {
+                let suffix = if index == 0 { ".bak".to_string() } else { format!(".bak.{index}") };
+                let candidate = sibling(&suffix);
+                match OpenOptions::new().write(true).create_new(true).open(&candidate) {
+                    Ok(file) => { backup_path = Some(candidate.clone()); break file }
+                    // Windows may return AccessDenied for an existing directory.
+                    Err(error) if error.kind() == ErrorKind::AlreadyExists || fs::symlink_metadata(&candidate).is_ok() => {
+                        index = index.checked_add(1).ok_or("File Save: too many backup files")?;
+                    }
+                    Err(error) => return Err(format!("File Save: cannot create backup: {error}")),
+                }
+            };
+            backup.write_all(&old).map_err(|error| format!("File Save: cannot write backup: {error}"))?;
+            backup.flush().map_err(|error| format!("File Save: cannot flush backup: {error}"))?;
+            backup.sync_all().map_err(|error| format!("File Save: cannot sync backup: {error}"))?;
+        }
+
+        // Same-directory rename replaces the destination atomically on supported filesystems.
+        fs::rename(&temp_path, path).map_err(|error| format!("File Save: cannot replace original: {}", friendly_io_error(&error)))
+    })();
+    if result.is_err() {
+        // Only this invocation's create_new temporary file and its own backup belong to us; the
+        // original is untouched, so a backup of it would only pile up on every retry.
+        let _ = fs::remove_file(&temp_path);
+        if let Some(b) = &backup_path { let _ = fs::remove_file(b); }
+    }
+    result
 }
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn non_bmp_text_roundtrips_and_java_surrogates_decode() {
+        let s = "Pay \u{1F600} x, \u{e9}";
+        let enc = super::encode_description(s);
+        assert!(enc.contains("&#xd83d;&#xde00;"));
+        assert_eq!(super::decode_description(&enc), s);
+        assert_eq!(super::decode_description("&#xd83d;&#xde00;"), "\u{1F600}");
+        assert_eq!(super::decode_description("a&#xd83d;b"), "a?b");
+    }
+
+    #[test]
+    fn short_password_legacy_zero_padded_file_still_opens() {
+        let text = "v,2\n:\n=,\n## END-OF-DATA; line_no=5 ##\n";
+        let enc: Vec<String> = text.lines().map(|l| super::LineCipher::new_legacy("ab").unwrap().encrypt_line(l)).collect();
+        let file = format!("{}\n{}\n", super::HEADER_BLOWFISH, enc.join("\n"));
+        assert!(super::is_decryptable(&file, "ab"));
+    }
+
     use super::*;
+    #[test]
+    fn corrupt_frequency_is_clamped_on_load() {
+        for (f, n) in [(0, 5), (-1, 5), (i32::MAX, i32::MAX)] {
+            let mut p = Payment::new(20240131);
+            p.frequency = f;
+            p.freq_type = 'm';
+            p.n_pays = n;
+            let adj = Payment::new(20240131);
+            let text = save_str(&[p], &adj, "", None).unwrap();
+            let l = load_str(&text, 20240131, None).unwrap_or_else(|l| panic!("{}", l.log));
+            assert!((1..=100_000).contains(&l.payments[0].frequency));
+            assert!((1..=MAX_N_PAYS).contains(&l.payments[0].n_pays));
+        }
+    }
+
+    #[test]
+    fn negative_n_pays_becomes_one_and_is_logged() {
+        let text = "v,2\n:\n=,\n-10.0, A, 20260101, 1m, -5, 20260101, 0,  \n## END-OF-DATA; line_no=5 ##";
+        let l = load_str(text, 20260101, None).unwrap_or_else(|l| panic!("{}", l.log));
+        assert_eq!(l.payments[0].n_pays, 1);
+        assert_ne!(l.payments[0].end_mode(), END_MODE_INDEFINITE);
+        assert!(l.log.contains("n_pays -5"), "{}", l.log);
+    }
+
+    #[test]
+    fn non_finite_amounts_are_rejected() {
+        for amt in ["NaN", "Infinity", "-Infinity"] {
+            let text = format!("v,2\n:\n=,\n{amt}, A, 20260101, 1m, 5, 20261201, 48,  \n## END-OF-DATA; line_no=5 ##");
+            assert!(load_str(&text, 20260101, None).is_err(), "{amt}");
+        }
+        let text = "v,2\n:\n=,\n-10.0%Infinity, A, 20260101, 1m, 5, 20261201, 64,  \n## END-OF-DATA; line_no=5 ##";
+        assert!(load_str(text, 20260101, None).is_err());
+        let text = "v,2\n:\n=,\n-10.0, A, 20260101, 1m, 5, 20261201, 48,  , 20260301:NaN\n## END-OF-DATA; line_no=5 ##";
+        assert!(load_str(text, 20260101, None).is_err());
+    }
+
+    #[test]
+    fn option_date_before_year_1000_roundtrips() {
+        let text = "v,2\n:\n=,\n-10.0, A, 20260101, 1m, 5, 20261201, 48,  , 00010101:5\n## END-OF-DATA; line_no=5 ##";
+        let l = load_str(text, 20260101, None).unwrap_or_else(|l| panic!("{}", l.log));
+        let adj = Payment::new(20260101);
+        let saved = save_str(&l.payments, &adj, "", None).unwrap();
+        assert!(saved.contains("00010101:5.0"), "{saved}");
+        assert!(load_str(&saved, 20260101, None).is_ok());
+    }
+
     #[test]
     fn codec() {
         assert_eq!(encode_description("a,b\nc"), "a&#x002c;b&#x000a;c");

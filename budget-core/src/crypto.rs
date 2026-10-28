@@ -16,11 +16,22 @@ pub struct LineCipher {
 impl LineCipher {
     /// `new Blowfish().setPassword(password)`: UTF-8 bytes, truncated to 56. The original accepts an
     /// empty key (no key mixing); this port rejects it, as the UI does ("Empty password!").
-    pub fn new(password: &str) -> Result<LineCipher, String> {
+    pub fn new(password: &str) -> Result<LineCipher, String> { Self::build(password, false) }
+
+    /// Key used by earlier builds of this port for 1-3 byte passwords (zero-padded to 4 bytes).
+    /// Only for reading files saved by those builds; identical to `new` for longer passwords.
+    pub fn new_legacy(password: &str) -> Result<LineCipher, String> { Self::build(password, true) }
+
+    fn build(password: &str, legacy: bool) -> Result<LineCipher, String> {
         let mut key = password.as_bytes().to_vec();
         key.truncate(MAX_PASSWD);
         if key.is_empty() { return Err("Empty password!".into()); }
-        if key.len() < 4 { key.resize(4, 0); } // ponytail: crate needs >= 4 bytes; Java cycles short keys over 72 bytes, equivalent only for len >= 4
+        if key.len() < 4 {
+            if legacy { key.resize(4, 0); }
+            // The crate needs >= 4 key bytes; Java cycles the key over the 72-byte P-array. 12 is a
+            // multiple of 1, 2 and 3 and divides 72, so repeating to 12 bytes keeps the cycle identical.
+            else { let s = key.clone(); key = (0..12).map(|i| s[i % s.len()]).collect(); }
+        }
         let bf = Blowfish::new_from_slice(&key).map_err(|e| e.to_string())?;
         Ok(LineCipher { bf })
     }
@@ -81,6 +92,15 @@ mod tests {
         assert_eq!(c.decrypt_line(&enc).unwrap(), line);
         assert_eq!(c.decrypt_line("00").unwrap_err().contains("multiple of 8"), true);
         assert!(LineCipher::new("").is_err());
+    }
+
+    #[test]
+    fn short_keys_cycle_like_java() {
+        let line = "hello world";
+        assert_eq!(LineCipher::new("ab").unwrap().encrypt_line(line), LineCipher::new("abab").unwrap().encrypt_line(line));
+        assert_eq!(LineCipher::new("a").unwrap().encrypt_line(line), LineCipher::new("aaaa").unwrap().encrypt_line(line));
+        assert_eq!(LineCipher::new("abc").unwrap().encrypt_line(line), LineCipher::new("abcabcabc").unwrap().encrypt_line(line));
+        assert_ne!(LineCipher::new("ab").unwrap().encrypt_line(line), LineCipher::new_legacy("ab").unwrap().encrypt_line(line));
     }
 
     #[test]

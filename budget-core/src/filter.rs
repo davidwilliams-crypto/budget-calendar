@@ -137,6 +137,7 @@ impl Filter {
             _ => {}
         }
         if e.val != 0.0 {
+            if !(1.0..=9999.0).contains(&e.val) { return false; }
             let y = e.val as i32;
             if pmt.start_date / 10000 < y && (indefinite || y <= pmt.end_date / 10000) { return true; }
             return !pmt.options_in(y * 10000 + 65, y * 10000 + 1231).is_empty();
@@ -154,6 +155,15 @@ impl Filter {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn range_year_out_of_bounds_does_not_overflow() {
+        let today = 20250301;
+        for t in ["range:99999999", "range:1e9"] {
+            let f = Filter::new(t, today).unwrap();
+            assert!(!f.is_match(&p(), 1.0, 0));
+        }
+    }
 
     fn p() -> Payment {
         let mut p = Payment::new(20250301);

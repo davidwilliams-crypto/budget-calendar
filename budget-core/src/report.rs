@@ -503,19 +503,22 @@ pub fn month_by_month_entries(db: &mut BudgetDb, st: &Stats) -> Result<Vec<MbmEn
     for (key, amount) in flat_map(st) {
         match by_key.get(&key) {
             None => if amount != 0.0 { return Err(format!("missing '{}' in the resultant table", key.1)); },
-            Some(e) => if e.total.ceil() != amount.ceil() {
+            Some(e) => if !amounts_match(e.total, amount) {
                 return Err(format!("'{}' amounts do NOT match: base_stats={:.2}, mbm={:.2}", e.description, amount, e.total));
             },
         }
     }
     if let Some(e) = list.iter().find(|e| e.special && e.description == "Total Income") {
-        if st.total_income.ceil() != e.total.ceil() { return Err(format!("base stats income doesn't match! got={:.2}, expected={:.2}", e.total, st.total_income)); }
+        if !amounts_match(st.total_income, e.total) { return Err(format!("base stats income doesn't match! got={:.2}, expected={:.2}", e.total, st.total_income)); }
     }
     if let Some(e) = list.iter().find(|e| e.special && e.description == "Total Expenses") {
-        if st.total_expense.ceil() != e.total.ceil() { return Err(format!("base stats expenses doesn't match! got={:.2}, expected={:.2}", e.total, st.total_expense)); }
+        if !amounts_match(st.total_expense, e.total) { return Err(format!("base stats expenses doesn't match! got={:.2}, expected={:.2}", e.total, st.total_expense)); }
     }
     Ok(list)
 }
+
+/// Totals summed in a different order differ by float noise; compare to half a cent.
+fn amounts_match(a: f64, b: f64) -> bool { (a - b).abs() < 0.005 }
 
 /// Java `String.format("%+,.0f", v)`.
 fn signed0(v: f64) -> String { let s = frac(v, 0); if s.starts_with('-') { s } else { format!("+{s}") } }
@@ -868,6 +871,14 @@ mod tests {
     }
 
     fn no_images(_: &str) -> Option<String> { None }
+
+    #[test]
+    fn mbm_consistency_check_tolerates_float_noise() {
+        // 40874.000000000007 vs 40874.0 differ by one ceil() unit but are the same amount
+        assert!(amounts_match(40874.000000000007, 40874.0));
+        assert!(amounts_match(-2732.0000000000005, -2732.0));
+        assert!(!amounts_match(10.0, 10.01));
+    }
 
     /// Transactions of Dec 2021 as `(date, pmt index, amount)` in report order.
     fn december(db: &mut BudgetDb) -> Vec<(i32, usize, f64)> {

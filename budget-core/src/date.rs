@@ -62,7 +62,8 @@ impl Cal {
     }
 
     pub fn get(&self) -> i32 {
-        self.y * 10000 + (self.m + 1) * 100 + self.d
+        // Saturate rather than overflow for absurd years (callers compare against 99991231).
+        (self.y as i64 * 10000 + (self.m as i64 + 1) * 100 + self.d as i64).clamp(i32::MIN as i64, i32::MAX as i64) as i32
     }
     pub fn year(&self) -> i32 { self.y }
     /// 0-based month.
@@ -141,7 +142,10 @@ impl Cal {
                 let w1 = self.day_of_week();
                 self.d = if w1 <= w { 1 + w - w1 } else { 8 - w1 + w };
                 self.d += n * 7;
-                self.adjust_day();
+                // Months without an n-th occurrence fall back to the last matching weekday
+                // (deliberate deviation: the original clamped to month end, a different weekday).
+                let max = self.max_day();
+                while self.d > max { self.d -= 7; }
             }
             Field::LastWeekday => {
                 let w = self.day_of_week();
@@ -216,8 +220,24 @@ impl Cal {
         s
     }
 
-    /// Today's date from the system clock (UTC; the original used the local zone).
+    /// Today's date from the system clock, in the local time zone.
     pub fn today() -> Cal {
+        #[cfg(windows)]
+        {
+            #[repr(C)]
+            struct SystemTime { y: u16, m: u16, dow: u16, d: u16, h: u16, mi: u16, s: u16, ms: u16 }
+            extern "system" { fn GetLocalTime(t: *mut SystemTime); }
+            let mut t = SystemTime { y: 0, m: 0, dow: 0, d: 0, h: 0, mi: 0, s: 0, ms: 0 };
+            unsafe { GetLocalTime(&mut t) };
+            if t.y > 0 && (1..=12).contains(&t.m) && t.d > 0 {
+                return Cal::ymd(t.y as i32, t.m as i32 - 1, t.d as i32);
+            }
+        }
+        Cal::today_utc()
+    }
+
+    /// Today's date in UTC (fallback when no local time is available).
+    pub fn today_utc() -> Cal {
         let secs = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs() as i64)
@@ -294,5 +314,19 @@ mod tests {
         c.add(Field::LastWeekday, 1);
         assert_eq!(c.get(), 20040926);
         assert_eq!(Cal::ym_duration_string(14), "1y 2m");
+    }
+
+    #[test]
+    fn fifth_weekday_falls_back_to_last_matching_weekday() {
+        // 2024-01-29 is the 5th Monday; May 2024 has only four Mondays.
+        let mut c = Cal::from_int(20240129);
+        c.add(Field::NthWeekday, 4);
+        assert_eq!(c.get(), 20240527);
+        assert_eq!(c.day_of_week(), 1);
+    }
+
+    #[test]
+    fn today_is_plausible() {
+        assert!(Cal::today().get() >= 20260101);
     }
 }

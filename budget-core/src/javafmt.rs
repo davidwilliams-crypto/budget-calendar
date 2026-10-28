@@ -32,7 +32,10 @@ pub fn java_double(d: f64) -> String {
 pub fn parse_double(s: &str) -> Result<f64, String> {
     let t = s.trim();
     let t = t.strip_suffix(['d', 'D', 'f', 'F']).unwrap_or(t);
-    t.parse::<f64>().map_err(|e| format!("NumberFormatException: \"{s}\" ({e})"))
+    let v = t.parse::<f64>().map_err(|e| format!("NumberFormatException: \"{s}\" ({e})"))?;
+    // Deliberate deviation from Java: NaN/Infinity would poison every balance.
+    if !v.is_finite() { return Err(format!("Non-finite number: \"{s}\"")); }
+    Ok(v)
 }
 
 pub fn parse_int(s: &str) -> Result<i32, String> {
@@ -55,5 +58,7 @@ mod tests {
         assert_eq!(java_double(0.0001), "1.0E-4");
         assert_eq!(java_double(0.001), "0.001");
         assert_eq!(parse_double("1.0E7").unwrap(), 1e7);
+        for bad in ["NaN", "Infinity", "-Infinity", "1e999"] { assert!(parse_double(bad).is_err(), "{bad}"); }
+        for bad in ["NaN", "Infinity", "-Infinity", "1e999"] { assert!(parse_double(bad).is_err(), "{bad}"); }
     }
 }
