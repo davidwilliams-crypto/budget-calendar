@@ -39,6 +39,12 @@ use names::{MONTHS, MONTHS_LONG};
 
 const SUMMARY_W: f32 = 292.0;
 
+/// The colour of a figure: negative when its printed text shows a minus sign, so the colour and the
+/// sign a reader sees always agree (a value such as -0.7 prints "−" in whole-dollar mode).
+fn sign_colour(t: &Tokens, v: f64, decimals: bool) -> egui::Color32 {
+    if view::is_negative(v, decimals) { t.negative } else { t.positive }
+}
+
 fn home_dir() -> PathBuf {
     std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME")).map(PathBuf::from).unwrap_or_else(|| PathBuf::from("."))
 }
@@ -1062,7 +1068,7 @@ impl App {
                     // The bottom line (disposable income) gets a rule coloured by its sign.
                     ui.add_space(SP1);
                     let r = ui.max_rect();
-                    ui.painter().hline(r.x_range(), ui.cursor().min.y - 2.0, Stroke::new(1.5_f32, tint(t.surface, t.signed(row.amount), 0.7)));
+                    ui.painter().hline(r.x_range(), ui.cursor().min.y - 2.0, Stroke::new(1.5_f32, tint(t.surface, sign_colour(&t, row.amount, false), 0.7)));
                     ui.add_space(SP1);
                 }
                 let filterable = !row.filter.is_empty();
@@ -1076,12 +1082,12 @@ impl App {
                 let fid = if row.total { ts(SEMI).resolve(ui.style()) } else { egui::TextStyle::Body.resolve(ui.style()) };
                 let mut x = rect.max.x;
                 if has_diff {
-                    if let Some(d) = row.diff { p.text(egui::pos2(x, cy), Align2::RIGHT_CENTER, money(d, false), fid.clone(), t.signed(d)); }
+                    if let Some(d) = row.diff { p.text(egui::pos2(x, cy), Align2::RIGHT_CENTER, money(d, false), fid.clone(), sign_colour(&t, d, false)); }
                     x -= dw;
                 }
                 p.text(egui::pos2(x, cy), Align2::RIGHT_CENTER, view::share_cell(row.pct, is_net), fid.clone(), t.text_muted);
                 x -= pw;
-                let ar = p.text(egui::pos2(x, cy), Align2::RIGHT_CENTER, money(row.amount, false), fid.clone(), t.signed(row.amount));
+                let ar = p.text(egui::pos2(x, cy), Align2::RIGHT_CENTER, money(row.amount, false), fid.clone(), sign_colour(&t, row.amount, false));
                 x -= aw.max(ar.width() + 8.0);
                 let desc_col = if selected { t.accent } else { t.text };
                 let desc_w = (x - rect.min.x).max(10.0);
@@ -1097,7 +1103,7 @@ impl App {
                     let share = row.pct.map_or(0.0, |pct| (pct.abs() / 100.0).clamp(0.0, 1.0)) as f32;
                     if share > 0.0 {
                         let fill = egui::Rect::from_min_size(track.min, Vec2::new((track.width() * share).max(3.0), 4.0));
-                        p.rect_filled(fill, 2, tint(t.surface, t.signed(row.amount), 0.75));
+                        p.rect_filled(fill, 2, tint(t.surface, sign_colour(&t, row.amount, false), 0.75));
                     }
                 }
                 let resp = if row.filter.is_empty() { resp } else { resp.on_hover_cursor(egui::CursorIcon::PointingHand) };
@@ -1507,7 +1513,7 @@ impl App {
                         ui.horizontal(|ui| {
                             ui.add(egui::Label::new(RichText::new(&p.description).text_style(ts(SEMI))).truncate());
                             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                ui.label(RichText::new(money(tr.amount, true)).text_style(ts(SEMI)).color(t.signed(tr.amount)));
+                                ui.label(RichText::new(money(tr.amount, true)).text_style(ts(SEMI)).color(sign_colour(&t, tr.amount, true)));
                             });
                         });
                         ui.horizontal(|ui| {

@@ -227,7 +227,6 @@ impl Tokens {
         }
     }
 
-    pub fn signed(&self, v: f64) -> Color32 { if v < 0.0 { self.negative } else { self.positive } }
     pub fn card(&self) -> egui::Frame {
         egui::Frame::new().fill(self.surface).stroke(Stroke::new(1.0_f32, self.border)).corner_radius(RADIUS).inner_margin(SP3)
     }
