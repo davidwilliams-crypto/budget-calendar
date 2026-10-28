@@ -1,13 +1,9 @@
 //! Schedule generation: `calendarField`, `addPeriod`, `calcLoanSchedule`, `update(Payment, boolean)`,
 //! and the regular-date enumerations.
 
-use crate::date::{Cal, Field, SATURDAY, SUNDAY};
+use crate::date::{Cal, Field, DATE_MAX, SATURDAY, SUNDAY};
 use crate::db::BudgetDb;
 use crate::model::*;
-
-/// Last representable date: every schedule enumeration stops here, so absurd frequency × count
-/// combinations cannot hang a load (or overflow the year).
-const LAST_DATE: i32 = 99_991_231;
 
 pub fn calendar_field(freq_type: char) -> Field {
     match freq_type {
@@ -35,6 +31,91 @@ pub fn add_period(cal: &mut Cal, field: Field, frequency: i32, start_date: i32, 
     }
 }
 
+/// Whether a slot date is on the calendar. Every schedule walk stops after `DATE_MAX`, so absurd
+/// frequency × count combinations cannot hang a load (or overflow the year).
+#[inline]
+pub fn in_calendar(c: &Cal) -> bool { c.get() <= DATE_MAX }
+
+/// A payment's nominal slot dates (before weekend shifting or tentative sliding) in order: the
+/// start date, then one `add_period` step per slot (analysis/01 §3.3). No end condition is applied
+/// (`BudgetDb::scheduled_slots` applies the payment's), but the walk ends with the first date past
+/// `DATE_MAX`. That date is still yielded, so a caller can tell the recurrence runs off the
+/// calendar; walks that place or count dates stop before it with `take_while(in_calendar)`.
+#[derive(Clone, Debug)]
+pub struct Slots {
+    field: Field,
+    frequency: i32,
+    start_date: i32,
+    /// The slot yielded last (the start date before the first).
+    c: Cal,
+    /// The 0-based index of `c`; -1 before the first slot.
+    n: i32,
+}
+
+impl Iterator for Slots {
+    type Item = Cal;
+    #[inline]
+    fn next(&mut self) -> Option<Cal> {
+        if self.n >= 0 {
+            if !in_calendar(&self.c) { return None; }
+            add_period(&mut self.c, self.field, self.frequency, self.start_date, self.n + 1);
+        }
+        self.n += 1;
+        Some(self.c)
+    }
+}
+
+/// The business day on which a weekend date is paid: the following Monday, or with early pay the
+/// preceding Friday (analysis/01 §3.6 step 4). `None` for a weekday.
+pub fn weekend_shift(c: &Cal, early_pay: bool) -> Option<Cal> {
+    let days = match (c.day_of_week(), early_pay) {
+        (SATURDAY, false) => 2,
+        (SUNDAY, false) => 1,
+        (SATURDAY, true) => -1,
+        (SUNDAY, true) => -2,
+        _ => return None,
+    };
+    let mut d = *c;
+    d.add(Field::Day, days);
+    Some(d)
+}
+
+impl Payment {
+    /// The nominal slot dates of this payment's recurrence (see `Slots`).
+    pub fn slots(&self) -> Slots {
+        Slots { field: calendar_field(self.freq_type), frequency: self.frequency, start_date: self.start_date,
+            c: Cal::from_int(self.start_date), n: -1 }
+    }
+
+    /// The pay period containing `date`: `(slot, next slot − 1)` for the last slot on or before it.
+    /// `None` before the first slot.
+    pub fn period_containing(&self, date: i32) -> Option<(i32, i32)> {
+        let mut prev: Option<Cal> = None;
+        for c in self.slots() {
+            if c.get() > date {
+                let mut last = c;
+                last.add(Field::Day, -1);
+                return prev.map(|first| (first.get(), last.get()));
+            }
+            prev = Some(c);
+        }
+        None
+    }
+
+    /// Where the regular occurrence scheduled on `c` is shown: a business-days payment moves a
+    /// weekend date to a business day (`weekend_shift`), except a tentative one, which slides
+    /// within its pay period instead.
+    pub fn shown_date(&self, c: &Cal) -> Cal {
+        if self.is_no_weekends() && !self.is_tentative() { weekend_shift(c, self.is_early_pay()).unwrap_or(*c) } else { *c }
+    }
+
+    /// How many slots the payment has: `n_pays` (kept in step with the end mode by `update`), or
+    /// no limit when indefinite.
+    fn slot_limit(&self) -> usize {
+        if self.end_mode() == END_MODE_INDEFINITE { usize::MAX } else { self.n_pays.max(0) as usize }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct LoanSchedule {
     pub end: Cal,
@@ -53,6 +134,15 @@ pub struct PaymentsRemaining {
 }
 
 impl BudgetDb {
+    /// Payment `i`'s scheduled slots with both stop rules of analysis/01 §3.3: its first `n_pays`,
+    /// or for an indefinite payment those up to the end of the window. Like `Slots`, it may end
+    /// with a date past `DATE_MAX`.
+    fn scheduled_slots(&self, i: usize) -> impl Iterator<Item = Cal> {
+        let p = &self.payments[i];
+        let until = (p.end_mode() == END_MODE_INDEFINITE).then_some(self.end_date);
+        p.slots().take(p.slot_limit()).take_while(move |c| until.is_none_or(|end| !c.gt(&end)))
+    }
+
     /// `get_period_days(p)`: length of the first period in days.
     pub fn period_days(&self, i: usize) -> i32 {
         let p = &self.payments[i];
@@ -63,20 +153,7 @@ impl BudgetDb {
     }
 
     pub fn is_regular_payment_on(&self, i: usize, date: i32) -> bool {
-        let p = &self.payments[i];
-        let field = calendar_field(p.freq_type);
-        let mode = p.end_mode();
-        let mut c = Cal::from_int(p.start_date);
-        let mut n = 0;
-        loop {
-            if mode != END_MODE_INDEFINITE && n >= p.n_pays { return false; }
-            if mode == END_MODE_INDEFINITE && c.gt(&self.end_date) { return false; }
-            let v = c.get();
-            if v == date { return true; }
-            if v > date || v > LAST_DATE { return false; }
-            n += 1;
-            add_period(&mut c, field, p.frequency, p.start_date, n);
-        }
+        self.scheduled_slots(i).map(|c| c.get()).find(|&v| v >= date) == Some(date)
     }
 
     /// `get_valid_payment_days(p, cal)` (01 §3.12): the days on which the occurrence of `cal`'s month
@@ -108,40 +185,18 @@ impl BudgetDb {
         Vec::new()
     }
 
-    /// First scheduled date strictly after `date`, or -1 when the `n_pays` limit is hit.
+    /// First scheduled date strictly after `date` (possibly past `DATE_MAX`, where the schedule
+    /// runs off the calendar), or -1 when the `n_pays` limit is hit. An indefinite payment is not
+    /// cut at the window end here.
     pub fn next_regular_payment_after_date(&self, i: usize, date: i32) -> i32 {
         let p = &self.payments[i];
-        let field = calendar_field(p.freq_type);
-        let mode = p.end_mode();
-        let mut c = Cal::from_int(p.start_date);
-        let mut n = 0;
-        loop {
-            if mode != END_MODE_INDEFINITE && n >= p.n_pays { return -1; }
-            if c.get() > date { return c.get(); }
-            if c.get() > LAST_DATE { return -1; }
-            n += 1;
-            add_period(&mut c, field, p.frequency, p.start_date, n);
-        }
+        p.slots().take(p.slot_limit()).map(|c| c.get()).find(|&v| v > date).unwrap_or(-1)
     }
 
     pub fn number_of_planned_transactions(&self, desc: &str, from: &Cal, to: &Cal) -> i32 {
-        let mut count = 0;
-        for p in &self.payments {
-            if !eq_ignore_case(&p.description, desc) { continue; }
-            let field = calendar_field(p.freq_type);
-            let mode = p.end_mode();
-            let mut c = Cal::from_int(p.start_date);
-            let mut n = 0;
-            loop {
-                if mode != END_MODE_INDEFINITE && n >= p.n_pays { break; }
-                if mode == END_MODE_INDEFINITE && c.gt(&self.end_date) { break; }
-                if c.gt(to) || c.get() > LAST_DATE { break; }
-                if c.ge(from) { count += 1; }
-                n += 1;
-                add_period(&mut c, field, p.frequency, p.start_date, n);
-            }
-        }
-        count
+        let planned = (0..self.payments.len()).filter(|&i| eq_ignore_case(&self.payments[i].description, desc))
+            .map(|i| self.scheduled_slots(i).take_while(|c| !c.gt(to) && in_calendar(c)).filter(|c| c.ge(from)).count());
+        planned.sum::<usize>() as i32
     }
 
     /// A slot is modified only when an option sits on the date where its transaction is actually
@@ -150,13 +205,7 @@ impl BudgetDb {
     /// marker there is stale and dropped by the options pass, so it must not skip the installment.
     fn is_modified_on(&self, i: usize, c: &Cal) -> bool {
         let p = &self.payments[i];
-        let shown = if p.is_no_weekends() && !p.is_tentative() && matches!(c.day_of_week(), SATURDAY | SUNDAY) {
-            let mut d = *c;
-            let w = c.day_of_week();
-            if p.is_early_pay() { d.add(Field::Day, if w == SUNDAY { -2 } else { -1 }); }
-            else { d.add(Field::Day, if w == SUNDAY { 1 } else { 2 }); }
-            d.get()
-        } else { c.get() };
+        let shown = p.shown_date(c).get();
         p.opt.iter().any(|o| o.date == shown)
     }
 
@@ -183,15 +232,15 @@ impl BudgetDb {
             abs_amount_remaining: 0.0,
             n_remaining: 0,
         };
-        let field = calendar_field(p.freq_type);
-        let mut c = Cal::from_int(p.start_date);
+        // A walk yields its start date and continues after every slot on the calendar.
+        let mut slots = p.slots();
+        let mut c = slots.next().expect("a schedule walk yields its start date");
         let is_expense = p.amount < 0.0;
         let mut remaining = p.loan_amount.abs() - if is_expense { -sum } else { sum };
         let abs_amt = p.amount.abs();
         // Half-a-cent tolerance absorbs floating-point residue when the principal is an exact multiple.
-        while remaining >= 0.005 {
-            // Bound the schedule at the last representable year so absurd loans cannot hang the app.
-            if c.get() > LAST_DATE { break; }
+        // The schedule is bounded at the last representable date so absurd loans cannot hang the app.
+        while remaining >= 0.005 && in_calendar(&c) {
             ls.n_pays += 1;
             if !self.is_modified_on(i, &c) {
                 if remaining <= abs_amt + 0.005 {
@@ -202,7 +251,7 @@ impl BudgetDb {
                 remaining -= abs_amt;
                 if as_of.is_some() { trans.push((c.get(), p.amount)); }
             }
-            add_period(&mut c, field, p.frequency, p.start_date, ls.n_pays);
+            c = slots.next().expect("a schedule walk continues after a slot on the calendar");
             if abs_amt == 0.0 { break; } // zero-amount guard: the original loops forever here
         }
         // Spec 3.5: `endCal` is the last slot date (the start date when the loop never runs).
@@ -221,45 +270,24 @@ impl BudgetDb {
     /// `recalculate_n_pays`: number of scheduled dates `<= endDate` (always >= 1).
     pub fn recalculate_n_pays(&mut self, i: usize) {
         let p = &self.payments[i];
-        let field = calendar_field(p.freq_type);
         let end = Cal::from_int(p.end_date);
-        let mut c = Cal::from_int(p.start_date);
-        let mut n = 1;
-        loop {
-            add_period(&mut c, field, p.frequency, p.start_date, n);
-            if c.gt(&end) || c.get() > LAST_DATE { break; }
-            n += 1;
-        }
-        self.payments[i].n_pays = n;
+        // The start date always counts, then every later slot up to the end date.
+        let later = p.slots().skip(1).take_while(|c| !c.gt(&end) && in_calendar(c)).count();
+        self.payments[i].n_pays = 1 + later as i32;
     }
 
     pub fn payments_remaining(&self, i: usize, as_of: &Cal) -> PaymentsRemaining {
         let p = &self.payments[i];
         let v = as_of.get();
-        let field = calendar_field(p.freq_type);
+        let remaining = |n: usize| PaymentsRemaining { amount: n as f64 * p.amount, n: n as i32 };
         match p.end_mode() {
             END_MODE_INDEFINITE => PaymentsRemaining { amount: -1.0, n: -1 },
             END_MODE_N_PAYS => {
-                let mut c = Cal::from_int(p.start_date);
-                let mut n = 0;
-                for k in 0..p.n_pays.max(1) {
-                    if c.get() > LAST_DATE { break; }
-                    if c.get() >= v { n += 1; }
-                    add_period(&mut c, field, p.frequency, p.start_date, k + 1);
-                }
-                PaymentsRemaining { amount: n as f64 * p.amount, n }
+                remaining(p.slots().take(p.n_pays.max(1) as usize).take_while(in_calendar).filter(|c| c.get() >= v).count())
             }
             END_MODE_DATE => {
                 let end = Cal::from_int(p.end_date);
-                let mut c = Cal::from_int(p.start_date);
-                let mut n = 0;
-                let mut k = 0;
-                while !c.gt(&end) && c.get() <= LAST_DATE {
-                    if c.get() >= v { n += 1; }
-                    k += 1;
-                    add_period(&mut c, field, p.frequency, p.start_date, k);
-                }
-                PaymentsRemaining { amount: n as f64 * p.amount, n }
+                remaining(p.slots().take_while(|c| !c.gt(&end) && in_calendar(c)).filter(|c| c.get() >= v).count())
             }
             END_MODE_LOAN_PAID => {
                 let ls = self.calc_loan_schedule(i, Some(as_of));
@@ -281,16 +309,9 @@ impl BudgetDb {
             END_MODE_N_PAYS => {
                 let p = &mut self.payments[i];
                 if p.n_pays < 1 { p.n_pays = 1; }
-                let mut c = Cal::from_int(p.start_date);
-                let mut n = 0;
-                while n + 1 < p.n_pays {
-                    let mut next = c;
-                    add_period(&mut next, field, frequency, start_date, n + 1);
-                    if next.get() > LAST_DATE { break; }
-                    c = next;
-                    n += 1;
-                }
-                p.end_date = c.get();
+                // The date of payment number `n_pays`, without stepping past the calendar.
+                let last = p.slots().take(p.n_pays as usize).take_while(in_calendar).last();
+                p.end_date = last.unwrap_or_else(|| Cal::from_int(p.start_date)).get();
             }
             END_MODE_DATE => {
                 let p = &mut self.payments[i];
@@ -309,26 +330,25 @@ impl BudgetDb {
         if remove_first { self.remove_from_budget_days(i); }
         self.in_sync = false;
 
-        let (tentative, sticky, no_weekends, early_pay, n_pays, amount, disabled) = {
-            let p = &self.payments[i];
-            (p.is_tentative(), p.is_sticky(), p.is_no_weekends(), p.is_early_pay(), p.n_pays, p.amount, p.disabled)
-        };
+        let p = &self.payments[i];
+        let (tentative, sticky, no_weekends, early_pay, n_pays, amount, disabled, end_date) =
+            (p.is_tentative(), p.is_sticky(), p.is_no_weekends(), p.is_early_pay(), p.n_pays, p.amount, p.disabled, p.end_date);
+        // Placement reads and prunes a working copy of the payment's dated options and flags: the
+        // original's in-pass clean-ups (tentative periods, analysis/01 §3.7; the options pass, §3.9)
+        // shape this placement exactly as there, but scheduling never changes the stored per-date
+        // data (SPEC.md §6).
+        let mut work = Payment { amount, opt: p.opt.clone(), flag: p.flag.clone(), ..Payment::default() };
         let today = self.today;
         let mut is_last = false;
-        let mut c = Cal::from_int(start_date);
-        let mut n = 0;
-        loop {
-            if mode != END_MODE_INDEFINITE && n >= n_pays { break; }
-            if mode == END_MODE_INDEFINITE && c.gt(&self.end_date) { break; }
-            let cv = c.get();
-            if cv > LAST_DATE { break; }
+        for (n, c) in self.scheduled_slots(i).take_while(in_calendar).enumerate() {
+            let (n, cv) = (n as i32, c.get());
             let mut amt = amount;
             if mode == END_MODE_LOAN_PAID && n + 1 == n_pays {
                 amt = last_payment_amount;
-                if !self.payments[i].has_options_after(cv) { is_last = true; }
+                if !work.has_options_after(cv) { is_last = true; }
             }
-            if sticky { amt = self.payments[i].amount_before_date(cv); }
-            if !is_last && mode != END_MODE_INDEFINITE && n + 1 == n_pays && !self.payments[i].has_options_after(cv) {
+            if sticky { amt = work.amount_before_date(cv); }
+            if !is_last && mode != END_MODE_INDEFINITE && n + 1 == n_pays && !work.has_options_after(cv) {
                 is_last = true;
             }
             if tentative {
@@ -338,7 +358,7 @@ impl BudgetDb {
                 if period_end.gt(&c) {
                     let first = cv;
                     let last = period_end.get();
-                    let opts = self.payments[i].options_in(first, last);
+                    let opts = work.options_in(first, last);
                     let mut current_or_future = first >= today;
                     let today_in_period = first <= today && today <= last;
                     let target = if today_in_period { current_or_future = true; Cal::from_int(today) } else { c };
@@ -349,12 +369,12 @@ impl BudgetDb {
                     } else if sticky && disabled {
                         let tv = target.get();
                         for o in &opts {
-                            if o.deleted && o.date != first && o.date != tv { self.payments[i].clear(o.date); }
+                            if o.deleted && o.date != first && o.date != tv { work.clear(o.date); }
                         }
-                        if !self.payments[i].is_paid(first, last) {
+                        if !work.is_paid(first, last) {
                             if let Some(d) = self.cal_index(&target) {
                                 if today_in_period {
-                                    let a = self.payments[i].amount_before_date(tv);
+                                    let a = work.amount_before_date(tv);
                                     self.day_add_regular(d, i, a, SUFFIX_NONE);
                                 } else if current_or_future {
                                     self.day_add_regular(d, i, amount, SUFFIX_NONE);
@@ -364,32 +384,27 @@ impl BudgetDb {
                     } else {
                         let mut n_deleted = 0;
                         for o in &opts {
-                            if o.deleted { n_deleted += 1; self.payments[i].clear(o.date); }
+                            if o.deleted { n_deleted += 1; work.clear(o.date); }
                         }
                         if opts.len() == n_deleted && current_or_future {
-                            self.payments[i].set_no_transaction(target.get());
+                            work.set_no_transaction(target.get());
                         }
                     }
                 }
-            } else if no_weekends && matches!(c.day_of_week(), SATURDAY | SUNDAY) {
-                let w = c.day_of_week();
-                let mut d = c;
-                if early_pay { d.add(Field::Day, if w == SUNDAY { -2 } else { -1 }); }
-                else { d.add(Field::Day, if w == SUNDAY { 1 } else { 2 }); }
-                if let Some(di) = self.cal_index(&d) {
-                    self.day_place_regular(di, i, amt, if is_last { SUFFIX_LAST } else { SUFFIX_ADJUSTED });
+            } else {
+                // A weekend-shifted occurrence carries the adjusted suffix unless it is the last.
+                let shifted = if no_weekends { weekend_shift(&c, early_pay) } else { None };
+                let suffix = if is_last { SUFFIX_LAST } else if shifted.is_some() { SUFFIX_ADJUSTED } else { SUFFIX_NONE };
+                if let Some(di) = self.cal_index(&shifted.unwrap_or(c)) {
+                    self.day_place_regular(di, i, amt, suffix);
                 }
-            } else if let Some(di) = self.cal_index(&c) {
-                self.day_place_regular(di, i, amt, if is_last { SUFFIX_LAST } else { SUFFIX_NONE });
             }
-            n += 1;
-            add_period(&mut c, field, frequency, start_date, n);
         }
 
         // options pass
         let mut k = 0;
-        while k < self.payments[i].opt.len() {
-            let o = self.payments[i].opt[k].clone();
+        while k < work.opt.len() {
+            let o = work.opt[k].clone();
             let Some(di) = self.cal_index_int(o.date) else { k += 1; continue };
             if o.deleted {
                 let removed = self.day_mut(di).remove(i);
@@ -397,19 +412,18 @@ impl BudgetDb {
                     self.day_add_restorable(di, i);
                     k += 1;
                 } else {
-                    self.payments[i].opt.remove(k);
+                    work.opt.remove(k); // a stale deletion marker
                 }
                 continue;
             }
             let mut suffix = SUFFIX_ADJUSTED;
-            let end_date = self.payments[i].end_date;
-            if mode != END_MODE_INDEFINITE && !self.payments[i].has_options_after(o.date) && o.date >= end_date {
+            if mode != END_MODE_INDEFINITE && !work.has_options_after(o.date) && o.date >= end_date {
                 suffix = SUFFIX_LAST;
             }
             let existing = self.day_mut(di).get(i).map(|t| (t.amount, t.suffix));
             match existing {
                 None => { self.day_add(di, i, o.amount, suffix); k += 1; }
-                Some((amt, _)) if amt == o.amount && !tentative => { self.payments[i].opt.remove(k); }
+                Some((amt, _)) if amt == o.amount && !tentative => { work.opt.remove(k); } // a redundant custom amount
                 Some(_) => {
                     let t = self.day_mut(di).get_mut(i).unwrap();
                     t.amount = o.amount;
@@ -441,5 +455,32 @@ mod freq_tests {
             add_period(&mut c, field, i32::MAX, 20240115, 3);
             assert!(c.get() > 20240115);
         }
+    }
+
+    #[test]
+    fn slots_step_from_the_anchor_and_stop_after_the_calendar() {
+        let mut p = Payment::new(20240131);
+        p.freq_type = 'm';
+        let dates: Vec<i32> = p.slots().take(4).map(|c| c.get()).collect();
+        assert_eq!(dates, [20240131, 20240229, 20240331, 20240430]);
+        // The walk yields the first date past DATE_MAX and then ends.
+        p.start_date = 99971231; p.freq_type = 'y';
+        let dates: Vec<i32> = p.slots().map(|c| c.get()).collect();
+        assert_eq!(dates, [99971231, 99981231, 99991231, 100001231]);
+    }
+
+    #[test]
+    fn weekend_shift_moves_to_monday_or_back_to_friday() {
+        // 2026-10-03 is a Saturday, 2026-10-04 a Sunday.
+        let shift = |d: i32, early: bool| weekend_shift(&Cal::from_int(d), early).map(|c| c.get());
+        assert_eq!((shift(20261003, false), shift(20261004, false)), (Some(20261005), Some(20261005)));
+        assert_eq!((shift(20261003, true), shift(20261004, true)), (Some(20261002), Some(20261002)));
+        assert_eq!(shift(20261005, false), None);
+        let mut p = Payment::new(20261003);
+        assert_eq!(p.shown_date(&Cal::from_int(20261003)).get(), 20261003);
+        p.set_no_weekends(true);
+        assert_eq!(p.shown_date(&Cal::from_int(20261003)).get(), 20261005);
+        p.set_tentative(true);
+        assert_eq!(p.shown_date(&Cal::from_int(20261003)).get(), 20261003);
     }
 }

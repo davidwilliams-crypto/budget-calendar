@@ -6,8 +6,8 @@ use egui_phosphor::regular as ph;
 use crate::theme::{self, font, tint, ts, Tokens, CAPTION, DAY, ICON, SECTION, SEMI};
 use budget_core::numfmt::balance_display;
 use crate::view::{is_negative, money, BalKind, CellData, MonthView, TranRow};
+use crate::names::WEEKDAYS;
 
-const WDAYS: [&str; 7] = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const HEADER_H: f32 = 26.0;
 const DAY_HEADER_H: f32 = 19.0;
 const COMPACT_ROW_H: f32 = 18.0;
@@ -182,8 +182,21 @@ fn suffix_marker(suffix: char) -> Option<Marker> {
 const GRACE_DAYS_ID: &str = "calendar-grace-days";
 const ROW_DETAILS_ID: &str = "calendar-row-details";
 
+/// A click target that is not a Tab stop (a day cell, a balance strip): the keyboard order runs
+/// through the payment rows and +N buttons only. `Response::context_menu` re-registers a response
+/// with `Sense::click()`, which would make it focusable again, so the response is marked as
+/// already sensing that.
+fn pointer_only(ui: &Ui, rect: Rect, id: egui::Id) -> egui::Response {
+    let mut response = ui.interact(rect, id, Sense::CLICK);
+    response.sense |= Sense::FOCUSABLE;
+    response
+}
+
 pub enum Action {
     Filter(String), Add(i32), Day(i32), EditPayment(i32), DeletePayment(i32),
+    /// Edit the whole payment from one of its calendar occurrences (04 §1: the dialog's `cal`),
+    /// so an amount or schedule change can apply from that date onward.
+    EditPaymentFrom { id: i32, date: i32 },
     EditTransaction { id: i32, date: i32, amount: f64 },
     DeleteTransaction { id: i32, date: i32 },
     MoveTransaction { id: i32, from: i32, to: i32, amount: f64 },
@@ -207,7 +220,7 @@ pub fn show(ui: &mut Ui, view: &MonthView, t: &Tokens, sunday_first: bool, today
     for c in 0..7 {
         let w = if sunday_first { c } else { (c + 1) % 7 };
         // Full names when there is room, otherwise the 3-letter abbreviation; always small caps-style.
-        let name = (if cw >= 120.0 { WDAYS[w] } else { &WDAYS[w][..3] }).to_uppercase();
+        let name = (if cw >= 120.0 { WEEKDAYS[w] } else { &WEEKDAYS[w][..3] }).to_uppercase();
         let weekend = w == 0 || w == 6;
         let header_cell = Rect::from_min_size(Pos2::new(layout.inner.min.x + cw * c as f32, layout.header.min.y), Vec2::new(cw, layout.header.height()));
         let mut hfont = font(ui, SEMI);
@@ -233,7 +246,7 @@ pub fn show(ui: &mut Ui, view: &MonthView, t: &Tokens, sunday_first: bool, today
         let rect = layout.cell(i);
         let last = r + 1 == rows;
         let cr = CornerRadius { nw: 0, ne: 0, sw: if last && c == 0 { theme::RADIUS } else { 0 }, se: if last && c == 6 { theme::RADIUS } else { 0 } };
-        let resp = ui.interact(rect, ui.id().with(("cell", cell.date)), Sense::click());
+        let resp = pointer_only(ui, rect, ui.id().with(("cell", cell.date)));
         if cell.in_month && !dragging {
             resp.context_menu(|ui| {
                 if ui.button("Add payment on this date").clicked() { clicked = Some(Action::Add(cell.date)); ui.close_menu(); }
@@ -265,7 +278,7 @@ pub fn show(ui: &mut Ui, view: &MonthView, t: &Tokens, sunday_first: bool, today
             p.rect_stroke(rect, cr, Stroke::new(1.0_f32, tint(fill, t.today, 0.85)), StrokeKind::Inside);
             p.rect_filled(Rect::from_min_size(rect.min, Vec2::new(rect.width(), 2.0)), 0, t.today);
         }
-        if let Some(f) = cell_filter(ui, &p.with_clip_rect(rect), cell, rect, t, today, decimals, &resp, changed[i]) { clicked = Some(f); }
+        if let Some(f) = cell_filter(ui, &p.with_clip_rect(rect), cell, rect, t, today, decimals, &resp, changed[i], filtered) { clicked = Some(f); }
     }
     if ui.ctx().data(|d| d.get_temp::<Vec<i32>>(grace_id)).unwrap_or_default() != grace { ui.ctx().request_repaint(); }
     p.hline(layout.inner.x_range(), layout.grid.min.y - 0.5, hair);
@@ -318,7 +331,7 @@ fn balance_changes(cells: impl Iterator<Item = (bool, Option<f64>)>) -> Vec<bool
 
 // Same parameter set as the sibling cell painters; a context struct would be used by this one only.
 #[allow(clippy::too_many_arguments)]
-fn cell_filter(ui: &mut Ui, p: &Painter, cell: &CellData, rect: Rect, t: &Tokens, today: i32, decimals: bool, resp: &egui::Response, changed: bool) -> Option<Action> {
+fn cell_filter(ui: &mut Ui, p: &Painter, cell: &CellData, rect: Rect, t: &Tokens, today: i32, decimals: bool, resp: &egui::Response, changed: bool, filtered: bool) -> Option<Action> {
     let mut clicked = None;
     let layout = CellLayout::new(rect, cell.rows.len());
     let hp = p.with_clip_rect(layout.header);
@@ -345,11 +358,20 @@ fn cell_filter(ui: &mut Ui, p: &Painter, cell: &CellData, rect: Rect, t: &Tokens
     if hidden > 0 {
         let count_w = (rect.width() - 35.0).clamp(0.0, 42.0);
         let more = Rect::from_min_max(Pos2::new(rect.max.x - 4.0 - count_w, layout.header.min.y), Pos2::new(rect.max.x - 4.0, layout.header.max.y));
+        // With a search active the rows (and so +N) are the matching transactions only; the day
+        // dialog lists those first, then the day's other transactions.
+        let (more_text, info) = if filtered {
+            (format!("{hidden} more matching transactions. View this date's transactions, matches first."),
+                format!("View the {} matching transactions on {}", cell.rows.len(), cell.date))
+        } else {
+            (format!("{hidden} more transactions. View all transactions on this date."),
+                format!("View all {} transactions on {}", cell.rows.len(), cell.date))
+        };
         let response = ui.interact(more, ui.id().with(("more", cell.date)), Sense::click())
             .on_hover_cursor(egui::CursorIcon::PointingHand)
-            .on_hover_text(format!("{} more transactions. View all transactions on this date.", hidden));
+            .on_hover_text(more_text);
         let label = format!("+{hidden}");
-        response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, format!("View all {} transactions on {}", cell.rows.len(), cell.date)));
+        response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, info.clone()));
         if response.hovered() || response.has_focus() { hp.rect_filled(more, 4, tint(t.surface, t.accent, 0.08)); }
         if response.has_focus() { hp.rect_stroke(more, 4, Stroke::new(1.0_f32, t.accent), StrokeKind::Inside); }
         truncated(&hp.with_clip_rect(more), Pos2::new(more.min.x + 3.0, more.center().y), &label, font(ui, SEMI), t.accent, (more.width() - 6.0).max(0.0));
@@ -431,7 +453,7 @@ fn cell_filter(ui: &mut Ui, p: &Painter, cell: &CellData, rect: Rect, t: &Tokens
             }
         }
         fp.galley(Pos2::new(amount_left, cy - amount.size().y / 2.0), amount, fg);
-        let sresp = ui.interact(sr, ui.id().with(("strip", cell.date)), Sense::click());
+        let sresp = pointer_only(ui, sr, ui.id().with(("strip", cell.date)));
         sresp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, format!("Closing balance {} on {}{}. Right-click to edit balance", money(b.value, true), cell.date,
             if b.adjusted { format!(", adjusted by {}", money(b.adjustment, true)) } else { String::new() })));
         if !egui::DragAndDrop::has_payload_of_type::<DraggedTransaction>(ui.ctx()) {
@@ -468,17 +490,20 @@ fn draw_row(ui: &mut Ui, p: &Painter, row: &TranRow, rr: Rect, t: &Tokens, decim
     // also open the menu of whatever row lies under the pointer.
     if !egui::DragAndDrop::has_payload_of_type::<DraggedTransaction>(ui.ctx()) { resp.context_menu(|ui| {
         if ui.button("Edit transaction (this date)").clicked() { action = Some(Action::EditTransaction { id:row.payment_id, date:row.date, amount:row.value }); ui.close_menu(); }
-        if ui.button("Edit whole payment").clicked() { action = Some(Action::EditPayment(row.payment_id)); ui.close_menu(); }
+        if ui.button("Edit whole payment").clicked() { action = Some(Action::EditPaymentFrom { id:row.payment_id, date:row.date }); ui.close_menu(); }
         if ui.button("Filter this payment").clicked() { action = Some(Action::Filter(row.filter.clone())); ui.close_menu(); }
         ui.separator();
         if ui.button("Delete transaction (this date)").clicked() { action = Some(Action::DeleteTransaction { id:row.payment_id, date:row.date }); ui.close_menu(); }
         if ui.button("Delete whole payment").clicked() { action = Some(Action::DeletePayment(row.payment_id)); ui.close_menu(); }
     }); }
     let hovered = resp.hovered();
+    let focused = resp.has_focus();
     // Disabled rows keep their highlight colour (05 §1.6) at a lighter tint next to the muted text.
     if let Some(h) = row.hilite { p.rect_filled(rr, 4, tint(t.surface, h, if row.disabled { 0.07 } else { 0.14 })); }
-    if hovered { p.rect_filled(rr, 4, tint(t.surface, t.accent, 0.08)); }
-    if resp.has_focus() { p.rect_stroke(rr, 4, Stroke::new(1.0_f32, t.accent), StrokeKind::Inside); }
+    if hovered || focused { p.rect_filled(rr, 4, tint(t.surface, t.accent, 0.08)); }
+    // Keyboard focus (Tab; Enter or Space edits) gets the 2px accent ring the buttons use, drawn
+    // inside the row so its geometry is unchanged.
+    if focused { p.rect_stroke(rr, 4, Stroke::new(2.0_f32, t.accent), StrokeKind::Inside); }
     let name_y = rr.center().y;
     let status = match row.flag {
         budget_core::FLAG_PAID => Some(t.paid),
@@ -630,7 +655,7 @@ mod tests {
     fn suffix_markers_map_to_dots() {
         assert_eq!(super::suffix_marker('\''),Some(super::Marker::Adjusted));
         assert_eq!(super::suffix_marker('*'), Some(super::Marker::Last));
-        assert_eq!(super::suffix_marker(' '), None);
+        assert_eq!(super::suffix_marker('\0'), None);
         assert_eq!(super::LEGEND.len(), 5);
     }
 
@@ -657,18 +682,18 @@ mod tests {
             CellData {
                 day: date.day(), date: date.get(), in_month: true, is_today: false,
                 weekend: false, note: None, restorable: Vec::new(),
-                rows: (0..payments).map(|n| TranRow {
+                rows: (0..payments).map(|n| std::rc::Rc::new(TranRow {
                     payment_id: n as i32 + 10, date: date.get(), icon: "", text: format!("Payment name {n}"),
                     amount: "123.45".into(), value: 123.45, flag: '\0', hilite: None,
                     disabled: false, filter: String::new(),
                     tip: Tip { description: format!("Payment name {n}"), category: None, amount: 123.45,
                         planned: 123.45, balance_after: 1000.0, note: None, suffix: '\0' },
                     valid_days: Vec::new(),
-                }).collect(),
+                })).collect(),
                 balance: Some(Balance { text: format!("B{}", date.get()), value: 1000.0, kind: BalKind::Normal, adjusted: false, adjustment: 0.0 }),
             }
         }).collect();
-        MonthView { key: (20261001, String::new(), 0), cells, shown: payments * weeks * 7,
+        MonthView { key: Default::default(), cells, shown: payments * weeks * 7,
             total: payments * weeks * 7, brief: Vec::new(), below_min: false, shares_of_expenses: false, filtered: false,
             quick: QuickStats { opening: 0.0, closing: 0.0, min: 0.0, max: 0.0, avg: 0.0, income: 0.0, expenses: 0.0 } }
     }
@@ -815,8 +840,8 @@ mod tests {
         // Unbounded amount reservation can erase the name or paint over adjacent dates.
         let (ctx, t) = context();
         let mut view = fixture(4, 1);
-        view.cells[0].rows[0].text = "A very long payment name with useful detail".into();
-        view.cells[0].rows[0].amount = "999,999,999,999,999,999.99".into();
+        std::rc::Rc::make_mut(&mut view.cells[0].rows[0]).text = "A very long payment name with useful detail".into();
+        std::rc::Rc::make_mut(&mut view.cells[0].rows[0]).amount = "999,999,999,999,999,999.99".into();
         let (output, _) = frame(&ctx, &t, &view, Vec2::new(884.0, 430.0), Vec::new());
         let shapes = text_shapes(&output);
         let (name, name_clip) = shapes.iter().find(|(s, _)| s.galley.job.text.starts_with("A very long")).unwrap();
@@ -834,7 +859,7 @@ mod tests {
         for (width, value) in [(884.0, "−1,234.56"), (1176.0, "−123,456.78")] {
             let (ctx, t) = context();
             let mut view = fixture(5, 5);
-            view.cells[0].rows[0].amount = value.into();
+            std::rc::Rc::make_mut(&mut view.cells[0].rows[0]).amount = value.into();
             let (output, _) = frame(&ctx, &t, &view, Vec2::new(width, 630.0), Vec::new());
             let shapes = text_shapes(&output);
             let (name, name_clip) = shapes.iter().find(|(s, _)| s.galley.job.text == "Payment name 0").unwrap();
@@ -851,7 +876,7 @@ mod tests {
         for value in ["0", "7"] {
             let (ctx, t) = context();
             let mut view = fixture(5, 1);
-            view.cells[0].rows[0].amount = value.into();
+            std::rc::Rc::make_mut(&mut view.cells[0].rows[0]).amount = value.into();
             let (output, _) = frame(&ctx, &t, &view, Vec2::new(1176.0, 630.0), Vec::new());
             let shapes = text_shapes(&output);
             let (amount, clip) = shapes.iter().find(|(s, _)| s.galley.job.text == value &&
@@ -1093,6 +1118,30 @@ mod tests {
     }
 
     #[test]
+    fn filtered_overflow_counts_hidden_matching_rows_and_says_so() {
+        // A filtered view holds only the matching rows, so +N is the number of hidden matches.
+        let (ctx, t) = context();
+        ctx.style_mut(|s| s.interaction.tooltip_delay = 0.0);
+        let mut view = fixture(4, 20);
+        view.filtered = true;
+        let size = Vec2::new(860.0, 540.0);
+        let (output, _) = frame(&ctx, &t, &view, size, Vec::new());
+        let shapes = text_shapes(&output);
+        let visible = shapes.iter().filter(|(s, _)| s.galley.job.text.starts_with("Payment name")).count() / view.cells.len();
+        assert!(visible > 0);
+        let label = format!("+{}", 20 - visible);
+        let (more, _) = shapes.iter().find(|(s, _)| s.galley.job.text == label).unwrap_or_else(|| panic!("{label} must count the hidden matches"));
+        let pos = more.pos + Vec2::new(8.0, 8.0);
+        let mut tip = false;
+        for _ in 0..30 {
+            let (o, _) = frame(&ctx, &t, &view, size, vec![egui::Event::PointerMoved(pos)]);
+            tip |= text_shapes(&o).iter().any(|(s, _)| s.galley.job.text.starts_with(&format!("{} more matching transactions", 20 - visible)));
+            if tip { break; }
+        }
+        assert!(tip, "the tooltip says the hidden rows are matches");
+    }
+
+    #[test]
     fn right_clicking_a_balance_offers_its_dated_edit_action() {
         let (ctx, t) = context();
         let view = fixture(4, 1);
@@ -1133,6 +1182,15 @@ mod tests {
     }
 
     #[test]
+    fn editing_the_whole_payment_from_a_row_carries_the_clicked_date() {
+        // The payment editor offers "From <date> onward" only when it knows the clicked occurrence.
+        let (ctx, t) = context();
+        let view = fixture(4, 1);
+        let output = right_click_menu(&ctx, &t, &view, Pos2::new(25.0, 59.0));
+        assert!(matches!(click_text(&ctx, &t, &view, &output, "Edit whole payment"), Some(Action::EditPaymentFrom { id: 10, date: 20261001 })));
+    }
+
+    #[test]
     fn deleted_occurrences_can_be_restored_from_the_day_menu_only_without_a_filter() {
         let (ctx, t) = context();
         let mut view = fixture(4, 1);
@@ -1140,7 +1198,7 @@ mod tests {
         let output = right_click_menu(&ctx, &t, &view, Pos2::new(70.0, 38.0));
         assert!(matches!(click_text(&ctx, &t, &view, &output, "Restore 'Rent'"), Some(Action::Restore { id: 42, date: 20261001 })));
         let (ctx, t) = context();
-        view.key.1 = "rent".into();
+        view.key.search = "rent".into();
         view.filtered = true;
         let output = right_click_menu(&ctx, &t, &view, Pos2::new(70.0, 38.0));
         assert!(click_text(&ctx, &t, &view, &output, "Restore 'Rent'").is_none(), "restoring is disabled while filtered (05 §1.5)");
@@ -1185,7 +1243,7 @@ mod tests {
         let (plain, _) = frame(&ctx, &t, &view, size, Vec::new());
         let name_x = |o: &egui::FullOutput| text_shapes(o).iter().find(|(s, _)| s.galley.job.text == "Payment name 0").unwrap().0.pos.x;
         let before = name_x(&plain);
-        view.cells[0].rows[0].tip.note = Some("Paid by cheque #123".into());
+        std::rc::Rc::make_mut(&mut view.cells[0].rows[0]).tip.note = Some("Paid by cheque #123".into());
         let (noted, _) = frame(&ctx, &t, &view, size, Vec::new());
         assert_eq!(text_shapes(&noted).iter().filter(|(s, _)| s.galley.job.text == ph::NOTE_PENCIL).count(), 1);
         assert!(name_x(&noted) > before + 5.0, "the name makes room for the note mark");

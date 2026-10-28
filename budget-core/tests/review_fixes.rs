@@ -161,6 +161,26 @@ fn option_on_nominal_weekend_date_does_not_skip_the_displayed_installment() {
 }
 
 #[test]
+fn scheduling_leaves_stored_options_and_flags_alone() {
+    // The original's update dropped a custom amount equal to the scheduled one (2026-02-05), a
+    // deletion marker on a day without a transaction (2026-02-10), and a past tentative period's
+    // deletion marker together with that date's flag (2026-01-05).
+    for line in ["-50.0, Rent, 20260105, 1m, 0, 20260105, 16, img, 20260205:-50.0, 20260210, 20260305:-60.0",
+        "-10.0, T, 20260101, 1w, 0, 20260101, 18, img, 20260105, 20260105;"] {
+        let text = format!("v,2\n:\n=,\n{line}\n## END-OF-DATA; line_no=5 ##");
+        let l = bgt::load_str(&text, 20260101, None).unwrap_or_else(|l| panic!("{}", l.log));
+        let (opt, flag) = (l.payments[0].opt.clone(), l.payments[0].flag.clone());
+        let mut db = BudgetDb::from_loaded(l, &Cal::from_int(20260101), 12, false);
+        let shown = placed(&mut db, 20251101, 20271231);
+        for _ in 0..2 {
+            assert_eq!((&db.payments[0].opt, &db.payments[0].flag), (&opt, &flag), "{line}");
+            db.update_payment(0);
+            assert_eq!(placed(&mut db, 20251101, 20271231), shown, "{line}");
+        }
+    }
+}
+
+#[test]
 fn huge_frequency_times_count_loads_quickly() {
     for line in ["-10.0, A, 20260101, 100000d, 4000000, 20260101, 48,  ", "-10.0, A, 20260101, 100000w, 4000000, 20260101, 48,  "] {
         let t = std::time::Instant::now();
@@ -174,4 +194,14 @@ fn huge_frequency_times_count_loads_quickly() {
         let _ = db.number_of_planned_transactions("A", &Cal::from_int(20260101), &Cal::from_int(99_991_231));
         assert!(t.elapsed().as_secs_f64() < 2.0, "{line}: {:?}", t.elapsed());
     }
+}
+
+#[test]
+fn viewing_the_last_calendar_years_never_builds_days_past_the_calendar() {
+    let mut db = BudgetDb::new(&Cal::from_int(99991201), 24, false);
+    db.rebuild_db(&Cal::from_int(99991201), 24, false);
+    assert_eq!(db.end_date.get(), budget_core::date::DATE_MAX);
+    assert!(db.get_day(&Cal::from_int(99991231)).is_some());
+    let (_, end) = db.window(&Cal::from_int(99980601), 36, true);
+    assert_eq!(end.get(), budget_core::date::DATE_MAX);
 }

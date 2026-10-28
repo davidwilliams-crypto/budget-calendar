@@ -4,6 +4,7 @@
 use crate::date::{Cal, Field};
 use crate::db::BudgetDb;
 use crate::filter::Filter;
+use crate::model::amount_order;
 use std::cmp::Ordering;
 
 pub const UNCATEGORIZED_INCOME: &str = "(Uncategorized-Income)";
@@ -96,11 +97,8 @@ impl Stats {
     }
 }
 
-/// `stat_comparator`: both negative → ascending (most negative first); otherwise descending.
-fn stat_cmp(a: &Amount, b: &Amount) -> Ordering {
-    if a.amount < 0.0 && b.amount < 0.0 { a.amount.partial_cmp(&b.amount).unwrap_or(Ordering::Equal) }
-    else { b.amount.partial_cmp(&a.amount).unwrap_or(Ordering::Equal) }
-}
+/// `stat_comparator`.
+fn stat_cmp(a: &Amount, b: &Amount) -> Ordering { amount_order(a.amount, b.amount) }
 
 /// Move subs of `from` into `to`: with `non_negative_only` the subs with `amount >= 0`, else those `< 0`.
 fn transfer_sub_amount(from: &mut Amount, to: &mut Amount, non_negative_only: bool) {
@@ -138,7 +136,9 @@ pub fn calc_statistics_exact(db: &mut BudgetDb, start: &Cal, end: &Cal, full: bo
     let mut c = *start;
     while c.le(end) {
         if let Some(day) = db.get_day(&c) {
-            let regulars = day.regulars.clone();
+            // Sorted so the order of equal summary rows does not depend on how the schedule was built.
+            let mut regulars = day.regulars.clone();
+            regulars.sort_unstable();
             for pi in regulars {
                 let p = &db.payments[pi];
                 if let Some(f) = filter { if !f.is_match(p, p.amount, -1) { continue; } }

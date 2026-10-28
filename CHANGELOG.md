@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.6.0] - 2026-10-28
+
+Deferred review items, reports and speed.
+
+- **Reports menu:** every report from the original (income and expenses print and Excel, comparative, month-by-month, monthly calendar, monthly detailed and Excel, unpaid & paid) plus Print this month, with a range dialog. Reports open in your browser or spreadsheet program and their temporary files are removed when the app closes. Monthly Detailed and Monthly Excel now include the To month, and the HTML Totals row shows the real expenses total.
+- **Future changes split the payment:** "This and all future occurrences" ends the existing payment the day before and continues with a new one from the chosen date, so earlier months stay exactly as they were. Editing a whole payment from a calendar date offers "From this date onward" or "All transactions". Month-end, 29 February and fifth-weekday schedules keep their day, and counts, end dates and loan balances carry over.
+- **Backups:** only the newest 10 backups are kept beside a budget; numbering keeps rising so a higher number is always newer, and on Windows every spelling of the file name shares one set.
+- **The app follows the clock:** a new day is picked up within 20 seconds, even while the app is idle.
+- **Keyboard:** Tab reaches the summary tiles and calendar rows with a visible focus ring; Enter or Space opens a focused row, and closing a dialog returns focus to where you were.
+- **Search:** the day dialog lists matching transactions first, then the others; typing in search is about four times faster on large budgets.
+- **Never frozen by a slow drive:** recent budgets are checked and opened in the background, showing "Checking…" and "Opening…", so an unreachable network share no longer locks the window.
+- **Dialogs:** a file dropped while a dialog is open explains why it did not open; Escape closes the day dialog's menu before the dialog, and clicking outside closes it.
+- **Calendar:** a payment that continues after a split no longer shows the "Last payment" marker, and browsing the last calendar years no longer runs past 31 December 9999.
+- **Speed:** edits update in place instead of rebuilding the whole schedule when the result is the same, the Payments page caches its list, and balance calculation allocates less.
+- **Code quality:** the scheduler no longer changes stored data, one schedule walk and one weekend rule replace several copies, shared date limits (the old maximum date did not exist) and shared name tables, dialog state in one place, and zero clippy warnings.
+
 ## [0.5.0] - 2026-10-28
 
 Second full review: deeper calculation, file-safety, interaction and polish fixes.

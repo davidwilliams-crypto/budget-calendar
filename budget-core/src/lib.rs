@@ -17,4 +17,5 @@ pub mod stats;
 
 pub use date::{Cal, Field};
 pub use db::{BudgetDay, BudgetDb, Transaction};
+pub use schedule::{add_period, calendar_field, in_calendar, weekend_shift, Slots};
 pub use model::*;

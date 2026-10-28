@@ -11,8 +11,21 @@ const DOY_LEAP: [i32; 12] = [0, 31, 60, 91, 121, 152, 182, 213, 244, 274, 305, 3
 
 pub const SUNDAY: i32 = 0;
 pub const SATURDAY: i32 = 6;
-pub const DATE_MIN: i32 = 1;
-pub const DATE_MAX: i32 = 99991131;
+
+/// The years of the calendar the port works in.
+pub const YEAR_MIN: i32 = 1000;
+pub const YEAR_MAX: i32 = 9999;
+/// 1 January 1000: the first date the calendar and the editors accept.
+pub const DATE_MIN: i32 = YEAR_MIN * 10000 + 101;
+/// 31 December 9999: the last representable date. Schedule walks stop after it, the loader
+/// clamps stored dates to it and the editors accept nothing later. (The original's
+/// `DATE_MAX = 99991131` was a sentinel, not a real date.)
+pub const DATE_MAX: i32 = YEAR_MAX * 10000 + 1231;
+
+/// Whether `v` is a real `yyyymmdd` date (already normalised) from `DATE_MIN` to `DATE_MAX`.
+pub fn is_calendar_date(v: i32) -> bool {
+    (DATE_MIN..=DATE_MAX).contains(&v) && Cal::from_int(v).get() == v
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Field {
@@ -64,7 +77,7 @@ impl Cal {
     }
 
     pub fn get(&self) -> i32 {
-        // Saturate rather than overflow for absurd years (callers compare against 99991231).
+        // Saturate rather than overflow for absurd years (callers compare against `DATE_MAX`).
         (self.y as i64 * 10000 + (self.m as i64 + 1) * 100 + self.d as i64).clamp(i32::MIN as i64, i32::MAX as i64) as i32
     }
     pub fn year(&self) -> i32 { self.y }
@@ -361,6 +374,15 @@ mod tests {
                 assert_eq!(fast.get(), slow.get(), "{start} {n}");
                 assert_eq!(Cal::diff(&Cal::from_int(start), &fast), n);
             }
+        }
+    }
+
+    #[test]
+    fn calendar_bounds_are_real_dates() {
+        assert_eq!((DATE_MIN, DATE_MAX), (10000101, 99991231));
+        assert!(is_calendar_date(DATE_MIN) && is_calendar_date(DATE_MAX));
+        for v in [DATE_MIN - 1, 9991231, DATE_MAX + 1, 100000101, 20260229, 20261301, 0, -1] {
+            assert!(!is_calendar_date(v), "{v}");
         }
     }
 

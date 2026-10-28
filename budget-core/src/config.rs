@@ -282,8 +282,17 @@ impl Default for BudgetConfig {
     }
 }
 
-fn pbool(v: &str) -> bool { v == "true" || v == "1" }
+// The original read booleans three ways (analysis/09 §1), and an existing `.budgetrc` keeps
+// loading the same only if each key keeps its reader:
+/// Plain `boolean` fields (`licAgree`, `windowMaximized`, …): exactly `true` or `1`.
+fn field_bool(v: &str) -> bool { v == "true" || v == "1" }
+/// `Config$ConfGroup` collapsed states: exactly `true`.
+fn group_bool(v: &str) -> bool { v == "true" }
+/// `Config$ConfBool` preferences: `1` or `true` in any case, surrounding spaces ignored.
 fn conf_bool(v: &str) -> bool { let t = v.trim(); t == "1" || t.eq_ignore_ascii_case("true") }
+
+/// Keys of the Preferences groups whose collapsed state is `group_collapsed`, in order.
+const GROUP_KEYS: [&str; 5] = ["ui", "fnt", "clr", "grc", "adv"];
 
 impl BudgetConfig {
     pub fn apply_theme(&mut self, t: Theme) { self.colors = Colors::theme(t); }
@@ -321,16 +330,20 @@ impl BudgetConfig {
 
     fn set_key(&mut self, k: &str, v: &str) {
         if IGNORED_KEYS.contains(&k) { return; }
-        let int = |cur: i32| v.trim().parse::<i32>().unwrap_or(cur);
+        if let Some(i) = GROUP_KEYS.iter().position(|&key| key == k) {
+            self.group_collapsed[i] = group_bool(v);
+            return;
+        }
+        let int =|cur: i32| v.trim().parse::<i32>().unwrap_or(cur);
         let dbl = |cur: f64| v.trim().parse::<f64>().unwrap_or(cur);
         match k {
             "regkey" => self.regkey = Some(v.to_string()),
             "lastFileName" => self.last_file_name = Some(v.to_string()),
-            "licAgree" => self.lic_agree = pbool(v),
-            "firstRun" => self.first_run = pbool(v),
-            "firstRunJPACKAGE" => self.first_run_jpackage = pbool(v),
-            "startFolded" => self.start_folded = pbool(v),
-            "windowMaximized" => self.window_maximized = pbool(v),
+            "licAgree" => self.lic_agree = field_bool(v),
+            "firstRun" => self.first_run = field_bool(v),
+            "firstRunJPACKAGE" => self.first_run_jpackage = field_bool(v),
+            "startFolded" => self.start_folded = field_bool(v),
+            "windowMaximized" => self.window_maximized = field_bool(v),
             "statHeight" => self.stat_height = int(self.stat_height),
             "statWidth" => self.stat_width = int(self.stat_width),
             "statX" => self.stat_x = int(self.stat_x),
@@ -343,11 +356,6 @@ impl BudgetConfig {
             "graphPresetMin" => self.graph_preset_min = dbl(self.graph_preset_min),
             "graphType" => self.graph_type = int(self.graph_type),
             "image_selection_zoom" => self.image_selection_zoom = int(self.image_selection_zoom),
-            "ui" => self.group_collapsed[0] = v == "true",
-            "fnt" => self.group_collapsed[1] = v == "true",
-            "clr" => self.group_collapsed[2] = v == "true",
-            "grc" => self.group_collapsed[3] = v == "true",
-            "adv" => self.group_collapsed[4] = v == "true",
             "firstDayOfWeekIsSunday" => self.first_day_of_week_is_sunday = conf_bool(v),
             "autosave" => self.autosave = conf_bool(v),
             "oneButtonMouse" => self.one_button_mouse = conf_bool(v),
@@ -410,7 +418,7 @@ impl BudgetConfig {
         push("graphType", self.graph_type.to_string());
         push("image_selection_zoom", self.image_selection_zoom.to_string());
         for (i, f) in self.recent_file.iter().enumerate() { push(&format!("recentFile.{i}"), f.clone()); }
-        for (i, g) in ["ui", "fnt", "clr", "grc", "adv"].iter().enumerate() { push(g, self.group_collapsed[i].to_string()); }
+        for (g, collapsed) in GROUP_KEYS.iter().zip(self.group_collapsed) { push(g, collapsed.to_string()); }
         push("firstDayOfWeekIsSunday", self.first_day_of_week_is_sunday.to_string());
         push("autosave", self.autosave.to_string());
         push("oneButtonMouse", self.one_button_mouse.to_string());
@@ -482,6 +490,19 @@ mod tests {
         let f = format_properties(&[("a b".into(), " x=y\u{e9}".into())]);
         assert!(f.ends_with("a\\ b=\\ x\\=y\\u00E9\n"));
         assert_eq!(parse_properties(&f), vec![("a b".into(), " x=y\u{e9}".into())]);
+    }
+
+    #[test]
+    fn each_boolean_key_keeps_its_original_reader() {
+        let text = "firstRunJPACKAGE=TRUE\nstartFolded=1\nwindowMaximized=true \nadv=1\nfnt=true\nshowDecimalsInCV=TRUE\nencryption=1 \nautosave=yes\n";
+        let c = BudgetConfig::from_properties(&parse_properties(text));
+        // plain fields: exactly `true` or `1`
+        assert!(!c.first_run_jpackage && c.start_folded && !c.window_maximized);
+        // groups: exactly `true`
+        assert_eq!(c.group_collapsed, [false, true, false, false, false]);
+        // preferences: `1` or any-case `true`, trimmed
+        assert!(c.show_decimals_in_cv && c.encryption && !c.autosave);
+        assert_eq!(BudgetConfig::from_properties(&c.to_properties()), c);
     }
 
     #[test]

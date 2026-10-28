@@ -1,11 +1,15 @@
-//! Month view-model: everything the widgets draw, computed once per (month, filter, db change).
+//! Month view-model: everything the widgets draw. A [`Month`] holds what does not depend on the
+//! search (built once per document revision and month); [`view`] narrows it to a search, so a
+//! keystroke only matches transactions and totals the matching ones.
 
 use budget_core::config::BudgetConfig;
 use budget_core::filter::Filter;
 use budget_core::numfmt::{balance_display, format_frac0, format_frac2};
-use budget_core::{stats, BudgetDb, Cal, Field, FLAG_IMPORTANT, FLAG_PAID};
+use budget_core::{add_period, calendar_field, stats, BudgetDb, Cal, Field, Payment, END_MODE_INDEFINITE, FLAG_IMPORTANT, FLAG_PAID,
+    SUFFIX_ADJUSTED, SUFFIX_LAST, SUFFIX_NONE};
 use eframe::egui::Color32;
 use egui_phosphor::regular as ph;
+use std::rc::Rc;
 
 use crate::theme::rgb;
 
@@ -49,6 +53,7 @@ pub fn balance_kind(closing: f64, min: f64, max: f64, threshold: f64) -> BalKind
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum BalKind { Normal, Max, Min, Low }
 
+#[derive(Clone)]
 pub struct Tip {
     pub description: String,
     pub category: Option<String>,
@@ -59,6 +64,7 @@ pub struct Tip {
     pub suffix: char,
 }
 
+#[derive(Clone)]
 pub struct TranRow {
     pub payment_id: i32,
     pub date: i32,
@@ -76,6 +82,7 @@ pub struct TranRow {
 }
 
 /// `adjustment` is the reconciliation difference (closing minus the computed balance), 0 when not adjusted.
+#[derive(Clone)]
 pub struct Balance { pub text: String, pub value: f64, pub kind: BalKind, pub adjusted: bool, pub adjustment: f64 }
 
 impl Balance {
@@ -90,26 +97,60 @@ impl Balance {
     }
 }
 
+#[derive(Clone)]
 pub struct CellData {
     pub day: i32,
     pub date: i32,
     pub in_month: bool,
     pub is_today: bool,
     pub weekend: bool,
-    pub rows: Vec<TranRow>,
+    /// Shared with the cached [`Month`], so narrowing to a search copies no row.
+    pub rows: Vec<Rc<TranRow>>,
     pub balance: Option<Balance>,
     pub note: Option<String>,
     /// Payments with a deleted or moved-away occurrence on this day: (payment id, short description).
     pub restorable: Vec<(i32, String)>,
 }
 
+#[derive(Clone)]
 pub struct QuickStats { pub opening: f64, pub closing: f64, pub min: f64, pub max: f64, pub avg: f64, pub income: f64, pub expenses: f64 }
 
 /// `pct` is `None` (shown as `?`) when the month has neither income nor expenses.
+#[derive(Clone)]
 pub struct BriefRow { pub desc: String, pub amount: f64, pub pct: Option<f64>, pub diff: Option<f64>, pub total: bool, pub filter: String }
 
+/// What a month's search-independent content depends on.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct MonthKey {
+    /// The document revision: (budget generation, the engine's update count).
+    pub revision: (u64, i32),
+    pub month: i32,
+    pub today: i32,
+    pub decimals: bool,
+    pub sunday_first: bool,
+    pub min_balance: f64,
+}
+
+/// A [`MonthView`] is the month narrowed to the search text.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ViewKey { pub month: MonthKey, pub search: String }
+
+/// The search-independent part of a month view: every transaction row, balances, the quick
+/// statistics and the unfiltered summary.
+pub struct Month {
+    pub key: MonthKey,
+    cells: Vec<CellData>,
+    /// Payment index of each cell's rows, to match them against a search.
+    sources: Vec<Vec<usize>>,
+    quick: QuickStats,
+    brief: Vec<BriefRow>,
+    shares_of_expenses: bool,
+    total: usize,
+    below_min: bool,
+}
+
 pub struct MonthView {
-    pub key: (i32, String, u64),
+    pub key: ViewKey,
     pub cells: Vec<CellData>,
     pub quick: QuickStats,
     pub brief: Vec<BriefRow>,
@@ -147,7 +188,40 @@ fn icon_for(image: Option<&str>, desc: &str, cat: Option<&str>) -> &'static str 
 /// Filter expression that isolates one payment / category (spaces escaped as the filter language requires).
 fn esc(s: &str) -> String { s.replace(' ', "\\ ") }
 
-pub fn build(db: &mut BudgetDb, cfg: &BudgetConfig, cur: &Cal, today: i32, filter: Option<&Filter>, key: (i32, String, u64)) -> MonthView {
+/// The nominal date of the slot after payment `p`'s last one (slot number `n_pays`), as its
+/// recurrence would continue; `None` past the last representable date.
+fn next_slot(p: &Payment) -> Option<i32> {
+    let field = calendar_field(p.freq_type);
+    let mut c = Cal::from_int(p.start_date);
+    for n in 1..=p.n_pays.max(1) {
+        add_period(&mut c, field, p.frequency, p.start_date, n);
+        if c.get() > 99_991_231 { return None; }
+    }
+    Some(c.get())
+}
+
+/// Whether payment `pi` goes on as another record, as after "This and all future occurrences":
+/// an enabled payment with the same description and category starts on its next scheduled date.
+fn continues(db: &BudgetDb, pi: usize) -> bool {
+    let p = &db.payments[pi];
+    if p.end_mode() == END_MODE_INDEFINITE { return false; }
+    let Some(next) = next_slot(p) else { return false };
+    db.payments.iter().enumerate()
+        .any(|(j, q)| j != pi && !q.disabled && q.start_date == next && q.description == p.description && q.category == p.category)
+}
+
+/// The marker shown for payment `pi`'s transaction on `date`: the engine's, except that the Last
+/// marker is dropped where the payment continues on another record (see [`continues`]). The
+/// occurrence is then marked as the engine marks any other: adjusted when it has a dated amount,
+/// was moved off a weekend or adds up several scheduled slots (`slots`).
+fn shown_suffix(db: &BudgetDb, pi: usize, date: i32, suffix: char, slots: usize) -> char {
+    if suffix != SUFFIX_LAST || !continues(db, pi) { return suffix; }
+    let dated = db.payments[pi].opt.iter().any(|o| o.date == date && !o.deleted);
+    if dated || slots > 1 || !db.is_regular_payment_on(pi, date) { SUFFIX_ADJUSTED } else { SUFFIX_NONE }
+}
+
+/// The month of `cur` without a search; `key` names what it was built from.
+pub fn month(db: &mut BudgetDb, cfg: &BudgetConfig, cur: &Cal, today: i32, key: MonthKey) -> Month {
     let decimals = cfg.show_decimals_in_cv;
     let n_days = cur.max_day();
     let mut closings = Vec::new();
@@ -162,17 +236,19 @@ pub fn build(db: &mut BudgetDb, cfg: &BudgetConfig, cur: &Cal, today: i32, filte
     let lead = if cfg.first_day_of_week_is_sunday { first_dow } else { (first_dow + 6) % 7 };
     let total_cells = lead + n_days;
     let trail = (7 - total_cells % 7) % 7;
-    let (mut shown, mut total) = (0, 0);
-    let mut cells = Vec::new();
+    let mut total = 0;
+    let (mut cells, mut sources) = (Vec::new(), Vec::new());
     for i in 0..(total_cells + trail) {
         let mut cal = *cur;
         cal.add(Field::Day, i - lead);
         let in_month = i >= lead && i < total_cells;
         let date = cal.get();
         let mut cell = CellData { day: cal.day(), date, in_month, is_today: date == today, weekend: cal.is_weekend(), rows: Vec::new(), balance: None, note: None, restorable: Vec::new() };
+        let mut source = Vec::new();
         if in_month {
             if let Some(day) = db.get_day(&cal) {
                 let trans: Vec<(usize, f64, f64, char)> = day.transactions.iter().map(|t| (t.pmt, t.amount, t.balance, t.suffix)).collect();
+                let regulars = day.regulars.clone();
                 let closing = day.closing_balance;
                 let adjusted = day.closing_balance_adjusted;
                 let adjustment = if adjusted { day.adjustment_diff } else { 0.0 };
@@ -182,16 +258,16 @@ pub fn build(db: &mut BudgetDb, cfg: &BudgetConfig, cur: &Cal, today: i32, filte
                 for (pi, amount, balance, suffix) in trans {
                     let p = &db.payments[pi];
                     total += 1;
-                    if let Some(f) = filter { if !f.is_match(p, amount, date) { continue; } }
-                    shown += 1;
                     let flag = p.get_flag(date);
                     let hi = p.get_hilighting(date);
                     let hi = if hi == -1 { p.default_hilighting() } else { hi };
                     let note = p.get_note(date);
                     // The suffix marker is drawn as a coloured dot by the calendar, not as text.
+                    let suffix = shown_suffix(db, pi, date, suffix, regulars.iter().filter(|&&r| r == pi).count());
                     let amt = money(amount, decimals);
                     let valid_days = if p.grace_period_days > 0 || p.is_tentative() { db.valid_payment_days(pi, date) } else { Vec::new() };
-                    cell.rows.push(TranRow {
+                    source.push(pi);
+                    cell.rows.push(Rc::new(TranRow {
                         payment_id: p.id,
                         date,
                         icon: icon_for(p.image_path.as_deref(), &p.description, p.category.as_deref()),
@@ -205,25 +281,52 @@ pub fn build(db: &mut BudgetDb, cfg: &BudgetConfig, cur: &Cal, today: i32, filte
                         filter: format!("desc:{}", esc(p.short_description())),
                         tip: Tip { description: p.description.clone(), category: p.category.clone(), amount, planned: p.amount, balance_after: balance, note, suffix },
                         valid_days,
-                    });
+                    }));
                 }
                 let kind = balance_kind(closing, min, max, cfg.min_balance_4_max_saving);
                 cell.balance = Some(Balance { text: money(balance_display(closing, decimals), decimals), value: closing, kind, adjusted, adjustment });
             }
         }
         cells.push(cell);
+        sources.push(source);
     }
-    let st = stats::calc_statistics(db, cur, 1, false, filter);
     // The summary tiles must reconcile with the opening/closing balances, which are never filtered,
-    // so they always use unfiltered totals; the filter only narrows the calendar and the brief summary.
-    let st_all = filter.map(|_| stats::calc_statistics(db, cur, 1, false, None));
-    let totals = st_all.as_ref().unwrap_or(&st);
+    // so they always use unfiltered totals; a search only narrows the calendar and the brief summary.
+    let st = stats::calc_statistics(db, cur, 1, false, None);
     let mut last = *cur;
     last.set_day_last();
     let opening = db.get_day(cur).map_or(0.0, |d| d.opening_balance);
     let closing = db.get_day(&last).map_or(0.0, |d| d.closing_balance);
     let avg = if closings.is_empty() { 0.0 } else { closings.iter().sum::<f64>() / closings.len() as f64 };
-    let quick = QuickStats { opening, closing, min, max, avg, income: totals.total_income, expenses: totals.total_expense };
+    let quick = QuickStats { opening, closing, min, max, avg, income: st.total_income, expenses: st.total_expense };
+    let (brief, shares_of_expenses) = brief(&st);
+    Month { key, cells, sources, quick, brief, shares_of_expenses, total, below_min: min + 0.05 < cfg.min_balance_4_max_saving && min != max }
+}
+
+/// `month` narrowed to `filter` (the parsed `search`; `None` shows every transaction): the
+/// calendar lists the matching transactions and the brief summary totals them.
+pub fn view(month: &Month, db: &mut BudgetDb, cur: &Cal, filter: Option<&Filter>, search: &str) -> MonthView {
+    let key = ViewKey { month: month.key.clone(), search: search.to_string() };
+    let Some(f) = filter else {
+        return MonthView { key, cells: month.cells.clone(), quick: month.quick.clone(), brief: month.brief.clone(), shown: month.total,
+            total: month.total, below_min: month.below_min, shares_of_expenses: month.shares_of_expenses, filtered: false };
+    };
+    let mut shown = 0;
+    let cells = month.cells.iter().zip(&month.sources).map(|(cell, source)| {
+        let rows: Vec<Rc<TranRow>> = cell.rows.iter().zip(source)
+            .filter(|(row, &pi)| f.is_match(&db.payments[pi], row.value, row.date))
+            .map(|(row, _)| row.clone()).collect();
+        shown += rows.len();
+        CellData { day: cell.day, date: cell.date, in_month: cell.in_month, is_today: cell.is_today, weekend: cell.weekend, rows,
+            balance: cell.balance.clone(), note: cell.note.clone(), restorable: cell.restorable.clone() }
+    }).collect();
+    let st = stats::calc_statistics(db, cur, 1, false, Some(f));
+    let (brief, shares_of_expenses) = brief(&st);
+    MonthView { key, cells, quick: month.quick.clone(), brief, shown, total: month.total, below_min: month.below_min, shares_of_expenses, filtered: true }
+}
+
+/// The brief summary of `st` and whether its shares are of expenses (the month has no income).
+fn brief(st: &stats::Stats) -> (Vec<BriefRow>, bool) {
     // brief summary: rows >= 5% of the base, the rest as "Other…"; income first, then disposable income.
     // 05 §13: shares are of total income, or of total expenses when there is no income, else `?`.
     let base = if st.total_income != 0.0 { st.total_income } else { st.total_expense };
@@ -245,8 +348,7 @@ pub fn build(db: &mut BudgetDb, cfg: &BudgetConfig, cur: &Cal, today: i32, filte
     if other != 0.0 { brief.push(BriefRow { desc: "Other…".into(), amount: other, pct: pct(other), diff: None, total: false, filter: String::new() }); }
     let net = st.total_income + st.total_expense;
     brief.push(BriefRow { desc: "Disposable income".into(), amount: net, pct: pct(net), diff: None, total: true, filter: String::new() });
-    let shares_of_expenses = st.total_income == 0.0 && st.total_expense != 0.0;
-    MonthView { key, cells, quick, brief, shown, total, below_min: min + 0.05 < cfg.min_balance_4_max_saving && min != max, shares_of_expenses, filtered: filter.is_some() }
+    (brief, st.total_income == 0.0 && st.total_expense != 0.0)
 }
 
 #[cfg(test)]
@@ -258,7 +360,7 @@ mod build_tests {
         let cur = Cal::from_int(20261001);
         let mut db = BudgetDb::new(&cur, 12, false);
         for p in payments { db.add(p); }
-        crate::document::rebuild(&mut db, &cur, 12, false);
+        db.rebuild_db(&cur, 12, false);
         (db, cur)
     }
 
@@ -267,7 +369,8 @@ mod build_tests {
     }
 
     fn month(db: &mut BudgetDb, cur: &Cal, filter: Option<&Filter>) -> MonthView {
-        build(db, &BudgetConfig::default(), cur, 20261027, filter, (cur.get(), String::new(), 0))
+        let base = super::month(db, &BudgetConfig::default(), cur, 20261027, MonthKey::default());
+        view(&base, db, cur, filter, filter.map_or("", |f| f.filter.as_str()))
     }
 
     fn cell(view: &MonthView, date: i32) -> &CellData { view.cells.iter().find(|c| c.date == date && c.in_month).unwrap() }
@@ -301,6 +404,86 @@ mod build_tests {
         assert_eq!(share_cell(Some(-0.2), true), "0%");
         let (mut db, cur) = db_with(vec![payment(20261005, "Car loan", -400.0)]);
         assert!(month(&mut db, &cur, None).shares_of_expenses);
+    }
+
+    #[test]
+    fn a_search_narrows_the_cached_month_and_its_summary_but_not_the_balance_tiles() {
+        let (mut db, cur) = db_with(vec![payment(20261001, "Salary", 1000.0), payment(20261005, "Rent", -600.0),
+            payment(20261005, "Gym", -40.0), payment(20261020, "Groceries", -120.0)]);
+        let base = super::month(&mut db, &BudgetConfig::default(), &cur, 20261027, MonthKey::default());
+        let all = view(&base, &mut db, &cur, None, "");
+        assert_eq!((all.shown, all.total, all.filtered), (4, 4, false));
+        let f = Filter::new("<-100", 20261027).unwrap();
+        let narrowed = view(&base, &mut db, &cur, Some(&f), "<-100");
+        assert_eq!((narrowed.shown, narrowed.total, narrowed.filtered), (2, 4, true));
+        assert_eq!(cell(&narrowed, 20261005).rows.iter().map(|r| r.text.as_str()).collect::<Vec<_>>(), ["Rent"]);
+        assert!(cell(&narrowed, 20261001).rows.is_empty() && cell(&narrowed, 20261001).balance.is_some());
+        // The tiles reconcile with the unfiltered balances; the summary totals the matches only.
+        assert_eq!((narrowed.quick.income, narrowed.quick.expenses), (1000.0, -760.0));
+        assert_eq!(narrowed.brief[0].amount, 0.0);
+        assert_eq!(narrowed.brief.last().unwrap().amount, -720.0);
+        assert!(narrowed.shares_of_expenses && !all.shares_of_expenses);
+        // The same cached month serves the next keystroke and clearing the search.
+        let rent = Filter::new("rent", 20261027).unwrap();
+        assert_eq!(view(&base, &mut db, &cur, Some(&rent), "rent").shown, 1);
+        assert_eq!(view(&base, &mut db, &cur, None, "").shown, 4);
+    }
+
+    fn monthly(start: i32, desc: &str, amount: f64) -> Payment {
+        let mut p = payment(start, desc, amount);
+        p.category = Some("Home".into());
+        p.set_end_mode(budget_core::END_MODE_INDEFINITE);
+        p
+    }
+
+    /// The engine's and the calendar's marker of the payment's transaction on `date`.
+    fn suffixes(db: &mut BudgetDb, date: i32, desc: &str) -> (char, char) {
+        let cur = { let mut c = Cal::from_int(date); c.set_day_one(); c };
+        let pi = db.payments.iter().enumerate().filter(|(_, p)| p.description == desc).map(|(i, _)| i).collect::<Vec<_>>();
+        let engine = db.get_day(&Cal::from_int(date)).unwrap().transactions.iter()
+            .find(|t| pi.contains(&t.pmt)).unwrap().suffix;
+        let view = month(db, &cur, None);
+        let row = cell(&view, date).rows.iter().find(|r| r.text == desc).map(|r| r.tip.suffix).unwrap();
+        (engine, row)
+    }
+
+    #[test]
+    fn a_split_payment_continues_without_a_last_marker_where_the_new_record_starts() {
+        let (mut db, _) = db_with(vec![monthly(20260115, "Rent", -900.0)]);
+        let id = db.payments[0].id;
+        crate::document::change_future_transactions(&mut db, id, 20261115, -950.0, "", budget_core::FLAG_NONE).unwrap();
+        assert_eq!(db.payments.len(), 2, "the payment was split");
+        // The earlier record ends with October; the engine marks that as its last payment.
+        assert_eq!(suffixes(&mut db, 20261015, "Rent"), (SUFFIX_LAST, SUFFIX_NONE));
+        assert_eq!(suffixes(&mut db, 20261115, "Rent").1, SUFFIX_NONE);
+        // A continuation that is disabled, or starts elsewhere, does not carry the payment on.
+        db.payments[1].disabled = true;
+        assert_eq!(suffixes(&mut db, 20261015, "Rent").1, SUFFIX_LAST);
+        db.payments[1].disabled = false;
+        db.payments[1].category = Some("Other".into());
+        assert_eq!(suffixes(&mut db, 20261015, "Rent").1, SUFFIX_LAST);
+    }
+
+    #[test]
+    fn a_payment_that_really_ends_keeps_its_last_marker() {
+        let mut ending = monthly(20260115, "Loan", -300.0);
+        ending.set_end_mode(budget_core::END_MODE_N_PAYS);
+        ending.n_pays = 10;
+        // Same name, but starting a month after the next date the loan would have had.
+        let later = monthly(20261215, "Loan", -300.0);
+        let (mut db, _) = db_with(vec![ending, later]);
+        assert_eq!(suffixes(&mut db, 20261015, "Loan"), (SUFFIX_LAST, SUFFIX_LAST));
+    }
+
+    #[test]
+    fn a_continued_occurrence_moved_off_a_weekend_shows_as_adjusted_instead_of_last() {
+        // The 17th of October 2026 is a Saturday: a business-days payment is paid on Monday the 19th.
+        let mut p = monthly(20260117, "Insurance", -80.0);
+        p.set_no_weekends(true);
+        let (mut db, _) = db_with(vec![p]);
+        let id = db.payments[0].id;
+        crate::document::change_future_transactions(&mut db, id, 20261117, -85.0, "", budget_core::FLAG_NONE).unwrap();
+        assert_eq!(suffixes(&mut db, 20261019, "Insurance"), (SUFFIX_LAST, SUFFIX_ADJUSTED));
     }
 
     #[test]

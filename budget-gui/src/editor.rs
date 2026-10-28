@@ -1,5 +1,6 @@
 //! Payment and transaction drafts. Dialogs return values without mutating the database.
-use budget_core::{date::sdate, BudgetDb, Cal, Field, Payment, END_MODE_DATE, END_MODE_INDEFINITE,
+use budget_core::date::{sdate, DATE_MAX, DATE_MIN, YEAR_MAX, YEAR_MIN};
+use budget_core::{BudgetDb, Cal, Field, Payment, END_MODE_DATE, END_MODE_INDEFINITE,
     END_MODE_LOAN_PAID, END_MODE_MASK, END_MODE_N_PAYS, FLAG_IMPORTANT, FLAG_NONE, FLAG_PAID};
 use eframe::egui::{self, ComboBox, Grid, RichText, ScrollArea, TextEdit};
 use egui_phosphor::regular as ph;
@@ -13,7 +14,12 @@ const SECTION_GAP: f32 = 4.0;
 /// The transaction editor's destructive footer action.
 const DELETE_OCCURRENCE: &str = "Delete occurrence…";
 
-pub enum PaymentAction { None, Cancel, Apply(Box<Payment>) }
+/// `Apply(payment, from)`: `from` is the date from which an existing payment's change applies
+/// (edited from a calendar occurrence, analysis/04 §2); `None` applies it to every occurrence.
+pub enum PaymentAction { None, Cancel, Apply(Box<Payment>, Option<i32>) }
+/// The answer to the original's "Payment's Amount Changed" choice (analysis/04 §2).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ChangeScope { FromDate, All }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TransactionScope { Occurrence, Future }
 pub enum TransactionAction { None, Cancel, Apply { amount: f64, note: String, flag: char, scope: TransactionScope }, Delete }
@@ -34,7 +40,6 @@ impl AmountKind {
 /// Seed text for an amount box: the grouped 2-decimal magnitude, as the original shows it.
 fn amount_seed(amount: f64) -> String { budget_core::numfmt::format_frac2(amount.abs()) }
 
-const WEEKDAY_HEADERS: [&str; 7] = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
 
 struct DatePicker { month: Cal, sunday_first: bool }
 impl DatePicker {
@@ -47,13 +52,13 @@ impl DatePicker {
     fn first_weekday(&self) -> i32 { if self.sunday_first { 0 } else { 1 } }
     /// Column headers starting at the configured first day of the week, like the calendar grid.
     fn headers(&self) -> [&'static str; 7] {
-        std::array::from_fn(|i| WEEKDAY_HEADERS[(self.first_weekday() as usize + i) % 7])
+        std::array::from_fn(|i| &crate::names::WEEKDAYS[(self.first_weekday() as usize + i) % 7][..2])
     }
     /// Blank cells before the 1st of the month.
     fn leading_blanks(&self) -> i32 { (self.month.day_of_week() + 7 - self.first_weekday()) % 7 }
     fn shift_month(&mut self, delta: i32) {
         let mut month = self.month; month.add(Field::Month, delta);
-        if (1000..=9999).contains(&month.year()) { self.month = month; }
+        if (YEAR_MIN..=YEAR_MAX).contains(&month.year()) { self.month = month; }
     }
     fn choose(&self, day: i32) -> Option<i32> {
         (1..=self.month.max_day()).contains(&day)
@@ -123,6 +128,12 @@ pub struct PaymentEditor {
     confirm_past: Option<Payment>,
     notice: Option<String>,
     focus_description: bool,
+    /// The calendar occurrence the editor was opened from (the original dialog's `cal`), if any.
+    opened_from: Option<i32>,
+    /// `opened_from` when the payment also has occurrences before it, so a change can split there.
+    split_date: Option<i32>,
+    /// Shown once an amount or schedule change needs the from-this-date-or-all choice.
+    scope: Option<ChangeScope>,
 }
 
 impl PaymentEditor {
@@ -162,7 +173,23 @@ impl PaymentEditor {
             no_weekends: payment.is_no_weekends(), early_pay: payment.is_early_pay(), tentative: payment.is_tentative(),
             reminder: payment.is_reminder(), sticky: payment.is_sticky(), grace: payment.grace_period_days.to_string(),
             amount_seed, loan_seed, error: None, confirm_past: None, notice: None, focus_description: true,
+            opened_from: None, split_date: None, scope: None,
         }
+    }
+
+    /// Edit `payment` as opened from its calendar occurrence on `date` ("Edit whole payment" on a
+    /// transaction); `None` (the Payments page) edits every occurrence.
+    pub fn edit_at(payment: &Payment, date: Option<i32>) -> Self {
+        let mut editor = Self::edit(payment);
+        editor.opened_from = date;
+        editor.split_date = date.filter(|&d| crate::document::splits_at(payment, d));
+        editor
+    }
+
+    /// Whether applying `p` changes the amount or schedule of an existing payment's occurrences.
+    fn changes_occurrences(&self, p: &Payment) -> bool {
+        self.payment_id.is_some()
+            && (p.amount.to_bits() != self.original.amount.to_bits() || !self.original.is_same_schedule(p))
     }
 
     /// The end condition the form will store (a single payment always ends after one payment).
@@ -176,12 +203,13 @@ impl PaymentEditor {
     fn weekend_options_enabled(&self) -> bool { !self.tentative }
 
     /// A warning when applying `p` rewrites occurrences before `today` (amount or schedule changed).
+    /// Only for the Payments page: opened from a calendar occurrence, the editor offers the
+    /// from-this-date-or-all choice instead (analysis/04 §1.3 step 16 prompts only then).
     fn past_change_warning(&self, p: &Payment, today: i32) -> Option<String> {
-        let changed = p.amount.to_bits() != self.original.amount.to_bits() || !self.original.is_same_schedule(p);
-        (self.payment_id.is_some() && self.original.start_date < today && changed).then(|| format!(
+        (self.opened_from.is_none() && self.original.start_date < today && self.changes_occurrences(p)).then(|| format!(
             "This payment already has transactions. Applying changes the amount or schedule of every occurrence \
              since {}, including past months (manually adjusted dates keep their amounts). To change only from a \
-             date onward, click that date's transaction and choose \u{201c}This and all future occurrences\u{201d}. \
+             date onward, right-click that date's transaction in the calendar and choose Edit whole payment. \
              Click Apply to all occurrences to continue.", sdate(self.original.start_date)))
     }
 
@@ -275,19 +303,42 @@ impl PaymentEditor {
         Ok(p)
     }
 
-    /// Build and, when the change rewrites past occurrences, ask for one confirming Apply first.
+    /// Build and, when the change rewrites past occurrences, ask first: opened from a calendar
+    /// occurrence with earlier ones, choose "from this date onward" (preselected, as in the
+    /// original) or "all"; otherwise confirm the past-months notice with a second Apply.
     fn apply(&mut self, db: &BudgetDb, today: i32) -> PaymentAction {
         match self.build(db) {
             Err(e) => { self.error = Some(e); self.notice = None; self.confirm_past = None; PaymentAction::None }
-            Ok(p) => match self.past_change_warning(&p, today) {
-                Some(warning) if self.confirm_past.as_ref() != Some(&p) => {
+            Ok(p) => {
+                if let Some(date) = self.split_date.filter(|_| self.changes_occurrences(&p)) {
                     self.error = None;
-                    self.notice = Some(warning);
-                    self.confirm_past = Some(p);
-                    PaymentAction::None
+                    return match self.scope {
+                        None => { self.scope = Some(ChangeScope::FromDate); PaymentAction::None }
+                        Some(ChangeScope::FromDate) => PaymentAction::Apply(Box::new(p), Some(date)),
+                        Some(ChangeScope::All) => PaymentAction::Apply(Box::new(p), None),
+                    };
                 }
-                _ => PaymentAction::Apply(Box::new(p)),
-            },
+                match self.past_change_warning(&p, today) {
+                    Some(warning) if self.confirm_past.as_ref() != Some(&p) => {
+                        self.error = None;
+                        self.notice = Some(warning);
+                        self.confirm_past = Some(p);
+                        PaymentAction::None
+                    }
+                    _ => PaymentAction::Apply(Box::new(p), None),
+                }
+            }
+        }
+    }
+
+    /// The primary button's label, naming the chosen scope once the choice is shown.
+    fn apply_label(&self) -> String {
+        match (self.scope, self.split_date) {
+            (Some(ChangeScope::FromDate), Some(date)) => format!("Apply from {}", sdate(date)),
+            (Some(ChangeScope::All), _) => "Apply to all occurrences".into(),
+            _ if self.confirm_past.is_some() => "Apply to all occurrences".into(),
+            _ if self.payment_id.is_some() => "Apply changes".into(),
+            _ => "Add payment".into(),
         }
     }
 
@@ -302,11 +353,15 @@ impl PaymentEditor {
             ui.set_width(560.0_f32.min((ctx.screen_rect().width() - 64.0).max(240.0)));
             ui.spacing_mut().item_spacing = egui::vec2(8.0, FIELD_GAP);
             ui.heading(if self.payment_id.is_some() { "Edit payment" } else { "Add payment" });
-            ui.label(RichText::new(if self.payment_id.is_some() {
-                "Payment schedule · All occurrences"
-            } else { "Create a one-time or repeating payment" }).color(t.text_muted));
+            ui.label(RichText::new(match (self.payment_id, self.split_date) {
+                (Some(_), Some(date)) => format!("Payment schedule · Opened from {}", sdate(date)),
+                (Some(_), None) => "Payment schedule · All occurrences".into(),
+                _ => "Create a one-time or repeating payment".into(),
+            }).color(t.text_muted));
             ui.add_space(2.0);
-            let reserved_height = if self.error.is_some() { 320.0 } else { 250.0 };
+            // Keep the pinned error, notice or scope choice and the footer on screen.
+            let pinned = if self.scope.is_some() { 150.0 } else if self.notice.is_some() { 110.0 } else { 0.0 };
+            let reserved_height = if self.error.is_some() { 320.0 } else { 250.0 } + pinned;
             ScrollArea::vertical().id_salt("payment_editor_scroll")
                 .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible)
                 .max_height((ctx.screen_rect().height() - reserved_height).max(160.0)).show(ui, |ui| {
@@ -413,12 +468,13 @@ impl PaymentEditor {
                 });
             });
             if let Some(error) = &self.error { form_error(ui, error, t); }
-            if let Some(notice) = &self.notice { form_notice(ui, notice, t); }
+            if let (Some(scope), Some(date)) = (&mut self.scope, self.split_date) {
+                scope_choice(ui, scope, date, t);
+            } else if let Some(notice) = &self.notice { form_notice(ui, notice, t); }
             ui.add_space(4.0);
             ui.separator();
-            let label = if self.confirm_past.is_some() { "Apply to all occurrences" }
-                else if self.payment_id.is_some() { "Apply changes" } else { "Add payment" };
-            let (applied, cancelled, _) = dialog_footer(ui, label, None, t);
+            let label = self.apply_label();
+            let (applied, cancelled, _) = dialog_footer(ui, &label, None, t);
             if applied { apply = true; }
             if cancelled { action = PaymentAction::Cancel; }
         });
@@ -498,7 +554,7 @@ impl TransactionEditor {
                         ui.radio_value(&mut self.scope, TransactionScope::Future, "This and all future occurrences").labelled_by(label);
                         let help = match self.scope {
                             TransactionScope::Occurrence => format!("Change the amount for {} only.", sdate(self.date)),
-                            TransactionScope::Future => format!("Change amounts from {} onward. Earlier dates keep their amounts.", sdate(self.date)),
+                            TransactionScope::Future => format!("Change amounts from {} onward; earlier dates keep theirs. The payment continues as a new record from this date.", sdate(self.date)),
                         };
                         ui.label(RichText::new(help).color(t.text_muted));
                     });
@@ -542,7 +598,7 @@ impl TransactionEditor {
     }
 }
 
-fn form_section(ui: &mut egui::Ui, title: &str, t: &Tokens, body: impl FnOnce(&mut egui::Ui)) {
+pub(crate) fn form_section(ui: &mut egui::Ui, title: &str, t: &Tokens, body: impl FnOnce(&mut egui::Ui)) {
     egui::Frame::new().fill(t.bg).corner_radius(8).inner_margin(16).show(ui, |ui| {
         ui.set_width(ui.available_width());
         ui.label(RichText::new(title).strong().color(t.text));
@@ -555,7 +611,7 @@ fn field_label(ui: &mut egui::Ui, label: &str, t: &Tokens) -> egui::Response {
 }
 /// A caption and its control(s), kept `LABEL_GAP` apart so the caption reads as belonging to the
 /// control below it rather than the field above (fields themselves are `FIELD_GAP` apart).
-fn field<R>(ui: &mut egui::Ui, label: &str, t: &Tokens, add: impl FnOnce(&mut egui::Ui, egui::Id) -> R) -> R {
+pub(crate) fn field<R>(ui: &mut egui::Ui, label: &str, t: &Tokens, add: impl FnOnce(&mut egui::Ui, egui::Id) -> R) -> R {
     ui.vertical(|ui| {
         ui.spacing_mut().item_spacing.y = LABEL_GAP;
         let label = field_label(ui, label, t);
@@ -569,7 +625,7 @@ fn text_field(ui: &mut egui::Ui, label: &str, value: &mut String, hint: &str, t:
 }
 /// One dialog footer for every form: an optional destructive ghost action on the left, then
 /// (right to left) the primary action and Cancel beside it. Returns `(apply, cancel, destroy)`.
-fn dialog_footer(ui: &mut egui::Ui, primary: &str, destructive: Option<&str>, t: &Tokens) -> (bool, bool, bool) {
+pub(crate) fn dialog_footer(ui: &mut egui::Ui, primary: &str, destructive: Option<&str>, t: &Tokens) -> (bool, bool, bool) {
     let (mut apply, mut cancel, mut destroy) = (false, false, false);
     ui.horizontal(|ui| {
         if let Some(text) = destructive {
@@ -681,7 +737,7 @@ fn amount_field(ui: &mut egui::Ui, amount: &mut String, kind: &mut AmountKind, t
         }).inner
     })
 }
-fn form_error(ui: &mut egui::Ui, error: &str, t: &Tokens) {
+pub(crate) fn form_error(ui: &mut egui::Ui, error: &str, t: &Tokens) {
     egui::Frame::new().fill(theme::tint(t.surface, t.negative, 0.08)).corner_radius(6)
         .inner_margin(10).show(ui, |ui| {
             ui.label(RichText::new(error).color(t.negative));
@@ -691,6 +747,21 @@ fn form_notice(ui: &mut egui::Ui, notice: &str, t: &Tokens) {
     egui::Frame::new().fill(theme::tint(t.surface, t.text_muted, 0.10)).corner_radius(6)
         .inner_margin(10).show(ui, |ui| {
             ui.label(RichText::new(notice).color(t.text));
+        });
+}
+/// The original's "Payment's Amount Changed" choice (analysis/04 §2), pinned above the footer.
+fn scope_choice(ui: &mut egui::Ui, scope: &mut ChangeScope, date: i32, t: &Tokens) {
+    egui::Frame::new().fill(theme::tint(t.surface, t.text_muted, 0.10)).corner_radius(6)
+        .inner_margin(10).show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.spacing_mut().item_spacing.y = LABEL_GAP;
+            let label = ui.label(RichText::new(format!("This payment has transactions before {}. Apply the change to:", sdate(date))).color(t.text));
+            ui.radio_value(scope, ChangeScope::FromDate, format!("Transactions from {} onward", sdate(date))).labelled_by(label.id);
+            ui.radio_value(scope, ChangeScope::All, "All transactions, past and future").labelled_by(label.id);
+            ui.label(RichText::new(match scope {
+                ChangeScope::FromDate => "Earlier transactions keep their amount and schedule; the payment continues as a new record from this date. Transactions adjusted by hand keep their amounts.",
+                ChangeScope::All => "Transactions adjusted by hand keep their amounts.",
+            }).color(t.text_muted));
         });
 }
 #[allow(clippy::too_many_arguments)]
@@ -727,16 +798,15 @@ fn date_field(ui: &mut egui::Ui, label: &str, id: &str, value: &mut String, pick
     entered
 }
 fn date_picker(ui: &mut egui::Ui, picker: &mut DatePicker, selected: &str, t: &Tokens) -> Option<i32> {
-    const MONTHS: [&str; 12] = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
     ui.set_width(266.0);
     ui.spacing_mut().item_spacing = egui::vec2(4.0, 5.0);
     let mut chosen = None;
     ui.horizontal(|ui| {
-        if ui.add_enabled(picker.month.get() > 10000101, egui::Button::new("‹")).on_hover_text("Previous month").clicked() {
+        if ui.add_enabled(picker.month.ym() > Cal::from_int(DATE_MIN).ym(), egui::Button::new("‹")).on_hover_text("Previous month").clicked() {
             picker.shift_month(-1);
         }
-        ui.add_sized([190.0, 34.0], egui::Label::new(RichText::new(format!("{} {}", MONTHS[picker.month.month() as usize], picker.month.year())).strong()));
-        if ui.add_enabled(picker.month.get() < 99991201, egui::Button::new("›")).on_hover_text("Next month").clicked() {
+        ui.add_sized([190.0, 34.0], egui::Label::new(RichText::new(format!("{} {}", crate::names::MONTHS_LONG[picker.month.month() as usize], picker.month.year())).strong()));
+        if ui.add_enabled(picker.month.ym() < Cal::from_int(DATE_MAX).ym(), egui::Button::new("›")).on_hover_text("Next month").clicked() {
             picker.shift_month(1);
         }
     });
@@ -850,18 +920,32 @@ fn last_same_weekday_of_month(date: i32) -> i32 {
     }
 }
 
+/// The calendar range the editors accept (`YEAR_MIN..=YEAR_MAX`). The loader clamps stored dates
+/// into `0..=DATE_MAX` (SPEC.md §6); the editors refuse anything outside the years the calendar can
+/// show, so a typed date is never silently changed on the next load.
+const YEAR_RANGE_ERROR: &str = "Use a year from 1000 to 9999.";
+
 fn parse_iso_date(text: &str) -> Result<i32, String> {
     let text = text.trim();
-    let b = text.as_bytes();
-    if b.len() != 10 || b[4] != b'-' || b[7] != b'-'
-        || !b.iter().enumerate().all(|(i, c)| i == 4 || i == 7 || c.is_ascii_digit()) {
+    // Year, month and day; the year may have any number of digits (or a minus sign) so an
+    // out-of-range year gets a message about the year rather than about the format.
+    let (year_text, rest) = text.char_indices().skip(1).find(|&(_, c)| c == '-')
+        .map_or((text, ""), |(i, _)| (&text[..i], &text[i + 1..]));
+    let two_digits = |s: &str| s.len() == 2 && s.bytes().all(|c| c.is_ascii_digit());
+    let (month_text, day_text) = rest.split_once('-').unwrap_or(("", ""));
+    let unsigned_year = year_text.strip_prefix('-').unwrap_or(year_text);
+    if !two_digits(month_text) || !two_digits(day_text) || unsigned_year.is_empty()
+        || !unsigned_year.bytes().all(|c| c.is_ascii_digit()) {
         return Err("Use YYYY-MM-DD.".into());
     }
-    let year: i32 = text[..4].parse().map_err(|_| "Invalid year.")?;
-    let month: i32 = text[5..7].parse().map_err(|_| "Invalid month.")?;
-    let day: i32 = text[8..].parse().map_err(|_| "Invalid day.")?;
-    if !(1000..=9999).contains(&year) || !(1..=12).contains(&month) || !(1..=31).contains(&day) {
-        return Err("Enter a real date in years 1000–9999.".into());
+    let year = match year_text.parse::<i64>() {
+        Ok(year) if (YEAR_MIN as i64..=YEAR_MAX as i64).contains(&year) && year_text.len() == 4 => year as i32,
+        _ => return Err(YEAR_RANGE_ERROR.into()),
+    };
+    let month: i32 = month_text.parse().map_err(|_| "Invalid month.")?;
+    let day: i32 = day_text.parse().map_err(|_| "Invalid day.")?;
+    if !(1..=12).contains(&month) || !(1..=31).contains(&day) {
+        return Err("This date does not exist.".into());
     }
     let date = year * 10000 + month * 100 + day;
     if Cal::ymd(year, month - 1, day).get() != date { return Err("This date does not exist.".into()); }
@@ -872,10 +956,10 @@ fn parse_iso_date(text: &str) -> Result<i32, String> {
 fn period_span(p: &Payment) -> i32 {
     let start = Cal::from_int(p.start_date);
     match p.freq_type {
-        'd' => Cal::diff(&start, &Cal::from_int(99991231)),
-        'w' => Cal::diff(&start, &Cal::from_int(99991231)) / 7,
-        'y' => 9999 - start.year(),
-        _ => (9999 - start.year()) * 12 + 11 - start.month(),
+        'd' => Cal::diff(&start, &Cal::from_int(DATE_MAX)),
+        'w' => Cal::diff(&start, &Cal::from_int(DATE_MAX)) / 7,
+        'y' => YEAR_MAX - start.year(),
+        _ => (YEAR_MAX - start.year()) * 12 + 11 - start.month(),
     }
 }
 fn max_frequency(p: &Payment) -> i32 { period_span(p).max(1) }
@@ -1137,6 +1221,26 @@ mod tests {
         }
         assert_eq!(parse_iso_date("2024-02-29").unwrap(), 20240229);
         assert_eq!(parse_iso_date("1000-01-01").unwrap(), 10000101);
+        assert_eq!(parse_iso_date("9999-12-31").unwrap(), 99991231);
+    }
+
+    #[test]
+    fn start_and_end_years_outside_the_calendar_are_refused_with_a_year_message() {
+        // The loader clamps such dates (SPEC.md §6), so the editor must not store them.
+        for text in ["0000-01-01", "0001-01-01", "0999-12-31", "10000-01-01", "99999-12-31", "-0500-06-01", "123456789012345678901-01-01"] {
+            assert_eq!(parse_iso_date(text).unwrap_err(), YEAR_RANGE_ERROR, "{text}");
+        }
+        for text in ["2026-1-01", "2026/10/27", "+2026-10-27", "26-10-27x", "", "-"] {
+            assert_eq!(parse_iso_date(text).unwrap_err(), "Use YYYY-MM-DD.", "{text:?}");
+        }
+        let mut e = valid_editor(); e.start_date = "10000-01-01".into();
+        assert_eq!(e.build(&db()).unwrap_err(), format!("Start date: {YEAR_RANGE_ERROR}"));
+        let mut e = valid_editor(); e.recurrence = Recurrence::Months; e.end_mode = END_MODE_DATE;
+        e.end_date = "0999-12-31".into();
+        assert_eq!(e.build(&db()).unwrap_err(), format!("End date: {YEAR_RANGE_ERROR}"));
+        // A legacy date the loader clamped to year 0 must be corrected before saving the payment.
+        let mut legacy = Payment::new(20261027); legacy.description = "Old".into(); legacy.amount = -1.0; legacy.start_date = 0;
+        assert_eq!(PaymentEditor::edit(&legacy).build(&db()).unwrap_err(), format!("Start date: {YEAR_RANGE_ERROR}"));
     }
 
     #[test]
@@ -1539,12 +1643,72 @@ mod tests {
         e.amount = "1200".into();
         assert!(matches!(e.apply(&db(), 20261027), PaymentAction::None));
         assert!(e.notice.as_deref().unwrap().contains("2025-01-01"));
-        assert!(matches!(e.apply(&db(), 20261027), PaymentAction::Apply(ref q) if q.amount == -1200.0));
+        assert!(matches!(e.apply(&db(), 20261027), PaymentAction::Apply(ref q, None) if q.amount == -1200.0));
         // Renaming changes no occurrence; a payment that has not started yet has no past.
         let mut e = PaymentEditor::edit(&p); e.description = "Home rent".into();
-        assert!(matches!(e.apply(&db(), 20261027), PaymentAction::Apply(_)));
+        assert!(matches!(e.apply(&db(), 20261027), PaymentAction::Apply(_, None)));
         let mut e = PaymentEditor::edit(&p); e.amount = "1200".into();
-        assert!(matches!(e.apply(&db(), 20250101), PaymentAction::Apply(_)));
+        assert!(matches!(e.apply(&db(), 20250101), PaymentAction::Apply(_, None)));
         assert!(matches!(PaymentEditor::new(20200101).apply(&db(), 20261027), PaymentAction::None));
+    }
+
+    fn monthly_rent() -> Payment {
+        let mut p = Payment::new(20250101); p.id = 3; p.description = "Rent".into(); p.amount = -1100.0;
+        p.freq_type = 'm'; p.set_end_mode(END_MODE_INDEFINITE);
+        p
+    }
+
+    #[test]
+    fn editing_from_a_calendar_occurrence_offers_from_that_date_or_all() {
+        // 04 §1.3 step 16 / §2: opened from a cell, an amount or schedule change asks
+        // "Change the FUTURE transactions only starting on <date>" (preselected) or "ALL".
+        let p = monthly_rent();
+        for (change, choose_all) in [("amount", false), ("amount", true), ("schedule", false)] {
+            let mut e = PaymentEditor::edit_at(&p, Some(20261101));
+            assert_eq!(e.split_date, Some(20261101));
+            if change == "amount" { e.amount = "1200".into(); } else { e.frequency = "2".into(); }
+            assert!(matches!(e.apply(&db(), 20261027), PaymentAction::None), "the first Apply asks");
+            assert_eq!(e.scope, Some(ChangeScope::FromDate));
+            assert!(e.notice.is_none(), "the choice replaces the past-months notice");
+            assert_eq!(e.apply_label(), "Apply from 2026-11-01");
+            if choose_all { e.scope = Some(ChangeScope::All); assert_eq!(e.apply_label(), "Apply to all occurrences"); }
+            let expected = if choose_all { None } else { Some(20261101) };
+            assert!(matches!(e.apply(&db(), 20261027), PaymentAction::Apply(_, from) if from == expected), "{change} {choose_all}");
+        }
+        // No prompt for a rename, or from the first occurrence (nothing before it to keep).
+        let mut e = PaymentEditor::edit_at(&p, Some(20261101)); e.description = "Home rent".into();
+        assert!(matches!(e.apply(&db(), 20261027), PaymentAction::Apply(_, None)));
+        let mut e = PaymentEditor::edit_at(&p, Some(20250101)); e.amount = "1200".into();
+        assert_eq!(e.split_date, None);
+        assert!(matches!(e.apply(&db(), 20261027), PaymentAction::Apply(_, None)));
+        // The Payments page (no date) keeps the all-occurrences notice.
+        let mut e = PaymentEditor::edit_at(&p, None); e.amount = "1200".into();
+        assert!(matches!(e.apply(&db(), 20261027), PaymentAction::None));
+        assert!(e.notice.is_some() && e.scope.is_none());
+    }
+
+    #[test]
+    fn the_from_date_choice_and_footer_fit_a_compact_window() {
+        let size = egui::vec2(900.0, 600.0);
+        for dark in [false, true] {
+            let ctx = egui::Context::default();
+            let t = Tokens::new(&config::Colors::theme(if dark { config::Theme::Dark } else { config::Theme::Light }), dark);
+            theme::install_fonts(&ctx);
+            theme::apply(&ctx, &t);
+            let mut e = PaymentEditor::edit_at(&monthly_rent(), Some(20261101));
+            e.amount = "1200".into();
+            assert!(matches!(e.apply(&db(), 20261027), PaymentAction::None));
+            let mut output = None;
+            for _ in 0..4 {
+                output = Some(ctx.run(egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, size)), ..Default::default() },
+                    |ctx| { let _ = e.show(ctx, &t, &db(), true, 20261027); }));
+            }
+            let output = output.unwrap();
+            let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, size);
+            for label in ["Transactions from 2026-11-01 onward", "All transactions, past and future", "Cancel", "Apply from 2026-11-01"] {
+                let rect = transaction_label(&output, label);
+                assert!(screen.contains_rect(rect), "{label} outside the compact window (dark={dark}): {rect:?}");
+            }
+        }
     }
 }

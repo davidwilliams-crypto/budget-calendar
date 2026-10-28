@@ -2,9 +2,8 @@
 //! Scheduling (`update`, `addPeriod`, loan schedule) lives in `schedule.rs`.
 
 use crate::bgt;
-use crate::date::{Cal, Field, SATURDAY, SUNDAY};
+use crate::date::{Cal, Field};
 use crate::model::*;
-use std::cmp::Ordering;
 use std::path::Path;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -29,13 +28,11 @@ pub struct BudgetDay {
     pub restorable: Vec<usize>,
     /// Payments that had a scheduled transaction placed on this day (duplicates possible).
     pub regulars: Vec<usize>,
+    /// `transactions` is in display order (see `sort_transactions`).
     sorted: bool,
-    /// `transactions == null` in the original: nothing was ever added.
-    has_list: bool,
 }
 
 impl BudgetDay {
-    pub fn has_transactions(&self) -> bool { self.has_list }
     pub fn get(&self, pmt: usize) -> Option<&Transaction> { self.transactions.iter().find(|t| t.pmt == pmt) }
     pub fn get_mut(&mut self, pmt: usize) -> Option<&mut Transaction> { self.transactions.iter_mut().find(|t| t.pmt == pmt) }
     pub fn is_restorable(&self, pmt: usize) -> bool { self.restorable.contains(&pmt) }
@@ -64,6 +61,18 @@ impl BudgetDay {
     pub fn closing_balance_display(&self, exact: bool) -> f64 {
         crate::numfmt::balance_display(self.closing_balance, exact)
     }
+}
+
+/// Put a day's transactions in display order once after they change (`disabled` tells whether a
+/// payment is disabled): enabled payments first, each group in `amount_order`.
+fn sort_transactions(day: &mut BudgetDay, disabled: impl Fn(usize) -> bool) {
+    if day.sorted { return; }
+    if day.transactions.len() > 1 {
+        day.transactions.sort_by(|a, b| {
+            disabled(a.pmt).cmp(&disabled(b.pmt)).then_with(|| amount_order(a.amount, b.amount))
+        });
+    }
+    day.sorted = true;
 }
 
 #[derive(Debug, Default)]
@@ -158,14 +167,39 @@ impl BudgetDb {
 
     /// `rebuildDB(cal, futureMonths, unlimitedHistory)`.
     pub fn rebuild_db(&mut self, cal: &Cal, future_months: i32, unlimited_history: bool) {
+        let (start, end) = self.window(cal, future_months, unlimited_history);
+        self.start_date = start;
+        self.end_date = end;
+        self.start_year = start.year();
+        let n_years = (end.year() - self.start_year + 1) as usize;
+        self.y_offset = Vec::with_capacity(n_years);
+        let mut y = start;
+        let mut total = 0;
+        for _ in 0..n_years {
+            self.y_offset.push(total);
+            total += y.max_day_of_year();
+            y.add(Field::Year, 1);
+        }
+        self.days = (0..total).map(|_| BudgetDay::default()).collect();
+        self.start_date_int = start.get();
+        self.end_date_int = end.get();
+        for i in 0..self.payments.len() {
+            self.payments[i].calendar_days.clear();
+            self.update_payment_inner(i, false);
+        }
+        self.update_adjustments(None);
+    }
+
+    /// The first and last day of the window `rebuild_db(cal, …)` builds: from the month of the
+    /// latest balance checkpoint two months before `cal` (else of the earliest transaction), or
+    /// every year with unlimited history, widened to cover a loan running across the start;
+    /// through December of the year `future_months` after `cal`.
+    pub fn window(&self, cal: &Cal, future_months: i32, unlimited_history: bool) -> (Cal, Cal) {
         // Where the first occurrence is actually placed: EARLY_PAY moves a weekend start to the prior Friday.
         let placed_start = |p: &Payment| -> i32 {
-            if p.is_no_weekends() && p.is_early_pay() && !p.is_tentative() {
-                let c = Cal::from_int(p.start_date);
-                let back = match c.day_of_week() { SATURDAY => 1, SUNDAY => 2, _ => 0 };
-                if back != 0 { let mut d = c; d.add(Field::Day, -back); return d.get(); }
-            }
-            p.start_date
+            let start = Cal::from_int(p.start_date);
+            let shown = p.shown_date(&start);
+            if p.is_early_pay() && shown != start { shown.get() } else { p.start_date }
         };
         let mut base = *cal;
         base.add(Field::Month, -2);
@@ -197,31 +231,15 @@ impl BudgetDb {
             if start.gt(&ls.actual_start) && start.lt(&ls.actual_end) { start.set_cal(&ls.actual_start); }
         }
         start.set(Field::Day, 1);
-        self.start_date = start;
         let mut end = *cal;
         end.add(Field::Month, future_months);
         end.set(Field::Month, 11);
         let last = end.max_day();
         end.set(Field::Day, last);
-        self.end_date = end;
-        self.start_year = start.year();
-        let n_years = (end.year() - self.start_year + 1) as usize;
-        self.y_offset = Vec::with_capacity(n_years);
-        let mut y = start;
-        let mut total = 0;
-        for _ in 0..n_years {
-            self.y_offset.push(total);
-            total += y.max_day_of_year();
-            y.add(Field::Year, 1);
-        }
-        self.days = (0..total).map(|_| BudgetDay::default()).collect();
-        self.start_date_int = start.get();
-        self.end_date_int = end.get();
-        for i in 0..self.payments.len() {
-            self.payments[i].calendar_days.clear();
-            self.update_payment_inner(i, false);
-        }
-        self.update_adjustments(None);
+        // Viewing the last years must not build days past the calendar (a deliberate deviation).
+        let date_max = Cal::from_int(crate::date::DATE_MAX);
+        if end.gt(&date_max) { end = date_max; }
+        (start, end)
     }
 
     /// `setLeftLimit`: start of the window becomes 1 January of its year (no rebuild).
@@ -235,7 +253,6 @@ impl BudgetDb {
 
     pub(crate) fn day_add(&mut self, day: usize, pmt: usize, amount: f64, suffix: char) {
         let d = &mut self.days[day];
-        d.has_list = true;
         d.remove(pmt);
         d.transactions.push(Transaction { pmt, amount, balance: 0.0, suffix });
         d.sorted = false;
@@ -270,24 +287,12 @@ impl BudgetDb {
     }
     pub(crate) fn day_mut(&mut self, day: usize) -> &mut BudgetDay { &mut self.days[day] }
 
-    fn sort_day(&mut self, day: usize) {
-        if self.days[day].sorted { return; }
-        let disabled: Vec<bool> = self.payments.iter().map(|p| p.disabled).collect();
-        self.days[day].transactions.sort_by(|a, b| {
-            let (da, db) = (disabled[a.pmt], disabled[b.pmt]);
-            if da == db {
-                if a.amount < 0.0 && b.amount < 0.0 { b.amount.partial_cmp(&a.amount).unwrap_or(Ordering::Equal).reverse() }
-                else { a.amount.partial_cmp(&b.amount).unwrap_or(Ordering::Equal).reverse() }
-            } else if da && !db { Ordering::Greater } else { Ordering::Less }
-        });
-        self.days[day].sorted = true;
-    }
-
     /// `getDay(cal)`: `None` outside the window; balances are brought up to date first.
     pub fn get_day(&mut self, c: &Cal) -> Option<&BudgetDay> {
         let i = self.cal_index(c)?;
         if !self.in_sync { self.calc_balances(None); }
-        self.sort_day(i);
+        let payments = &self.payments;
+        sort_transactions(&mut self.days[i], |p| payments[p].disabled);
         Some(&self.days[i])
     }
 
@@ -307,9 +312,8 @@ impl BudgetDb {
             }
         }
         let disabled: Vec<bool> = self.payments.iter().map(|p| p.disabled).collect();
-        for i in start..self.days.len() {
-            self.sort_day(i);
-            let day = &mut self.days[i];
+        for day in &mut self.days[start..] {
+            sort_transactions(day, |p| disabled[p]);
             day.opening_balance = running;
             for t in day.transactions.iter_mut() {
                 if !disabled[t.pmt] { running += t.amount; }
@@ -382,6 +386,15 @@ impl BudgetDb {
 
     /// `update(p)`: re-schedule one payment after it changed.
     pub fn update_payment(&mut self, i: usize) { self.update_payment_inner(i, true); }
+
+    /// Puts `payment` (an edited copy of payment `i`, possibly taken before a rebuild) in place of
+    /// payment `i` and re-schedules it. The engine keeps its own record of the days `i` occupies:
+    /// a copy's record may point at days of an earlier window.
+    pub fn replace_payment(&mut self, i: usize, mut payment: Payment) {
+        payment.calendar_days = std::mem::take(&mut self.payments[i].calendar_days);
+        self.payments[i] = payment;
+        self.update_payment(i);
+    }
 
     pub(crate) fn remove_from_budget_days(&mut self, i: usize) {
         let days = std::mem::take(&mut self.payments[i].calendar_days);

@@ -7,19 +7,25 @@
 
 mod calendar;
 mod balance_editor;
+mod date_watch;
 mod document;
 mod editor;
+mod file_probe;
+mod names;
 mod payment_list;
+mod refresh;
+mod reports;
 mod theme;
 mod view;
 mod version;
 
 use budget_core::config::BudgetConfig;
-use budget_core::filter::Filter;
+use budget_core::filter::{Filter, Haystacks};
 use budget_core::{bgt, BudgetDb, Cal, Field};
 use eframe::egui::{self, Align, Align2, Button, Frame, Key, Layout, Margin, Modifiers, RichText, Sense, Stroke, StrokeKind, TextEdit, Vec2};
 use egui_phosphor::regular as ph;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 
@@ -27,9 +33,10 @@ use theme::{alpha, tint, ts, Tokens, CAPTION, ICON, SECTION, SEMI, SP1, SP2, SP3
 use view::{money, MonthView};
 use editor::{PaymentAction, PaymentEditor, TransactionAction, TransactionEditor, TransactionScope};
 use balance_editor::{BalanceAction, BalanceEditor};
+use date_watch::DateWatch;
+use file_probe::{FileProbes, FileStatus, TaskState};
+use names::{MONTHS, MONTHS_LONG};
 
-const MONTHS: [&str; 12] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-const MONTHS_LONG: [&str; 12] = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 const SUMMARY_W: f32 = 292.0;
 
 fn home_dir() -> PathBuf {
@@ -131,23 +138,167 @@ enum PendingAction { Open(PathBuf), Close }
 #[derive(Clone, Copy)]
 struct DeleteTarget { id: i32, date: Option<i32> }
 
+/// An encrypted budget that was read and waits for its password.
+struct PasswordPrompt {
+    path: PathBuf,
+    /// The file as read: unlocking builds the budget from these, without reading the file again.
+    bytes: Vec<u8>,
+    typed: String,
+    error: String,
+}
+
+/// What reading a budget found.
+enum Loaded {
+    Budget(Box<BudgetDb>, Vec<u8>),
+    /// Encrypted and no password given: the bytes wait for the password prompt.
+    Locked(Vec<u8>),
+    Failed(String),
+}
+
+/// What building a budget depends on besides the file.
+#[derive(Clone, Copy, PartialEq)]
+struct LoadSettings { today: i32, month: i32, future_months: i32, unlimited_history: bool }
+
+/// Reads `path` (unless its bytes are given) and builds the budget. A background open runs this on
+/// a worker thread, so a budget on an unreachable share never freezes the window.
+fn load_budget(read: &file_probe::Reader, path: &Path, bytes: Option<Vec<u8>>, password: Option<&str>, s: LoadSettings) -> Loaded {
+    let bytes = match bytes.map_or_else(|| read(path), Ok) {
+        Ok(bytes) => bytes,
+        Err(e) => return Loaded::Failed(e.to_string()),
+    };
+    let text = bgt::latin1_decode(&bytes);
+    if password.is_none() && bgt::is_encrypted_text(&text) { return Loaded::Locked(bytes); }
+    let cur = Cal::from_int(s.month);
+    let built = bgt::load_str(&text, s.today, password).map_err(|l| l.log).and_then(|loaded| {
+        // A malformed file must surface as an error banner, never take the whole app down.
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let mut db = BudgetDb::from_loaded(loaded, &cur, s.future_months, s.unlimited_history);
+            // One "today" for the grid and the tentative scheduler (--today included).
+            if db.today != s.today { db.today = s.today; db.rebuild_db(&cur, s.future_months, s.unlimited_history); }
+            db
+        })).map_err(|_| "This budget file could not be built: it contains values the schedule engine cannot handle.".to_string())
+    });
+    match built {
+        Ok(mut db) => { db.file_name = Some(path.display().to_string()); Loaded::Budget(Box::new(db), bytes) }
+        Err(log) => Loaded::Failed(log),
+    }
+}
+
+/// A budget being read and built on a worker thread.
+struct Opening {
+    path: PathBuf,
+    password: Option<String>,
+    /// The edit count when the open was decided: a later edit is never replaced unasked.
+    edits: u64,
+    /// Opened automatically (the last budget): no "Opened" notice.
+    quiet: bool,
+    settings: LoadSettings,
+    task: file_probe::Task<Loaded>,
+}
+
+/// The unsaved-changes prompt's answers.
+#[derive(Clone, Copy)]
+enum UnsavedChoice {
+    /// Return to the editor (a draft) or Cancel: the pending open or close is dropped.
+    Back,
+    /// Discard the draft or the unsaved changes.
+    Discard,
+    Save,
+    /// Save a separate copy (offered after a failed save).
+    SaveCopy,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum DeleteChoice { Cancel, Delete }
+
+/// How an open dialog counts for the modal checks.
+#[derive(Clone, Copy, PartialEq)]
+enum DialogKind {
+    /// An editor holding unapplied changes.
+    Draft,
+    /// The keyboard shortcuts sheet, which F1 toggles while nothing else is open.
+    Shortcuts,
+    Other,
+}
+
+/// Every dialog that can cover the main window. `Dialogs::open` lists them without `..`, so a
+/// new one does not compile until it says how it counts.
+#[derive(Default)]
+struct Dialogs {
+    payment_editor: Option<PaymentEditor>,
+    transaction_editor: Option<TransactionEditor>,
+    balance_editor: Option<BalanceEditor>,
+    /// The day's transaction list.
+    day: Option<i32>,
+    confirm_delete: Option<DeleteTarget>,
+    /// An open or close waiting for the unsaved-changes prompt.
+    pending: Option<PendingAction>,
+    /// An encrypted budget waiting for its password.
+    password: Option<PasswordPrompt>,
+    about: bool,
+    legend: bool,
+    shortcuts: bool,
+}
+
+impl Dialogs {
+    /// The kinds of the open dialogs.
+    fn open(&self) -> impl Iterator<Item = DialogKind> {
+        let Dialogs { payment_editor, transaction_editor, balance_editor, day, confirm_delete, pending, password, about, legend, shortcuts } = self;
+        [
+            (payment_editor.is_some(), DialogKind::Draft),
+            (transaction_editor.is_some(), DialogKind::Draft),
+            (balance_editor.is_some(), DialogKind::Draft),
+            (day.is_some(), DialogKind::Other),
+            (confirm_delete.is_some(), DialogKind::Other),
+            (pending.is_some(), DialogKind::Other),
+            (password.is_some(), DialogKind::Other),
+            (*about, DialogKind::Other),
+            (*legend, DialogKind::Other),
+            (*shortcuts, DialogKind::Shortcuts),
+        ].into_iter().filter_map(|(open, kind)| open.then_some(kind))
+    }
+
+    /// An editor holds unapplied changes.
+    fn has_draft(&self) -> bool { self.open().any(|kind| kind == DialogKind::Draft) }
+    fn any(&self) -> bool { self.open().next().is_some() }
+    fn any_but_shortcuts(&self) -> bool { self.open().any(|kind| kind != DialogKind::Shortcuts) }
+}
+
+/// Day dialog input state carried between frames.
+#[derive(Clone, Copy, Default)]
+struct DayDialogInput {
+    /// Input time of the first frame the dialog was shown.
+    opened_at: Option<f64>,
+    /// A More menu was open at the end of the previous frame.
+    menu_open: bool,
+    /// The current press must not close the dialog when it is released on the backdrop.
+    ignore_release: bool,
+}
+
 struct App {
     cfg: BudgetConfig,
     rc_path: PathBuf,
+    /// Switches `today` when the local date changes (fixed with `--today`).
+    date_watch: DateWatch,
+    /// Background existence checks of remembered budgets.
+    files: FileProbes,
+    /// The last budget, opened once its background check finds it.
+    auto_open: Option<PathBuf>,
+    /// A budget being read and built in the background.
+    opening: Option<Opening>,
+    /// Counts applied edits, so an open finishing later never replaces newer ones unasked.
+    edits: u64,
+    /// The control that had keyboard focus when a dialog opened; it gets focus back on close.
+    focus_return: Option<egui::Id>,
     db: Option<BudgetDb>,
     file: Option<PathBuf>,
     password: Option<String>,
     saved_bytes: Option<Vec<u8>>,
     dirty: bool,
-    payment_editor: Option<PaymentEditor>,
-    transaction_editor: Option<TransactionEditor>,
-    balance_editor: Option<BalanceEditor>,
+    dialogs: Dialogs,
     drag_month_hover: Option<(i32, Instant)>,
     show_payments: bool,
     payment_list: payment_list::PaymentList,
-    day_dialog: Option<i32>,
-    confirm_delete: Option<DeleteTarget>,
-    pending_action: Option<PendingAction>,
     allow_close: bool,
     /// First day of the viewed month.
     cur: Cal,
@@ -155,8 +306,14 @@ struct App {
     filter_text: String,
     filter: Option<Filter>,
     filter_error: Option<String>,
+    /// Counts the budgets opened, so a cache never mistakes a new budget for the previous one.
+    generation: u64,
+    /// The month on screen without a search (rebuilt when the document, month or settings change)...
+    month: Option<view::Month>,
+    /// ...narrowed to the search text: what the calendar and summary draw.
     view: Option<MonthView>,
-    pw_prompt: Option<(PathBuf, String, String)>,
+    /// The search text of every payment for the document revision it was made from.
+    haystacks: Option<((u64, i32), Arc<Haystacks>)>,
     toast: Option<Toast>,
     /// Persistent error until dismissed.
     banner: Option<Banner>,
@@ -165,9 +322,6 @@ struct App {
     frames: u32,
     dark: bool,
     show_summary: bool,
-    show_about: bool,
-    show_legend: bool,
-    show_shortcuts: bool,
     focus_filter: bool,
     title_dirty: bool,
     t: Tokens,
@@ -181,92 +335,183 @@ impl App {
         cur.set_day_one();
         let t = Tokens::new(&cfg.colors, cli.dark);
         let mut app = App {
+            date_watch: if cli.today.is_some() { DateWatch::fixed() } else { DateWatch::system() },
+            files: FileProbes::default(), auto_open: None, opening: None, edits: 0, focus_return: None,
             cfg, rc_path, db: None, file: None, password: None, cur, today: cli.today.unwrap_or_else(|| Cal::today().get()),
-            saved_bytes: None, dirty: false, payment_editor: None, transaction_editor: None,
-            balance_editor: None, drag_month_hover: None,
-            show_payments: false, payment_list: payment_list::PaymentList::default(),
-            day_dialog: None, confirm_delete: None, pending_action: None, allow_close: false,
-            filter_text: String::new(), filter: None, filter_error: None, view: None, pw_prompt: None, toast: None, banner: None,
-            screenshot: cli.screenshot, frames: 0, dark: cli.dark, show_summary: true, show_about: false, show_legend: false, show_shortcuts: false, focus_filter: false, title_dirty: true, t,
+            saved_bytes: None, dirty: false, dialogs: Dialogs::default(), drag_month_hover: None,
+            show_payments: false, payment_list: payment_list::PaymentList::default(), allow_close: false,
+            filter_text: String::new(), filter: None, filter_error: None, generation: 0, month: None, view: None, haystacks: None,
+            toast: None, banner: None,
+            screenshot: cli.screenshot, frames: 0, dark: cli.dark, show_summary: true, focus_filter: false, title_dirty: true, t,
         };
         if let Some(m) = cli.month { app.cur = Cal::from_int(m); app.cur.set_day_one(); }
         if let Some(f) = cli.filter { app.filter_text = f; app.set_filter(); }
         if let Some(f) = cli.file {
             // A file named on the command line never falls back to the last-used budget.
             let p = resolve_path(Path::new(f.trim()));
-            if p.is_file() { app.open(&p); app.toast = None; }
+            if p.is_file() { app.load(&p, None); app.toast = None; }
             else { app.banner = Some(Banner { text: format!("No file was found at {}.", p.display()), details: None, ..Banner::load_failure(&p, "") }); }
         } else if let Some(f) = app.cfg.last_file_name.clone() {
+            // The last budget may sit on an unreachable share, whose check blocks for ~20 s: look for
+            // it off the UI thread and open it when it turns up (see `finish_auto_open`).
             let p = resolve_path(Path::new(f.trim()));
-            if p.is_file() { app.open(&p); app.toast = None; }
+            match app.files.wait(&p, Duration::from_millis(250)) {
+                FileStatus::Present(_) => { app.load(&p, None); app.toast = None; }
+                FileStatus::Checking => app.auto_open = Some(p),
+                FileStatus::Missing => {}
+            }
         }
         app
     }
 
+    /// Opens the last budget once its slow background check finds it, unless the user opened
+    /// something else meanwhile.
+    fn finish_auto_open(&mut self) {
+        let Some(path) = self.auto_open.clone() else { return };
+        match self.files.status(&path) {
+            FileStatus::Checking => {}
+            FileStatus::Present(_) if self.has_modal() => {}
+            FileStatus::Present(_) => {
+                self.auto_open = None;
+                if self.db.is_none() { self.start_opening(&path, None, None, true); }
+            }
+            FileStatus::Missing => self.auto_open = None,
+        }
+    }
+
+    /// The original's 20 s date-change timer (analysis/03 §11.4), switching without asking:
+    /// the new day becomes today for the grid, the filters and the tentative scheduler.
+    fn check_date(&mut self, ctx: &egui::Context) {
+        let (date, next) = self.date_watch.poll(Instant::now());
+        // Wake an idle window for the next check.
+        if let Some(next) = next { ctx.request_repaint_after(next); }
+        // A dragged transaction keeps the schedule it was picked up from; switch on a later check.
+        if egui::DragAndDrop::has_payload_of_type::<calendar::DraggedTransaction>(ctx) { return; }
+        if let Some(date) = date.filter(|d| *d != self.today) { self.set_today(date); }
+    }
+
+    fn set_today(&mut self, date: i32) {
+        // Someone looking at the current month keeps looking at the current month (31 Oct → 1 Nov).
+        let follow = self.cur.get() / 100 == self.today / 100;
+        self.today = date;
+        if follow { self.cur = Cal::from_int(date); self.cur.set_day_one(); }
+        // Relative filters such as range: are evaluated against today.
+        if !self.filter_text.trim().is_empty() { self.set_filter(); }
+        if let Some(db) = &mut self.db {
+            db.today = date;
+            db.rebuild_db(&self.cur, self.cfg.future_n_months, self.cfg.unlimited_history);
+        }
+        self.view = None;
+    }
+
     fn notify(&mut self, text: impl Into<String>) { self.toast = Some(Toast { text: text.into(), error: false, until: Instant::now() + Duration::from_secs(4) }); }
+    /// A brief warning that needs no dismissing (unlike the persistent error banner).
+    fn warn(&mut self, text: impl Into<String>) { self.toast = Some(Toast { text: text.into(), error: true, until: Instant::now() + Duration::from_secs(5) }); }
     fn fail(&mut self, text: impl Into<String>) { self.banner = Some(Banner::plain(text)); }
     fn fail_load(&mut self, path: &Path, log: &str) { self.banner = Some(Banner::load_failure(path, log)); }
 
     fn open(&mut self, path: &Path) {
+        // An explicit open replaces any pending automatic open of the last budget.
+        self.auto_open = None;
         let path = &resolve_path(path);
         if self.dirty || self.has_draft() {
-            self.pending_action = Some(PendingAction::Open(path.to_path_buf()));
+            self.dialogs.pending = Some(PendingAction::Open(path.to_path_buf()));
             return;
         }
         self.open_unchecked(path);
     }
 
-    fn open_unchecked(&mut self, path: &Path) {
-        match std::fs::read(path) {
-            Ok(bytes) if bgt::is_encrypted_text(&bgt::latin1_decode(&bytes)) => {
-                self.pw_prompt = Some((path.to_path_buf(), String::new(), String::new()));
-            }
-            Ok(_) => self.load(path, None),
-            Err(e) => self.fail_load(path, &e.to_string()),
-        }
-    }
+    /// Opens `path` once any unsaved changes were dealt with. The file is read and built on a
+    /// worker thread (an unreachable share must not freeze the window); `finish_opening` takes the
+    /// result.
+    fn open_unchecked(&mut self, path: &Path) { self.start_opening(path, None, None, false); }
 
     fn open_dialog(&mut self) {
         if let Some(p) = rfd::FileDialog::new().add_filter("Budget", &["bgt"]).pick_file() { self.open(&p); }
     }
 
+    fn load_settings(&self) -> LoadSettings {
+        LoadSettings { today: self.today, month: self.cur.get(), future_months: self.cfg.future_n_months, unlimited_history: self.cfg.unlimited_history }
+    }
+
+    /// Reads (unless `bytes` are given) and builds `path` in the background. Opening the budget
+    /// already being read changes nothing; another one replaces it.
+    fn start_opening(&mut self, path: &Path, bytes: Option<Vec<u8>>, password: Option<String>, quiet: bool) {
+        if bytes.is_none() {
+            if let Some(opening) = self.opening.as_mut().filter(|o| o.path == path) {
+                // Already being read. This request has passed the unsaved-changes prompt, so edits
+                // made meanwhile must not make the finished open ask again.
+                opening.edits = self.edits;
+                return;
+            }
+        }
+        let settings = self.load_settings();
+        let (job_path, job_password) = (path.to_path_buf(), password.clone());
+        let task = self.files.spawn(move |read| load_budget(read, &job_path, bytes, job_password.as_deref(), settings));
+        self.opening = Some(Opening { path: path.to_path_buf(), password, edits: self.edits, quiet, settings, task });
+    }
+
+    /// Takes a finished background open. Edits made while the file was read, or an editor opened
+    /// meanwhile, are never replaced unasked: the open then waits for the unsaved-changes prompt,
+    /// as any open does. A close or another open requested meanwhile wins.
+    fn finish_opening(&mut self) {
+        let Some(opening) = &self.opening else { return };
+        let mut loaded = match opening.task.poll() {
+            TaskState::Running => return,
+            TaskState::Done(loaded) => loaded,
+            TaskState::Lost => Loaded::Failed("The budget could not be read.".into()),
+        };
+        let Some(Opening { path, password, edits, quiet, settings, .. }) = self.opening.take() else { return };
+        if self.dialogs.pending.is_some() { return; }
+        if edits != self.edits || self.has_draft() {
+            self.dialogs.pending = Some(PendingAction::Open(path));
+            return;
+        }
+        // Built around the month and date of the click: follow any change since, as a load now would.
+        if let Loaded::Budget(db, _) = &mut loaded {
+            if settings != self.load_settings() {
+                db.today = self.today;
+                db.rebuild_db(&self.cur, self.cfg.future_n_months, self.cfg.unlimited_history);
+            }
+        }
+        self.apply_loaded(&path, password, loaded, quiet);
+    }
+
+    /// Reads and builds `path` on this thread: at startup, before the window is shown.
     fn load(&mut self, path: &Path, password: Option<&str>) {
         let path = &resolve_path(path);
-        let today = self.today;
-        let parsed = std::fs::read(path).map_err(|e| e.to_string()).and_then(|bytes| {
-            let loaded = bgt::load_str(&bgt::latin1_decode(&bytes), self.today, password).map_err(|l| l.log)?;
-            // A malformed file must surface as an error banner, never take the whole app down.
-            let (cur, months, unlimited) = (self.cur, self.cfg.future_n_months, self.cfg.unlimited_history);
-            let mut db = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                let mut db = document::from_loaded(loaded, &cur, months, unlimited);
-                // One "today" for the grid and the tentative scheduler (--today included).
-                if db.today != today { db.today = today; document::rebuild(&mut db, &cur, months, unlimited); }
-                db
-            }))
-                .map_err(|_| "This budget file could not be built: it contains values the schedule engine cannot handle.".to_string())?;
-            db.file_name = Some(path.display().to_string());
-            Ok((db, bytes))
-        });
-        match parsed {
-            Ok((db, bytes)) => {
-                self.db = Some(db);
+        let read: file_probe::Reader = Arc::new(|path: &Path| std::fs::read(path));
+        let loaded = load_budget(&read, path, None, password, self.load_settings());
+        self.apply_loaded(path, password.map(str::to_string), loaded, false);
+    }
+
+    fn apply_loaded(&mut self, path: &Path, password: Option<String>, loaded: Loaded, quiet: bool) {
+        match loaded {
+            Loaded::Budget(db, bytes) => {
+                self.db = Some(*db);
+                self.generation += 1;
                 self.file = Some(path.to_path_buf());
-                self.password = password.map(str::to_string);
+                self.password = password;
                 self.saved_bytes = Some(bytes);
                 self.dirty = false;
-                self.payment_editor = None;
-                self.transaction_editor = None;
-                self.balance_editor = None;
+                self.dialogs.payment_editor = None;
+                self.dialogs.transaction_editor = None;
+                self.dialogs.balance_editor = None;
+                // A pending confirmation names a payment of the replaced budget by id.
+                self.dialogs.confirm_delete = None;
                 self.drag_month_hover = None;
                 self.payment_list.selected = None;
-                self.day_dialog = None;
+                self.dialogs.day = None;
                 self.remember_file(path);
                 self.view = None;
                 self.banner = None;
                 self.title_dirty = true;
-                self.notify(format!("Opened {}", file_name(path)));
+                if !quiet { self.notify(format!("Opened {}", file_name(path))); }
             }
-            Err(log) => self.fail_load(path, &log),
+            Loaded::Locked(bytes) => {
+                self.dialogs.password = Some(PasswordPrompt { path: path.to_path_buf(), bytes, typed: String::new(), error: String::new() });
+            }
+            Loaded::Failed(log) => self.fail_load(path, &log),
         }
     }
 
@@ -339,7 +584,7 @@ impl App {
         self.cur.set_day_one();
         if let Some(db) = &mut self.db {
             if !db.is_month_available(&self.cur) {
-                document::rebuild(db, &self.cur, self.cfg.future_n_months, self.cfg.unlimited_history);
+                db.rebuild_db(&self.cur, self.cfg.future_n_months, self.cfg.unlimited_history);
             }
         }
     }
@@ -382,11 +627,25 @@ impl App {
         theme::apply(ctx, &self.t);
     }
 
+    /// Brings the month view up to date. A keystroke in the search box reuses the month and the
+    /// payments' prepared search text; only a document, month or setting change rebuilds them.
     fn ensure_view(&mut self) {
-        let Some(db) = &mut self.db else { self.view = None; return };
-        let key = (self.cur.get(), self.filter_text.clone(), db.update_count as u64);
-        if self.view.as_ref().is_some_and(|v| v.key == key) { return; }
-        self.view = Some(view::build(db, &self.cfg, &self.cur, self.today, self.filter.as_ref(), key));
+        let Some(db) = &mut self.db else { (self.view, self.month) = (None, None); return };
+        let key = view::MonthKey { revision: (self.generation, db.update_count), month: self.cur.get(), today: self.today,
+            decimals: self.cfg.show_decimals_in_cv, sunday_first: self.cfg.first_day_of_week_is_sunday,
+            min_balance: self.cfg.min_balance_4_max_saving };
+        if self.view.as_ref().is_some_and(|v| v.key.month == key && v.key.search == self.filter_text) { return; }
+        if self.month.as_ref().is_none_or(|m| m.key != key) {
+            self.month = Some(view::month(db, &self.cfg, &self.cur, self.today, key.clone()));
+        }
+        if let Some(filter) = &mut self.filter {
+            if self.haystacks.as_ref().is_none_or(|(revision, _)| *revision != key.revision) {
+                self.haystacks = Some((key.revision, Arc::new(Haystacks::new(&db.payments))));
+            }
+            filter.set_haystacks(self.haystacks.as_ref().map(|(_, hay)| hay.clone()));
+        }
+        let Some(month) = &self.month else { return };
+        self.view = Some(view::view(month, db, &self.cur, self.filter.as_ref(), &self.filter_text));
     }
 
     // ---------- header ----------
@@ -408,7 +667,7 @@ impl App {
                 ui.label(RichText::new("Budget Calendar").size(18.0).family(egui::FontFamily::Name("semi".into())).color(t.text));
                 if ui.add(Button::new(RichText::new(format!("v{}", version::VERSION)).text_style(ts(CAPTION)).color(t.text_muted)).frame(false))
                     .on_hover_cursor(egui::CursorIcon::PointingHand)
-                    .on_hover_text("Current version and change history").clicked() { self.show_about = true; }
+                    .on_hover_text("Current version and change history").clicked() { self.dialogs.about = true; }
                 match self.file.as_deref() {
                     Some(path) => {
                         let full = path.display().to_string();
@@ -461,11 +720,14 @@ impl App {
                     ui.checkbox(&mut self.show_summary, "Monthly breakdown on wide screens");
                     if ui.checkbox(&mut self.cfg.show_decimals_in_cv, "Show cents in calendar").clicked() { self.view = None; self.save_config(); }
                     ui.separator();
-                    if ui.button("Calendar legend…").clicked() { self.show_legend = true; ui.close_menu(); }
-                    if ui.button("About and version history…").clicked() { self.show_about = true; ui.close_menu(); }
+                    if ui.button("Calendar legend…").clicked() { self.dialogs.legend = true; ui.close_menu(); }
+                    if ui.button("About and version history…").clicked() { self.dialogs.about = true; ui.close_menu(); }
                     ui.separator();
-                    if menu_item(ui, "Keyboard shortcuts", "F1").clicked() { self.show_shortcuts = true; ui.close_menu(); }
+                    if menu_item(ui, "Keyboard shortcuts", "F1").clicked() { self.dialogs.shortcuts = true; ui.close_menu(); }
                 });
+                if let Some(result) = reports::menu(ui, &t, self.db.as_mut(), &self.cur, &self.cfg, self.generation) {
+                    match result { Ok(done) => self.notify(done), Err(e) => self.fail(e) }
+                }
             });
         });
         ui.add_space(6.0);
@@ -503,37 +765,11 @@ impl App {
                 }
             });
             if !self.show_payments {
-                ui.add_space(if compact { SP1 } else { SP3 });
-                let previous = icon_button(ui, ph::CARET_LEFT).on_hover_text("Previous month (PgUp)\nHold a dragged payment here to move to this month");
-                if previous.clicked() { self.go(-1); }
-                self.drag_month_navigation(ui.ctx(), &previous, -1);
-                ui.menu_button(RichText::new(format!("{} {}  {}", MONTHS_LONG[self.cur.month() as usize], self.cur.year(), ph::CARET_DOWN))
-                    .size(if compact { 17.0 } else { 20.0 }).family(egui::FontFamily::Name("semi".into())), |ui| {
-                    let mut year = self.cur.year();
-                    ui.horizontal(|ui| { ui.label("Year"); ui.add(egui::DragValue::new(&mut year).range(1000..=9999).update_while_editing(false)); });
-                    if year != self.cur.year() { self.go((year - self.cur.year()) * 12); }
-                    egui::Grid::new("month_picker").num_columns(3).show(ui, |ui| {
-                        for (month, label) in MONTHS.iter().enumerate() {
-                            if ui.selectable_label(month as i32 == self.cur.month(), *label).clicked() {
-                                self.go(month as i32 - self.cur.month()); ui.close_menu();
-                            }
-                            if month % 3 == 2 { ui.end_row(); }
-                        }
-                    });
-                });
-                let next = icon_button(ui, ph::CARET_RIGHT).on_hover_text("Next month (PgDn)\nHold a dragged payment here to move to this month");
-                if next.clicked() { self.go(1); }
-                self.drag_month_navigation(ui.ctx(), &next, 1);
-                // Today is a call to action only when another month is on screen.
-                let away = self.cur.get() / 100 != self.today / 100;
-                if away {
-                    if theme::primary_button(ui, format!("{}  Today", ph::DOT_OUTLINE), &t).on_hover_text("Jump to the current month (Home or T)").clicked() { self.go_today(); }
-                } else {
-                    ui.add_enabled(false, Button::new(RichText::new("Today").color(t.text_muted)).min_size(Vec2::new(0.0, 32.0)))
-                        .on_disabled_hover_text("You are already viewing the current month");
-                }
+                // The search box is added before the month controls so Tab reaches it first
+                // (header → search → month → summary → calendar); it still sits at the right end.
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     ui.add_enabled_ui(self.db.is_some(), |ui| self.filter_box(ui, &t, if compact { 218.0 } else { 278.0 }));
+                    ui.with_layout(Layout::left_to_right(Align::Center), |ui| self.month_navigation(ui, &t, compact));
                 });
             } else {
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -541,6 +777,38 @@ impl App {
                 });
             }
         });
+    }
+
+    fn month_navigation(&mut self, ui: &mut egui::Ui, t: &Tokens, compact: bool) {
+        ui.add_space(if compact { SP1 } else { SP3 });
+        let previous = icon_button(ui, ph::CARET_LEFT).on_hover_text("Previous month (PgUp)\nHold a dragged payment here to move to this month");
+        if previous.clicked() { self.go(-1); }
+        self.drag_month_navigation(ui.ctx(), &previous, -1);
+        ui.menu_button(RichText::new(format!("{} {}  {}", MONTHS_LONG[self.cur.month() as usize], self.cur.year(), ph::CARET_DOWN))
+            .size(if compact { 17.0 } else { 20.0 }).family(egui::FontFamily::Name("semi".into())), |ui| {
+            let mut year = self.cur.year();
+            ui.horizontal(|ui| { ui.label("Year"); ui.add(egui::DragValue::new(&mut year).range(budget_core::date::YEAR_MIN..=budget_core::date::YEAR_MAX).update_while_editing(false)); });
+            if year != self.cur.year() { self.go((year - self.cur.year()) * 12); }
+            egui::Grid::new("month_picker").num_columns(3).show(ui, |ui| {
+                for (month, label) in MONTHS.iter().enumerate() {
+                    if ui.selectable_label(month as i32 == self.cur.month(), *label).clicked() {
+                        self.go(month as i32 - self.cur.month()); ui.close_menu();
+                    }
+                    if month % 3 == 2 { ui.end_row(); }
+                }
+            });
+        });
+        let next = icon_button(ui, ph::CARET_RIGHT).on_hover_text("Next month (PgDn)\nHold a dragged payment here to move to this month");
+        if next.clicked() { self.go(1); }
+        self.drag_month_navigation(ui.ctx(), &next, 1);
+        // Today is a call to action only when another month is on screen.
+        let away = self.cur.get() / 100 != self.today / 100;
+        if away {
+            if theme::primary_button(ui, format!("{}  Today", ph::DOT_OUTLINE), t).on_hover_text("Jump to the current month (Home or T)").clicked() { self.go_today(); }
+        } else {
+            ui.add_enabled(false, Button::new(RichText::new("Today").color(t.text_muted)).min_size(Vec2::new(0.0, 32.0)))
+                .on_disabled_hover_text("You are already viewing the current month");
+        }
     }
 
     fn filter_box(&mut self, ui: &mut egui::Ui, t: &Tokens, width: f32) {
@@ -620,15 +888,22 @@ impl App {
                     let r = response.response.rect;
                     ui.painter().rect_filled(egui::Rect::from_min_max(egui::pos2(r.min.x, r.min.y + 6.0), egui::pos2(r.min.x + 3.0, r.max.y - 6.0)), 1.5, *color);
                 }
-                response.response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, format!("{label}: {}", money(*value, true))));
+                // Each tile is one Tab stop with its own id. Interacting through the frame's response
+                // instead registered it twice (hover, then the context menu's click), so the tile
+                // surrendered keyboard focus every frame and Tab restarted at the header.
+                let tile = ui.interact(response.response.rect, ui.id().with(("summary_tile", index)), Sense::click());
+                if tile.has_focus() {
+                    ui.painter().rect_stroke(tile.rect.expand(1.0), theme::RADIUS + 1, Stroke::new(2.0_f32, t.accent), StrokeKind::Outside);
+                }
+                tile.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, format!("{label}: {}", money(*value, true))));
                 if index == 0 || index == 3 {
                     let mut date = self.cur;
                     if index == 0 { date.add(Field::Day, -1); } else { date.set(Field::Day, date.max_day()); }
-                    response.response.context_menu(|ui| {
+                    tile.context_menu(|ui| {
                         if ui.button("Edit balance").clicked() { action = Some(calendar::Action::EditBalance(date.get())); ui.close_menu(); }
                     });
                 }
-                response.response.on_hover_text(format!("{label}: {}\nNet change: {}\nLowest balance: {}\nAverage balance: {}\nHighest balance: {}",
+                tile.on_hover_text(format!("{label}: {}\nNet change: {}\nLowest balance: {}\nAverage balance: {}\nHighest balance: {}",
                     money(*value, true), money(q.income + q.expenses, true), money(q.min, true), money(q.avg, true), money(q.max, true)));
             }
         });
@@ -758,19 +1033,29 @@ impl App {
                 ui.add_space(SP1);
                 for r in recent.iter().take(6) {
                     let path = Path::new(r);
-                    let modified = std::fs::metadata(path).and_then(|m| m.modified()).ok();
+                    // Answered by a background check; a share that does not respond must not freeze the window.
+                    let status = self.files.status(path);
+                    // So is reading it once clicked: the card says so until the budget opens.
+                    let opening = self.opening.as_ref().is_some_and(|o| o.path == resolve_path(path));
                     let (rect, resp) = ui.allocate_exact_size(Vec2::new(width, 52.0), Sense::click());
                     let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(r);
                     let p = ui.painter();
                     p.rect(rect, 8, if resp.hovered() { t.surface_hover } else { t.surface }, Stroke::new(1.0_f32, if resp.hovered() { tint(t.surface, t.accent, 0.6) } else { t.border }), StrokeKind::Inside);
                     if resp.has_focus() { p.rect_stroke(rect.expand(1.0), 9, Stroke::new(2.0_f32, t.accent), StrokeKind::Outside); }
-                    p.text(egui::pos2(rect.min.x + 14.0, rect.center().y), Align2::LEFT_CENTER, ph::FILE_TEXT, egui::FontId::new(22.0, egui::FontFamily::Proportional), if modified.is_some() { t.accent } else { t.text_faint });
+                    let icon = match status { FileStatus::Present(_) => t.accent, FileStatus::Checking => t.text_muted, FileStatus::Missing => t.text_faint };
+                    p.text(egui::pos2(rect.min.x + 14.0, rect.center().y), Align2::LEFT_CENTER, ph::FILE_TEXT, egui::FontId::new(22.0, egui::FontFamily::Proportional), icon);
                     let text_w = rect.width() - 62.0;
                     let mut name = egui::text::LayoutJob::simple_singleline(file_name(path), ts(SEMI).resolve(ui.style()), t.text);
                     name.wrap = egui::text::TextWrapping::truncate_at_width(text_w);
                     let g = ui.painter().layout_job(name);
                     ui.painter().galley(egui::pos2(rect.min.x + 48.0, rect.min.y + 9.0), g, t.text);
-                    let sub = match modified { Some(m) => format!("Modified {}", ago(m)), None => "File not found".into() };
+                    let sub = match status {
+                        _ if opening => "Opening…".into(),
+                        FileStatus::Checking => "Checking…".into(),
+                        FileStatus::Present(Some(m)) => format!("Modified {}", ago(m)),
+                        FileStatus::Present(None) => "Available".into(),
+                        FileStatus::Missing => "File not found".into(),
+                    };
                     let mut job = egui::text::LayoutJob::simple_singleline(sub, ts(CAPTION).resolve(ui.style()), t.text_muted);
                     job.wrap = egui::text::TextWrapping::truncate_at_width(text_w);
                     let g = ui.painter().layout_job(job);
@@ -871,7 +1156,7 @@ impl App {
     }
 
     fn password_prompt(&mut self, ctx: &egui::Context) {
-        let Some((path, pw, err)) = &mut self.pw_prompt else { return };
+        let Some(PasswordPrompt { path, bytes, typed: pw, error: err }) = &mut self.dialogs.password else { return };
         let t = &self.t;
         let mut done: Option<Option<String>> = None;
         let name = file_name(path);
@@ -896,23 +1181,25 @@ impl App {
             Some(Some(p)) => {
                 if p.is_empty() { err.clear(); err.push_str("Empty password!"); return; }
                 pw.clear();
-                let path = path.clone();
-                let text = std::fs::read(&path).map(|b| bgt::latin1_decode(&b)).unwrap_or_default();
-                if bgt::is_decryptable(&text, &p) {
-                    self.pw_prompt = None;
-                    self.load(&path, Some(&p));
+                // The file was read when it was opened; unlocking never reads it again here.
+                if bgt::is_decryptable(&bgt::latin1_decode(bytes), &p) {
+                    let (path, bytes) = (path.clone(), std::mem::take(bytes));
+                    self.dialogs.password = None;
+                    self.start_opening(&path, Some(bytes), Some(p), false);
                 } else {
                     err.clear();
                     err.push_str("The password appears to be invalid.");
                 }
             }
-            Some(None) => self.pw_prompt = None,
+            Some(None) => self.dialogs.password = None,
             None => {}
         }
     }
 
     fn screenshot_step(&mut self, ctx: &egui::Context) {
         let Some(path) = self.screenshot.clone() else { return };
+        // A remembered budget still being located or read would be missing from the capture.
+        if self.auto_open.is_some() || self.opening.is_some() { ctx.request_repaint(); return; }
         self.frames += 1;
         if self.frames == 6 { ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::UserData::default())); }
         let shot = ctx.input(|i| i.events.iter().find_map(|e| match e {
@@ -931,30 +1218,35 @@ impl App {
         ctx.request_repaint();
     }
 
-    fn has_draft(&self) -> bool { self.payment_editor.is_some() || self.transaction_editor.is_some() || self.balance_editor.is_some() }
+    fn has_draft(&self) -> bool { self.dialogs.has_draft() }
 
-    fn has_modal(&self) -> bool { self.show_shortcuts || self.has_modal_other_than_shortcuts() }
+    fn has_modal(&self) -> bool { self.dialogs.any() }
 
-    fn changed(&mut self) {
+    /// After an applied edit. Returns whether the schedule had to be rebuilt.
+    fn changed(&mut self) -> bool {
         self.dirty = true;
+        self.edits += 1;
         self.title_dirty = true;
         self.view = None;
-        if let Some(db) = &mut self.db { document::rebuild(db, &self.cur, self.cfg.future_n_months, self.cfg.unlimited_history); }
+        // The edit already rescheduled its payment in place; rebuild only where that would differ.
+        let Some(db) = &mut self.db else { return false };
+        refresh::after_edit(db, &self.cur, self.cfg.future_n_months, self.cfg.unlimited_history)
     }
 
     fn new_payment(&mut self, date: i32) {
-        if self.db.is_some() && !self.has_draft() { self.payment_editor = Some(PaymentEditor::new(date)); }
+        if self.db.is_some() && !self.has_draft() { self.dialogs.payment_editor = Some(PaymentEditor::new(date)); }
     }
 
-    fn edit_payment(&mut self, id: i32) {
+    /// `from`: the calendar occurrence the whole payment is edited from, if any.
+    fn edit_payment(&mut self, id: i32, from: Option<i32>) {
         if let Some(db) = &self.db {
-            if let Some(i) = db.get_by_id(id) { self.payment_editor = Some(PaymentEditor::edit(&db.payments[i])); }
+            if let Some(i) = db.get_by_id(id) { self.dialogs.payment_editor = Some(PaymentEditor::edit_at(&db.payments[i], from)); }
         }
     }
 
     fn edit_transaction(&mut self, id: i32, date: i32, amount: f64) {
         if let Some(db) = &self.db {
-            if let Some(i) = db.get_by_id(id) { self.transaction_editor = Some(TransactionEditor::new(&db.payments[i], date, amount)); }
+            if let Some(i) = db.get_by_id(id) { self.dialogs.transaction_editor = Some(TransactionEditor::new(&db.payments[i], date, amount)); }
         }
     }
 
@@ -966,13 +1258,13 @@ impl App {
         };
         match result {
             Ok(()) => {
-                self.transaction_editor = None;
+                self.dialogs.transaction_editor = None;
                 self.changed();
                 self.notify(if scope == TransactionScope::Future {
                     "This and future amounts updated. Press Ctrl+S to save."
                 } else { "Transaction applied. Press Ctrl+S to save." });
             }
-            Err(error) => { if let Some(editor) = &mut self.transaction_editor { editor.set_error(error); } }
+            Err(error) => { if let Some(editor) = &mut self.dialogs.transaction_editor { editor.set_error(error); } }
         }
     }
 
@@ -981,11 +1273,11 @@ impl App {
         let Some(db) = &mut self.db else { return };
         let cal = Cal::from_int(date);
         if db.get_day(&cal).is_none() {
-            document::rebuild(db, &cal, self.cfg.future_n_months, self.cfg.unlimited_history);
+            db.rebuild_db(&cal, self.cfg.future_n_months, self.cfg.unlimited_history);
             self.view = None;
         }
         if let Some(day) = db.get_day(&cal) {
-            self.balance_editor = Some(BalanceEditor::new(date, day.closing_balance, day.closing_balance_adjusted));
+            self.dialogs.balance_editor = Some(BalanceEditor::new(date, day.closing_balance, day.closing_balance_adjusted));
         } else { self.fail("This date is outside the loaded budget calendar."); }
     }
 
@@ -993,10 +1285,10 @@ impl App {
         let Some(db) = &mut self.db else { return };
         match document::set_balance(db, date, amount) {
             Ok(changed) => {
-                self.balance_editor = None;
+                self.dialogs.balance_editor = None;
                 if changed { self.changed(); self.notify("Balance updated. Press Ctrl+S to save."); }
             }
-            Err(error) => { if let Some(editor) = &mut self.balance_editor { editor.set_error(error); } }
+            Err(error) => { if let Some(editor) = &mut self.dialogs.balance_editor { editor.set_error(error); } }
         }
     }
 
@@ -1017,11 +1309,12 @@ impl App {
         match action {
             calendar::Action::Filter(f) => self.apply_filter(&f),
             calendar::Action::Add(date) => self.new_payment(date),
-            calendar::Action::Day(date) => self.day_dialog = Some(date),
-            calendar::Action::EditPayment(id) => self.edit_payment(id),
+            calendar::Action::Day(date) => self.dialogs.day = Some(date),
+            calendar::Action::EditPayment(id) => self.edit_payment(id, None),
+            calendar::Action::EditPaymentFrom { id, date } => self.edit_payment(id, Some(date)),
             calendar::Action::EditTransaction { id, date, amount } => self.edit_transaction(id, date, amount),
-            calendar::Action::DeletePayment(id) => self.confirm_delete = Some(DeleteTarget { id, date: None }),
-            calendar::Action::DeleteTransaction { id, date } => self.confirm_delete = Some(DeleteTarget { id, date: Some(date) }),
+            calendar::Action::DeletePayment(id) => self.dialogs.confirm_delete = Some(DeleteTarget { id, date: None }),
+            calendar::Action::DeleteTransaction { id, date } => self.dialogs.confirm_delete = Some(DeleteTarget { id, date: Some(date) }),
             calendar::Action::EditBalance(date) => self.edit_balance(date),
             calendar::Action::Restore { id, date } => {
                 let Some(db) = &mut self.db else { return };
@@ -1047,27 +1340,48 @@ impl App {
 
     fn payments_panel(&mut self, ui: &mut egui::Ui) {
         let Some(db) = &self.db else { return };
-        if let Some(action) = self.payment_list.show(ui, db, &self.t, self.today) { self.calendar_action(action); }
+        let revision = (self.generation, db.update_count);
+        if let Some(action) = self.payment_list.show(ui, db, &self.t, self.today, revision) { self.calendar_action(action); }
     }
 
     fn day_window(&mut self, ctx: &egui::Context) {
-        if self.has_draft() || self.pending_action.is_some() || self.confirm_delete.is_some() { return; }
-        let Some(date) = self.day_dialog else { return };
+        let state_id = egui::Id::new("day_transactions_input");
+        let Some(date) = self.dialogs.day else { ctx.data_mut(|d| d.remove::<DayDialogInput>(state_id)); return };
+        if self.has_draft() || self.dialogs.pending.is_some() || self.dialogs.confirm_delete.is_some() { return; }
         let can_restore = self.can_restore();
         let Some(db) = &mut self.db else { return };
         let transactions = db.get_day(&Cal::from_int(date)).map(|d| d.transactions.clone()).unwrap_or_default();
         let restorable = db.get_day(&Cal::from_int(date)).map(|d| d.restorable.clone()).unwrap_or_default();
+        // A search lists what +N counted (the matching transactions) first, then the rest of the day.
+        let (matching, others): (Vec<_>, Vec<_>) = match &self.filter {
+            Some(filter) => transactions.into_iter().partition(|tr| filter.is_match(&db.payments[tr.pmt], tr.amount, date)),
+            None => (transactions, Vec::new()),
+        };
+        let total = matching.len() + others.len();
+        let summary = match (&self.filter, total) {
+            (Some(_), _) => format!("{} of {total} transactions match the search", matching.len()),
+            (None, 1) => "1 transaction".to_string(),
+            (None, _) => format!("{total} transactions"),
+        };
         let t = self.t.clone();
+        let mut state: DayDialogInput = ctx.data(|d| d.get_temp(state_id)).unwrap_or_default();
+        let delay = ctx.options(|o| o.input_options.max_double_click_delay);
+        let (time, pressed, since_click) = ctx.input(|i| (i.time, i.pointer.any_pressed(), i.pointer.time_since_last_click() as f64));
+        let opened_at = *state.opened_at.get_or_insert(time);
+        // A press that only dismisses an open More menu, or that is the second click of the
+        // double-click that opened this dialog, must not close it when released on the backdrop.
+        if pressed { state.ignore_release = state.menu_open || (since_click < delay && time - since_click <= opened_at + 1e-3); }
+        let menu_was_open = state.menu_open;
+        let mut menu_open = false;
         let mut open = true;
         let mut action = None;
-        egui::Modal::new(egui::Id::new("day_transactions")).frame(t.card().inner_margin(24)).show(ctx, |ui| {
+        let response = egui::Modal::new(egui::Id::new("day_transactions")).frame(t.card().inner_margin(24)).show(ctx, |ui| {
             ui.set_width(560.0_f32.min(ctx.screen_rect().width() - 80.0));
-            let cal = Cal::from_int(date);
-            ui.heading(format!("{} {}, {}", MONTHS_LONG[cal.month() as usize], cal.day(), cal.year()));
-            ui.label(RichText::new(format!("{} transactions", transactions.len())).color(t.text_muted));
+            ui.heading(names::long_date(date));
+            ui.label(RichText::new(summary).color(t.text_muted));
             ui.add_space(SP3);
             egui::ScrollArea::vertical().max_height((ctx.screen_rect().height() - 250.0).max(140.0)).show(ui, |ui| {
-                for tr in transactions {
+                let mut row = |ui: &mut egui::Ui, tr: &budget_core::Transaction| {
                     let p = &db.payments[tr.pmt];
                     ui.push_id(p.id, |ui| {
                         ui.horizontal(|ui| {
@@ -1079,12 +1393,21 @@ impl App {
                         ui.horizontal(|ui| {
                             if ui.button("Edit this date").clicked() { action = Some(calendar::Action::EditTransaction { id:p.id, date, amount:tr.amount }); }
                             ui.menu_button("More", |ui| {
-                                if ui.button("Edit whole payment").clicked() { action = Some(calendar::Action::EditPayment(p.id)); ui.close_menu(); }
+                                // Runs only while the menu is shown (egui 0.31 returns the menu's
+                                // inner response only on the frame it closes).
+                                menu_open = true;
+                                if ui.button("Edit whole payment").clicked() { action = Some(calendar::Action::EditPaymentFrom { id:p.id, date }); ui.close_menu(); }
                                 if ui.button(RichText::new("Delete transaction").color(t.negative)).clicked() { action = Some(calendar::Action::DeleteTransaction { id:p.id, date }); ui.close_menu(); }
                             });
                         });
                         ui.add_space(SP2); ui.separator(); ui.add_space(SP2);
                     });
+                };
+                for tr in &matching { row(ui, tr); }
+                if !others.is_empty() {
+                    ui.label(RichText::new("Other transactions on this day").text_style(ts(SECTION)).color(t.text_muted));
+                    ui.add_space(SP2);
+                    for tr in &others { row(ui, tr); }
                 }
                 // Deleted or moved-away occurrences are not transactions any more; offer them for restoring.
                 for pi in restorable {
@@ -1108,52 +1431,56 @@ impl App {
                 if theme::secondary_button(ui, "Add payment on this date", &t).clicked() { action = Some(calendar::Action::Add(date)); }
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| { if theme::primary_button(ui, "Done", &t).clicked() { open = false; } });
             });
-            if ui.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape)) { open = false; }
+            // egui closes an open More menu on Escape itself; that Escape must not also close the dialog.
+            if ui.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape)) && !menu_was_open { open = false; }
         });
-        if !open { self.day_dialog = None; }
+        // Like the other read-only dialogs, a click on the dimmed backdrop closes it.
+        if response.backdrop_response.clicked() && !state.ignore_release { open = false; }
+        state.menu_open = menu_open;
+        if open { ctx.data_mut(|d| d.insert_temp(state_id, state)); } else { self.dialogs.day = None; }
         if let Some(action) = action { self.calendar_action(action); }
     }
 
     fn editors(&mut self, ctx: &egui::Context) {
-        if self.pending_action.is_some() || self.confirm_delete.is_some() { return; }
-        if let (Some(editor), Some(db)) = (&mut self.payment_editor, &self.db) {
+        if self.dialogs.pending.is_some() || self.dialogs.confirm_delete.is_some() { return; }
+        if let (Some(editor), Some(db)) = (&mut self.dialogs.payment_editor, &self.db) {
             let id = editor.payment_id;
             match editor.show(ctx, &self.t, db, self.cfg.first_day_of_week_is_sunday, self.today) {
                 PaymentAction::None => {},
-                PaymentAction::Cancel => self.payment_editor = None,
-                PaymentAction::Apply(p) => {
+                PaymentAction::Cancel => self.dialogs.payment_editor = None,
+                PaymentAction::Apply(p, from) => {
                     let start = p.start_date;
-                    match document::put_payment(self.db.as_mut().unwrap(), *p, id) {
+                    match document::apply_payment(self.db.as_mut().unwrap(), *p, id, from) {
                         Ok(id) => {
-                            if self.payment_editor.as_ref().is_some_and(|e| e.payment_id.is_none()) {
+                            if self.dialogs.payment_editor.as_ref().is_some_and(|e| e.payment_id.is_none()) {
                                 // The calendar moves to the new payment's month, away from the day list.
                                 self.cur = Cal::from_int(start); self.cur.set_day_one();
-                                self.day_dialog = None;
+                                self.dialogs.day = None;
                             }
                             self.payment_list.selected = Some(id);
-                            self.payment_editor = None;
+                            self.dialogs.payment_editor = None;
                             self.changed();
                             self.notify("Payment applied. Press Ctrl+S to save.");
                         }
-                        Err(e) => { if let Some(editor) = &mut self.payment_editor { editor.set_error(e); } },
+                        Err(e) => { if let Some(editor) = &mut self.dialogs.payment_editor { editor.set_error(e); } },
                     }
                 }
             }
         }
-        if let Some(editor) = &mut self.transaction_editor {
+        if let Some(editor) = &mut self.dialogs.transaction_editor {
             let (id, date) = (editor.payment_id, editor.date);
             match editor.show(ctx, &self.t) {
                 TransactionAction::None => {},
-                TransactionAction::Cancel => self.transaction_editor = None,
-                TransactionAction::Delete => self.confirm_delete = Some(DeleteTarget { id, date: Some(date) }),
+                TransactionAction::Cancel => self.dialogs.transaction_editor = None,
+                TransactionAction::Delete => self.dialogs.confirm_delete = Some(DeleteTarget { id, date: Some(date) }),
                 TransactionAction::Apply { amount, note, flag, scope } => self.apply_transaction_edit(id, date, amount, &note, flag, scope),
             }
         }
-        if let Some(editor) = &mut self.balance_editor {
+        if let Some(editor) = &mut self.dialogs.balance_editor {
             let date = editor.date;
             match editor.show(ctx, &self.t) {
                 BalanceAction::None => {},
-                BalanceAction::Cancel => self.balance_editor = None,
+                BalanceAction::Cancel => self.dialogs.balance_editor = None,
                 BalanceAction::Apply(amount) => self.apply_balance_edit(date, Some(amount)),
                 BalanceAction::Remove => self.apply_balance_edit(date, None),
             }
@@ -1161,7 +1488,7 @@ impl App {
     }
 
     fn perform_pending(&mut self, action: PendingAction, ctx: &egui::Context) {
-        self.pending_action = None;
+        self.dialogs.pending = None;
         match action {
             PendingAction::Open(path) => self.open_unchecked(&path),
             PendingAction::Close => { self.allow_close = true; ctx.send_viewport_cmd(egui::ViewportCommand::Close); }
@@ -1170,9 +1497,9 @@ impl App {
 
     fn confirmations(&mut self, ctx: &egui::Context) {
         let t = self.t.clone();
-        if let Some(action) = self.pending_action.clone() {
+        if let Some(action) = self.dialogs.pending.clone() {
             let draft = self.has_draft();
-            let mut choice = 0;
+            let mut choice = None;
             egui::Modal::new(egui::Id::new("unsaved")).frame(t.card().inner_margin(24)).show(ctx, |ui| {
                 ui.set_width(460.0);
                 ui.heading(if draft { "Finish your edit" } else { "Unsaved changes" });
@@ -1183,42 +1510,42 @@ impl App {
                 if let Some(error) = &self.banner {
                     ui.add_space(SP2);
                     ui.add(egui::Label::new(RichText::new(&error.text).color(t.negative)).wrap());
-                    if !draft && theme::secondary_button(ui, "Save a separate copy…", &t).clicked() { choice = 4; }
+                    if !draft && theme::secondary_button(ui, "Save a separate copy…", &t).clicked() { choice = Some(UnsavedChoice::SaveCopy); }
                 }
                 ui.add_space(SP4);
                 ui.horizontal(|ui| {
                     if draft {
-                        if ui.add(Button::new(RichText::new("Discard draft").color(t.negative)).frame(false)).clicked() { choice = 2; }
-                    } else if ui.add(Button::new(RichText::new("Discard changes").color(t.negative)).frame(false)).clicked() { choice = 2; }
+                        if ui.add(Button::new(RichText::new("Discard draft").color(t.negative)).frame(false)).clicked() { choice = Some(UnsavedChoice::Discard); }
+                    } else if ui.add(Button::new(RichText::new("Discard changes").color(t.negative)).frame(false)).clicked() { choice = Some(UnsavedChoice::Discard); }
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         if draft {
-                            if theme::primary_button(ui, "Return to editor", &t).clicked() { choice = 1; }
+                            if theme::primary_button(ui, "Return to editor", &t).clicked() { choice = Some(UnsavedChoice::Back); }
                         } else {
-                            if theme::primary_button(ui, "Save changes", &t).clicked() { choice = 3; }
-                            if theme::secondary_button(ui, "Cancel", &t).clicked() { choice = 1; }
+                            if theme::primary_button(ui, "Save changes", &t).clicked() { choice = Some(UnsavedChoice::Save); }
+                            if theme::secondary_button(ui, "Cancel", &t).clicked() { choice = Some(UnsavedChoice::Back); }
                         }
                     });
                 });
-                if ui.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape)) { choice = 1; }
+                if ui.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape)) { choice = Some(UnsavedChoice::Back); }
             });
             match choice {
-                1 => self.pending_action = None,
-                2 if draft => {
-                    self.payment_editor = None; self.transaction_editor = None; self.balance_editor = None;
+                Some(UnsavedChoice::Back) => self.dialogs.pending = None,
+                Some(UnsavedChoice::Discard) if draft => {
+                    self.dialogs.payment_editor = None; self.dialogs.transaction_editor = None; self.dialogs.balance_editor = None;
                     if !self.dirty { self.perform_pending(action, ctx); }
                 }
-                2 => self.perform_pending(action, ctx),
-                3 if self.save() => self.perform_pending(action, ctx),
-                4 if self.save_as() => self.perform_pending(action, ctx),
-                _ => {},
+                Some(UnsavedChoice::Discard) => self.perform_pending(action, ctx),
+                Some(UnsavedChoice::Save) if self.save() => self.perform_pending(action, ctx),
+                Some(UnsavedChoice::SaveCopy) if self.save_as() => self.perform_pending(action, ctx),
+                Some(UnsavedChoice::Save | UnsavedChoice::SaveCopy) | None => {},
             }
             return;
         }
-        if let Some(target) = self.confirm_delete {
+        if let Some(target) = self.dialogs.confirm_delete {
             let payment = self.db.as_ref().and_then(|db| db.get_by_id(target.id).map(|i| &db.payments[i]));
             let description = payment.map(|p| p.description.clone()).unwrap_or_default();
             let loan = payment.is_some_and(|p| p.end_mode() == budget_core::END_MODE_LOAN_PAID);
-            let mut choice = 0;
+            let mut choice = None;
             egui::Modal::new(egui::Id::new("delete")).frame(t.card().inner_margin(24)).show(ctx, |ui| {
                 ui.set_width(440.0);
                 ui.heading(if target.date.is_some() { "Delete transaction" } else { "Delete payment" });
@@ -1232,15 +1559,15 @@ impl App {
                 ui.add(egui::Label::new(RichText::new(message).color(t.text_muted)).wrap());
                 ui.add_space(SP4);
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    if theme::danger_button(ui, if target.date.is_some() { "Delete transaction" } else { "Delete payment" }, &t).clicked() { choice = 2; }
-                    if theme::secondary_button(ui, "Cancel", &t).clicked() { choice = 1; }
+                    if theme::danger_button(ui, if target.date.is_some() { "Delete transaction" } else { "Delete payment" }, &t).clicked() { choice = Some(DeleteChoice::Delete); }
+                    if theme::secondary_button(ui, "Cancel", &t).clicked() { choice = Some(DeleteChoice::Cancel); }
                 });
-                if ui.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape)) { choice = 1; }
+                if ui.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape)) { choice = Some(DeleteChoice::Cancel); }
             });
-            if choice > 0 { self.confirm_delete = None; }
-            if choice == 2 {
+            if choice.is_some() { self.dialogs.confirm_delete = None; }
+            if choice == Some(DeleteChoice::Delete) {
                 match document::delete(self.db.as_mut().unwrap(), target.id, target.date) {
-                    Ok(()) => { self.transaction_editor = None; self.payment_editor = None; self.changed(); self.notify("Deleted. Press Ctrl+S to save."); }
+                    Ok(()) => { self.dialogs.transaction_editor = None; self.dialogs.payment_editor = None; self.changed(); self.notify("Deleted. Press Ctrl+S to save."); }
                     Err(e) => self.fail(e),
                 }
             }
@@ -1248,12 +1575,21 @@ impl App {
     }
 
     fn keys(&mut self, ctx: &egui::Context) {
+        let dropped = ctx.input(|i| i.raw.dropped_files.iter().filter_map(|f| f.path.clone()).find(|p| p.extension().is_some_and(|e| e.eq_ignore_ascii_case("bgt"))));
+        if reports::is_open(ctx) {
+            if dropped.is_some() { self.warn("Close the open dialog first, then drop the budget again."); }
+            return;
+        }
         // F1 toggles the shortcuts sheet; "?" opens it when no text box has focus.
         let dragging = egui::DragAndDrop::payload::<calendar::DraggedTransaction>(ctx).is_some();
         let help = ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::F1))
             || (!ctx.wants_keyboard_input() && ctx.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Text(s) if s == "?"))));
-        if help && !dragging && !self.has_modal_other_than_shortcuts() { self.show_shortcuts = !self.show_shortcuts; }
-        if self.has_modal() { return; }
+        if help && !dragging && !self.dialogs.any_but_shortcuts() { self.dialogs.shortcuts = !self.dialogs.shortcuts; }
+        if self.has_modal() {
+            // Dialogs keep their place (and any draft); say why the dropped budget did not open.
+            if dropped.is_some() { self.warn("Close the open dialog first, then drop the budget again."); }
+            return;
+        }
         if dragging && ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape)) {
             egui::DragAndDrop::clear_payload(ctx); self.drag_month_hover = None; return;
         }
@@ -1278,15 +1614,13 @@ impl App {
         if pgdn { self.go(1); }
         if pgup { self.go(-1); }
         if home { self.go_today(); }
-        let dropped = ctx.input(|i| i.raw.dropped_files.iter().filter_map(|f| f.path.clone()).find(|p| p.extension().is_some_and(|e| e.eq_ignore_ascii_case("bgt"))));
         if let Some(p) = dropped { self.open(&p); }
     }
 
-    fn has_modal_other_than_shortcuts(&self) -> bool { self.show_about || self.show_legend || self.has_draft() || self.confirm_delete.is_some() || self.pending_action.is_some() || self.pw_prompt.is_some() || self.day_dialog.is_some() }
 
     /// The keyboard shortcuts sheet (F1 or ?).
     fn shortcuts(&mut self, ctx: &egui::Context) {
-        if !self.show_shortcuts { return; }
+        if !self.dialogs.shortcuts { return; }
         let t = self.t.clone();
         let mut close = false;
         let response = egui::Modal::new(egui::Id::new("shortcuts")).frame(t.card().inner_margin(SP4)).show(ctx, |ui| {
@@ -1319,7 +1653,7 @@ impl App {
                 if theme::primary_button(ui, "Close", &t).clicked() { close = true; }
             });
         });
-        if close || response.should_close() { self.show_shortcuts = false; }
+        if close || response.should_close() { self.dialogs.shortcuts = false; }
     }
 
     /// What the small coloured markers on calendar rows mean (View > Calendar legend).
@@ -1343,11 +1677,11 @@ impl App {
                 if theme::primary_button(ui, "Close", &t).clicked() { close = true; }
             });
         });
-        if close || response.should_close() { self.show_legend = false; }
+        if close || response.should_close() { self.dialogs.legend = false; }
     }
 
     fn about(&mut self, ctx: &egui::Context) {
-        if !self.show_about { return; }
+        if !self.dialogs.about { return; }
         let t = &self.t;
         let mut close = false;
         let response = egui::Modal::new(egui::Id::new("version_history")).frame(t.card()).show(ctx, |ui| {
@@ -1384,7 +1718,7 @@ impl App {
                 });
             });
         });
-        if close || response.should_close() { self.show_about = false; }
+        if close || response.should_close() { self.dialogs.about = false; }
     }
 }
 
@@ -1421,14 +1755,21 @@ fn icon_button(ui: &mut egui::Ui, icon: &str) -> egui::Response {
 
 impl App {
     fn render(&mut self, ctx: &egui::Context) {
+        let (modal_before, focus_before) = (self.has_modal(), ctx.memory(|m| m.focused()));
+        self.files.wake(ctx);
+        self.finish_auto_open();
+        self.finish_opening();
+        self.check_date(ctx);
         self.screenshot_step(ctx);
         if ctx.input(|i| i.viewport().close_requested()) {
             if !self.allow_close && (self.dirty || self.has_draft()) {
                 ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
                 // The newest explicit intent wins over a deferred Open.
-                self.pending_action = Some(PendingAction::Close);
+                self.dialogs.pending = Some(PendingAction::Close);
             } else {
                 self.save_config();
+                // The app is closing: its temporary report files go with it, as in the original.
+                reports::delete_created_reports();
             }
         }
         if self.title_dirty {
@@ -1461,7 +1802,11 @@ impl App {
                         }
                         ui.label(RichText::new("·").color(t.text_faint));
                         ui.label(RichText::new(if self.dirty { "Changes waiting to be saved" } else { "All changes saved" }).text_style(ts(CAPTION)).color(if self.dirty { t.important } else { t.text_muted }));
-                    } else { ui.label(RichText::new("Open a budget to get started").text_style(ts(CAPTION)).color(t.text_muted)); }
+                    } else if self.opening.is_none() { ui.label(RichText::new("Open a budget to get started").text_style(ts(CAPTION)).color(t.text_muted)); }
+                    if let Some(opening) = &self.opening {
+                        if self.db.is_some() { ui.label(RichText::new("·").color(t.text_faint)); }
+                        ui.label(RichText::new(format!("Opening {}…", file_name(&opening.path))).text_style(ts(CAPTION)).color(t.text_muted));
+                    }
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         // Added right to left: label first, then the keycaps from the last key to the first.
                         ui.spacing_mut().item_spacing.x = 3.0;
@@ -1497,11 +1842,11 @@ impl App {
             if let Some(action) = balance_action.or(clicked) { self.calendar_action(action); }
         });
         if let Some(area) = onboarding { self.onboarding_card(ctx, area); }
-        if self.show_about {
+        if self.dialogs.about {
             self.about(ctx);
-        } else if self.show_legend {
+        } else if self.dialogs.legend {
             self.legend(ctx);
-        } else if self.show_shortcuts && !self.has_modal_other_than_shortcuts() {
+        } else if self.dialogs.shortcuts && !self.dialogs.any_but_shortcuts() {
             self.shortcuts(ctx);
         } else {
             self.day_window(ctx);
@@ -1509,14 +1854,26 @@ impl App {
             self.confirmations(ctx);
             self.password_prompt(ctx);
         }
-        // drag-over hint
-        if ctx.input(|i| !i.raw.hovered_files.is_empty()) {
+        // The report range dialog waits behind a save/close prompt (Reports is unreachable under other dialogs).
+        if !self.has_modal() {
+            if let Some(result) = reports::dialog(ctx, &t, self.db.as_mut(), &self.cfg, self.generation) {
+                match result { Ok(done) => self.notify(done), Err(e) => self.fail(e) }
+            }
+        }
+        // drag-over hint; a dialog does not accept drops (`keys` explains a drop made anyway)
+        if ctx.input(|i| !i.raw.hovered_files.is_empty()) && !self.has_modal() && !reports::is_open(ctx) {
             let r = ctx.screen_rect();
             let p = ctx.layer_painter(egui::LayerId::new(egui::Order::Foreground, egui::Id::new("drop")));
             p.rect(r.shrink(SP3), theme::RADIUS, alpha(t.accent, 10), Stroke::new(2.0_f32, t.accent), StrokeKind::Inside);
             p.text(r.center(), Align2::CENTER_CENTER, "Drop to open", ts(TITLE).resolve(&ctx.style()), t.accent);
         }
         self.toast(ctx);
+        // Keyboard focus goes back to the control that opened a dialog (e.g. a row opened with Enter).
+        match (modal_before, self.has_modal()) {
+            (false, true) => self.focus_return = focus_before,
+            (true, false) => if let Some(id) = self.focus_return.take() { ctx.memory_mut(|m| m.request_focus(id)); },
+            _ => {}
+        }
     }
 }
 
@@ -1565,12 +1922,15 @@ fn main() -> eframe::Result {
             .with_icon(icon.unwrap_or_default()),
         ..Default::default()
     };
-    eframe::run_native("Budget Calendar", options, Box::new(|cc| {
+    let result = eframe::run_native("Budget Calendar", options, Box::new(|cc| {
         theme::install_fonts(&cc.egui_ctx);
         let app = App::new(cli);
         theme::apply(&cc.egui_ctx, &app.t);
         Ok(Box::new(app))
-    }))
+    }));
+    // However the window ended, this run's report files do not outlive it.
+    reports::delete_created_reports();
+    result
 }
 
 #[cfg(test)]
@@ -1618,6 +1978,37 @@ mod banner_tests {
 }
 
 #[cfg(test)]
+mod dialog_tests {
+    use super::*;
+
+    #[test]
+    fn each_dialog_counts_as_a_draft_the_shortcuts_sheet_or_another_modal() {
+        type Open = fn(&mut Dialogs);
+        let open: [(&str, Open); 10] = [
+            ("payment editor", |d| d.payment_editor = Some(PaymentEditor::new(20261027))),
+            ("transaction editor", |d| d.transaction_editor = Some(TransactionEditor::new(&budget_core::Payment::new(20261027), 20261027, -1.0))),
+            ("balance editor", |d| d.balance_editor = Some(BalanceEditor::new(20261027, 0.0, false))),
+            ("day", |d| d.day = Some(20261027)),
+            ("delete", |d| d.confirm_delete = Some(DeleteTarget { id: 1, date: None })),
+            ("pending", |d| d.pending = Some(PendingAction::Close)),
+            ("password", |d| d.password = Some(PasswordPrompt { path: PathBuf::from("x.bgt"), bytes: Vec::new(), typed: String::new(), error: String::new() })),
+            ("about", |d| d.about = true),
+            ("legend", |d| d.legend = true),
+            ("shortcuts", |d| d.shortcuts = true),
+        ];
+        let none = Dialogs::default();
+        assert!(!none.any() && !none.any_but_shortcuts() && !none.has_draft());
+        for (name, set) in open {
+            let mut d = Dialogs::default();
+            set(&mut d);
+            let draft = name.ends_with("editor");
+            let shortcuts = name == "shortcuts";
+            assert_eq!((d.any(), d.any_but_shortcuts(), d.has_draft()), (true, !shortcuts, draft), "{name}");
+        }
+    }
+}
+
+#[cfg(test)]
 mod lifecycle_tests {
     use super::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -1634,13 +2025,13 @@ mod lifecycle_tests {
         let mut p = budget_core::Payment::new(20261027); p.description = "Fixture payment".into(); p.amount = -12.0;
         db.add(p);
         let app = App {
+            date_watch: DateWatch::fixed(), files: FileProbes::default(), auto_open: None, opening: None, edits: 0, focus_return: None,
             cfg, rc_path: dir.join(".budgetrc"), db: Some(db), file: Some(dir.join("current.bgt")), password: None,
-            saved_bytes: Some(b"previous budget".to_vec()), dirty: true, payment_editor: None, transaction_editor: None,
-            balance_editor: None, drag_month_hover: None,
-            show_payments: false, payment_list: payment_list::PaymentList::default(), day_dialog: None,
-            confirm_delete: None, pending_action: None, allow_close: false, cur, today: 20261027,
-            filter_text: String::new(), filter: None, filter_error: None, view: None, pw_prompt: None, toast: None, banner: None,
-            screenshot: None, frames: 0, dark: false, show_summary: true, show_about: false, show_legend: false, show_shortcuts: false, focus_filter: false, title_dirty: true, t,
+            saved_bytes: Some(b"previous budget".to_vec()), dirty: true, dialogs: Dialogs::default(), drag_month_hover: None,
+            show_payments: false, payment_list: payment_list::PaymentList::default(), allow_close: false, cur, today: 20261027,
+            filter_text: String::new(), filter: None, filter_error: None, generation: 0, month: None, view: None, haystacks: None,
+            toast: None, banner: None,
+            screenshot: None, frames: 0, dark: false, show_summary: true, focus_filter: false, title_dirty: true, t,
         };
         (app, dir)
     }
@@ -1673,7 +2064,7 @@ mod lifecycle_tests {
     fn opening_a_file_with_unsaved_changes_defers_and_preserves_current_document() {
         let (mut app, dir) = fixture();
         app.open(&dir.join("other.bgt"));
-        assert!(matches!(app.pending_action, Some(PendingAction::Open(_))));
+        assert!(matches!(app.dialogs.pending, Some(PendingAction::Open(_))));
         assert_eq!(app.file.as_deref(), Some(dir.join("current.bgt").as_path()));
         assert_eq!(app.db.as_ref().unwrap().payments[0].amount, -12.0);
         assert!(app.dirty);
@@ -1684,10 +2075,10 @@ mod lifecycle_tests {
     fn opening_a_file_with_only_an_unapplied_draft_also_defers() {
         let (mut app, dir) = fixture();
         app.dirty = false;
-        app.payment_editor = Some(PaymentEditor::new(20261027));
+        app.dialogs.payment_editor = Some(PaymentEditor::new(20261027));
         app.open(&dir.join("other.bgt"));
-        assert!(app.pending_action.is_some());
-        assert!(app.payment_editor.is_some());
+        assert!(app.dialogs.pending.is_some());
+        assert!(app.dialogs.payment_editor.is_some());
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -1733,10 +2124,10 @@ mod lifecycle_tests {
         let (mut app, dir) = fixture();
         app.dirty = false;
         app.edit_balance(20261027);
-        assert_eq!(app.balance_editor.as_ref().unwrap().date, 20261027);
+        assert_eq!(app.dialogs.balance_editor.as_ref().unwrap().date, 20261027);
         app.open(&dir.join("other.bgt"));
-        assert!(app.pending_action.is_some());
-        assert!(app.balance_editor.is_some());
+        assert!(app.dialogs.pending.is_some());
+        assert!(app.dialogs.balance_editor.is_some());
         assert!(!app.dirty);
         std::fs::remove_dir_all(dir).unwrap();
     }
@@ -1748,7 +2139,7 @@ mod lifecycle_tests {
         app.title_dirty = false;
         app.edit_balance(20261027);
         app.apply_balance_edit(20261027, Some(1234.56));
-        assert!(app.balance_editor.is_none());
+        assert!(app.dialogs.balance_editor.is_none());
         assert!(app.dirty && app.title_dirty);
         assert_eq!(app.db.as_mut().unwrap().get_day(&Cal::from_int(20261027)).unwrap().closing_balance, 1234.56);
         assert_eq!(app.db.as_ref().unwrap().payments[0].amount, -12.0);
@@ -1766,7 +2157,7 @@ mod lifecycle_tests {
         let before = app.db.as_ref().unwrap().to_text(None).unwrap();
         app.edit_balance(20261027);
         app.apply_balance_edit(20261027, Some(f64::NAN));
-        assert!(app.balance_editor.is_some());
+        assert!(app.dialogs.balance_editor.is_some());
         assert!(!app.dirty);
         assert_eq!(app.db.as_ref().unwrap().to_text(None).unwrap(), before);
         std::fs::remove_dir_all(dir).unwrap();
@@ -1849,27 +2240,31 @@ mod lifecycle_tests {
             db.payments[0].start_date = 20260927;
             db.payments[0].amount = -150.0;
             db.payments[0].set_end_mode(budget_core::END_MODE_INDEFINITE);
-            document::rebuild(db, &app.cur, 12, false);
+            db.rebuild_db(&app.cur, 12, false);
             app.dirty = false;
             app.edit_transaction(id, 20261027, -150.0);
             let scope = if future { TransactionScope::Future } else { TransactionScope::Occurrence };
             app.apply_transaction_edit(id, 20261027, -250.0, "This date only", budget_core::FLAG_PAID, scope);
             assert!(app.dirty);
-            assert!(app.transaction_editor.is_none());
+            assert!(app.dialogs.transaction_editor.is_none());
             let saved = dir.join("scoped-amount.bgt");
             assert!(app.save_to(&saved, None));
             assert!(!app.dirty);
             let loaded = bgt::load_file(&saved, app.today, None).unwrap();
-            let mut restored = document::from_loaded(loaded, &app.cur, 12, true);
+            let mut restored = BudgetDb::from_loaded(loaded, &app.cur, 12, true);
             for (date, expected) in [(20260927, -150.0), (20261027, -250.0),
                 (20261127, if future { -250.0 } else { -150.0 }),
                 (20261227, if future { -250.0 } else { -150.0 })] {
                 let actual = restored.get_day(&Cal::from_int(date)).unwrap().transactions[0].amount;
                 assert_eq!(actual, expected, "scope {scope:?}, date {date}");
             }
-            assert_eq!(restored.payments[0].get_note(20261027).as_deref(), Some("This date only"));
-            assert!(restored.payments[0].get_note(20261127).is_none());
-            assert_eq!(restored.payments[0].get_flag(20261127), budget_core::FLAG_NONE);
+            // The future scope splits the payment (04 §18), so the selected date's note lives on
+            // whichever record holds that occurrence.
+            assert_eq!(restored.payments.len(), if future { 2 } else { 1 });
+            let note = |date| restored.payments.iter().find_map(|p| p.get_note(date));
+            assert_eq!(note(20261027).as_deref(), Some("This date only"));
+            assert!(note(20261127).is_none());
+            assert!(restored.payments.iter().all(|p| p.get_flag(20261127) == budget_core::FLAG_NONE));
             std::fs::remove_dir_all(dir).unwrap();
         }
     }
@@ -1883,7 +2278,7 @@ mod lifecycle_tests {
         app.edit_transaction(id, 20261027, -12.0);
         app.apply_transaction_edit(id, 20261027, f64::NAN, "draft", budget_core::FLAG_PAID, TransactionScope::Future);
         assert!(!app.dirty);
-        assert!(app.transaction_editor.is_some());
+        assert!(app.dialogs.transaction_editor.is_some());
         assert_eq!(app.db.as_ref().unwrap().to_text(None).unwrap(), before);
         std::fs::remove_dir_all(dir).unwrap();
     }
@@ -2044,7 +2439,7 @@ mod lifecycle_tests {
                 }], ..Default::default()
             }, |ctx| app.render(ctx));
         }
-        assert!(app.show_about, "the version button must open the history dialog");
+        assert!(app.dialogs.about, "the version button must open the history dialog");
         let output = ctx.run(egui::RawInput {
             screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, Vec2::new(900.0, 600.0))),
             ..Default::default()
@@ -2060,7 +2455,7 @@ mod lifecycle_tests {
     fn version_history_fits_compact_windows_copies_identity_and_preserves_a_draft() {
         let (mut app, dir) = dense_fixture();
         app.edit_balance(20261027);
-        app.show_about = true;
+        app.dialogs.about = true;
         let before = app.db.as_ref().unwrap().to_text(None).unwrap();
         let ctx = egui::Context::default();
         theme::install_fonts(&ctx);
@@ -2097,8 +2492,8 @@ mod lifecycle_tests {
                 key: Key::Escape, physical_key: None, pressed: true, repeat: false, modifiers: Modifiers::NONE
             }], ..Default::default()
         }, |ctx| app.render(ctx));
-        assert!(!app.show_about);
-        assert!(app.balance_editor.is_some(), "closing history must retain an unfinished balance edit");
+        assert!(!app.dialogs.about);
+        assert!(app.dialogs.balance_editor.is_some(), "closing history must retain an unfinished balance edit");
         assert!(!app.dirty);
         assert_eq!(app.db.as_ref().unwrap().to_text(None).unwrap(), before);
         std::fs::remove_dir_all(dir).unwrap();
@@ -2117,6 +2512,16 @@ mod lifecycle_tests {
             input.viewports.insert(egui::ViewportId::ROOT, egui::ViewportInfo { events: vec![egui::ViewportEvent::Close], ..Default::default() });
         }
         ctx.run(input, |ctx| app.render(ctx))
+    }
+
+    /// Renders frames until `done` holds (a background open finishing), for up to ten seconds.
+    fn settle(app: &mut App, ctx: &egui::Context, done: impl Fn(&App) -> bool) {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !done(app) && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(5));
+            frame(app, ctx, vec![], false);
+        }
+        assert!(done(app), "timed out waiting for the background open");
     }
 
     fn gui(app: &App) -> egui::Context {
@@ -2177,10 +2582,10 @@ mod lifecycle_tests {
     #[test]
     fn close_request_supersedes_a_pending_open() {
         let (mut app, dir) = fixture();
-        app.pending_action = Some(PendingAction::Open(dir.join("other.bgt")));
+        app.dialogs.pending = Some(PendingAction::Open(dir.join("other.bgt")));
         let ctx = gui(&app);
         frame(&mut app, &ctx, vec![], true);
-        assert!(matches!(app.pending_action, Some(PendingAction::Close)));
+        assert!(matches!(app.dialogs.pending, Some(PendingAction::Close)));
         assert!(!app.allow_close);
         std::fs::remove_dir_all(dir).unwrap();
     }
@@ -2192,18 +2597,61 @@ mod lifecycle_tests {
         let text = app.db.as_ref().unwrap().to_text(Some("secret")).unwrap();
         bgt::save_file(&path, &text).unwrap();
         app.dirty = false;
-        app.pw_prompt = Some((path.clone(), String::new(), String::new()));
         let ctx = gui(&app);
+        app.open(&path);
+        settle(&mut app, &ctx, |app| app.dialogs.password.is_some());
+        // The file was read once, when it was opened: unlocking works from what was read.
+        std::fs::remove_file(&path).unwrap();
         frame(&mut app, &ctx, vec![], false);
         frame(&mut app, &ctx, vec![egui::Event::Text("wrong".into())], false);
         frame(&mut app, &ctx, vec![key(Key::Enter, Modifiers::NONE)], false);
-        assert_eq!(app.pw_prompt.as_ref().unwrap().2, "The password appears to be invalid.");
+        assert_eq!(app.dialogs.password.as_ref().unwrap().error, "The password appears to be invalid.");
         frame(&mut app, &ctx, vec![], false);
         assert!(ctx.memory(|m| m.focused()).is_some(), "the password field must regain focus");
         frame(&mut app, &ctx, vec![egui::Event::Text("secret".into())], false);
         frame(&mut app, &ctx, vec![key(Key::Enter, Modifiers::NONE)], false);
-        assert!(app.pw_prompt.is_none(), "retyping and Enter must unlock");
+        assert!(app.dialogs.password.is_none(), "retyping and Enter must unlock");
+        settle(&mut app, &ctx, |app| app.opening.is_none());
         assert_eq!(app.file.as_deref().map(file_name).as_deref(), Some("secret.bgt"));
+        assert_eq!(app.password.as_deref(), Some("secret"));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn typing_a_search_reuses_the_month_and_an_edit_or_another_budget_rebuilds_it() {
+        let (mut app, dir) = fixture();
+        app.ensure_view();
+        let row = |app: &App| app.view.as_ref().unwrap().cells.iter().flat_map(|c| &c.rows).next().cloned();
+        let before = row(&app).unwrap();
+        for text in ["fix", "fixture", "fixture zz"] {
+            app.filter_text = text.into();
+            app.set_filter();
+            app.ensure_view();
+            assert!(app.view.as_ref().unwrap().filtered);
+        }
+        assert!(row(&app).is_none(), "\"fixture zz\" matches nothing");
+        app.filter_text = "fixture".into();
+        app.set_filter();
+        app.ensure_view();
+        assert!(std::rc::Rc::ptr_eq(&before, &row(&app).unwrap()), "keystrokes reuse the month's rows instead of rebuilding them");
+        let id = app.db.as_ref().unwrap().payments[0].id;
+        document::change_transaction(app.db.as_mut().unwrap(), id, 20261027, -13.0, "", budget_core::FLAG_NONE).unwrap();
+        app.changed();
+        app.ensure_view();
+        let edited = row(&app).unwrap();
+        assert!(!std::rc::Rc::ptr_eq(&before, &edited) && edited.value == -13.0, "an edit rebuilds the month");
+        // Another budget is never served from the previous one's month, even at the same engine count.
+        let count = app.db.as_ref().unwrap().update_count;
+        let mut other = BudgetDb::new(&app.cur, 12, false);
+        let mut p = budget_core::Payment::new(20261027); p.description = "Fixture other".into(); p.amount = -99.0;
+        other.add(p);
+        let path = dir.join("other.bgt");
+        bgt::save_file(&path, &other.to_text(None).unwrap()).unwrap();
+        app.dirty = false;
+        app.load(&path, None);
+        app.db.as_mut().unwrap().update_count = count;
+        app.ensure_view();
+        assert_eq!(row(&app).unwrap().value, -99.0);
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -2247,11 +2695,11 @@ mod lifecycle_tests {
     fn editing_from_the_day_dialog_returns_to_the_day_list() {
         let (mut app, dir) = fixture();
         let id = app.db.as_ref().unwrap().payments[0].id;
-        app.day_dialog = Some(20261027);
+        app.dialogs.day = Some(20261027);
         app.edit_transaction(id, 20261027, -12.0);
         app.apply_transaction_edit(id, 20261027, -20.0, "", budget_core::FLAG_NONE, TransactionScope::Occurrence);
-        assert!(app.transaction_editor.is_none());
-        assert_eq!(app.day_dialog, Some(20261027));
+        assert!(app.dialogs.transaction_editor.is_none());
+        assert_eq!(app.dialogs.day, Some(20261027));
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -2263,8 +2711,8 @@ mod lifecycle_tests {
         frame(&mut app, &ctx, vec![], false);
         egui::DragAndDrop::set_payload(&ctx, calendar::DraggedTransaction { id: 1, date: 20261027, amount: -12.0 });
         frame(&mut app, &ctx, vec![key(Key::N, Modifiers::COMMAND), key(Key::F1, Modifiers::NONE), key(Key::P, Modifiers::COMMAND)], false);
-        assert!(app.payment_editor.is_none());
-        assert!(!app.show_shortcuts);
+        assert!(app.dialogs.payment_editor.is_none());
+        assert!(!app.dialogs.shortcuts);
         assert!(!app.show_payments);
         std::fs::remove_dir_all(dir).unwrap();
     }
@@ -2299,6 +2747,577 @@ mod lifecycle_tests {
         frame(&mut app, &ctx, vec![key(Key::Enter, Modifiers::NONE)], false);
         frame(&mut app, &ctx, vec![], false);
         assert_eq!(app.cur.get(), 20271001);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    type Texts = Vec<(egui::epaint::TextShape, egui::Rect)>;
+
+    fn text_center(texts: &Texts, pred: impl Fn(&str) -> bool) -> Option<egui::Pos2> {
+        texts.iter().find(|(t, _)| pred(&t.galley.job.text)).map(|(t, _)| t.pos + t.galley.mesh_bounds.center().to_vec2())
+    }
+
+    fn click_at(app: &mut App, ctx: &egui::Context, pos: egui::Pos2) -> Texts {
+        frame(app, ctx, vec![egui::Event::PointerMoved(pos)], false);
+        for pressed in [true, false] {
+            frame(app, ctx, vec![egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: Modifiers::NONE }], false);
+        }
+        rendered_text(&frame(app, ctx, vec![], false))
+    }
+
+    /// The rectangle of the widget that has keyboard focus.
+    fn focused_rect(ctx: &egui::Context) -> Option<(egui::Id, egui::Rect)> {
+        let id = ctx.memory(|m| m.focused())?;
+        Some((id, ctx.read_response(id)?.rect))
+    }
+
+    #[test]
+    fn tab_walks_header_search_month_tiles_and_calendar_rows_and_shift_tab_goes_back() {
+        let (mut app, dir) = fixture();
+        app.dirty = false;
+        let ctx = gui(&app);
+        let mut texts = Vec::new();
+        for _ in 0..3 { texts = rendered_text(&frame(&mut app, &ctx, vec![], false)); }
+        let landmarks = [
+            ("search", text_center(&texts, |s| s == "Search transactions").unwrap()),
+            ("month", text_center(&texts, |s| s.starts_with("October 2026")).unwrap()),
+            ("opening", text_center(&texts, |s| s == "Opening balance").unwrap()),
+            ("closing", text_center(&texts, |s| s == "Closing balance").unwrap()),
+            ("row", text_center(&texts, |s| s == "Fixture payment").unwrap()),
+        ];
+        // Each key press is followed by an idle frame, as when a person presses Tab repeatedly.
+        let mut order: Vec<(egui::Id, Option<&str>)> = Vec::new();
+        for _ in 0..60 {
+            frame(&mut app, &ctx, vec![key(Key::Tab, Modifiers::NONE)], false);
+            frame(&mut app, &ctx, vec![], false);
+            let (id, rect) = focused_rect(&ctx).unwrap_or_else(|| panic!("Tab left nothing focused after {:?}", order.iter().map(|(_, n)| n).collect::<Vec<_>>()));
+            order.push((id, landmarks.iter().find(|(_, pos)| rect.contains(*pos)).map(|(name, _)| *name)));
+            if order.len() > 1 && order[0].0 == id { break; }
+        }
+        let first = |name: &str| order.iter().position(|(_, n)| *n == Some(name))
+            .unwrap_or_else(|| panic!("Tab never reached {name}: {:?}", order.iter().map(|(_, n)| n).collect::<Vec<_>>()));
+        let steps: Vec<usize> = landmarks.iter().map(|(name, _)| first(name)).collect();
+        assert!(steps.windows(2).all(|w| w[0] < w[1]), "header → search → month → tiles → rows, got steps {steps:?}");
+        assert_eq!(order.last().unwrap().0, order[0].0, "after the calendar Tab wraps around to the header");
+        // Walk back to the row, then Shift+Tab returns to the closing balance tile.
+        while focused_rect(&ctx).and_then(|(_, r)| r.contains(landmarks[4].1).then_some(())).is_none() {
+            frame(&mut app, &ctx, vec![key(Key::Tab, Modifiers::SHIFT)], false);
+            frame(&mut app, &ctx, vec![], false);
+        }
+        let (row_id, row_rect) = focused_rect(&ctx).unwrap();
+        let ring = frame(&mut app, &ctx, vec![], false).shapes.iter().any(|s| matches!(&s.shape,
+            egui::Shape::Rect(r) if r.stroke.width >= 2.0 && r.stroke.color == app.t.accent && r.rect == row_rect));
+        assert!(ring, "a focused row shows a 2px accent focus ring inside its unchanged rectangle");
+        frame(&mut app, &ctx, vec![key(Key::Tab, Modifiers::SHIFT)], false);
+        frame(&mut app, &ctx, vec![], false);
+        assert!(focused_rect(&ctx).unwrap().1.contains(landmarks[3].1), "Shift+Tab from the first row goes back to the summary tiles");
+        // Back on the row: Enter opens this date's editor, and closing it returns focus to the row.
+        frame(&mut app, &ctx, vec![key(Key::Tab, Modifiers::NONE)], false);
+        frame(&mut app, &ctx, vec![], false);
+        assert_eq!(focused_rect(&ctx).unwrap().0, row_id);
+        frame(&mut app, &ctx, vec![key(Key::Enter, Modifiers::NONE)], false);
+        let editor = app.dialogs.transaction_editor.as_ref().expect("Enter on a focused row opens the transaction editor");
+        assert_eq!((editor.payment_id, editor.date), (app.db.as_ref().unwrap().payments[0].id, 20261027));
+        frame(&mut app, &ctx, vec![], false);
+        frame(&mut app, &ctx, vec![key(Key::Escape, Modifiers::NONE)], false);
+        frame(&mut app, &ctx, vec![], false);
+        assert!(app.dialogs.transaction_editor.is_none());
+        assert_eq!(ctx.memory(|m| m.focused()), Some(row_id), "closing the editor returns focus to the row");
+        frame(&mut app, &ctx, vec![key(Key::Space, Modifiers::NONE)], false);
+        assert!(app.dialogs.transaction_editor.is_some(), "Space opens the editor too");
+        assert!(!app.dirty);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn filtered_day_dialog_lists_matching_transactions_before_the_others() {
+        let (mut app, dir) = dense_fixture();
+        let ctx = gui(&app);
+        // Bill 8-3 and 8-4 (−153, −154) match; 8-0..8-2 do not.
+        app.filter_text = "<-152.5".into();
+        app.set_filter();
+        app.dialogs.day = Some(20261008);
+        // Tall enough that the settled dialog lists all five without scrolling.
+        let tall = |app: &mut App| rendered_text(&ctx.run(egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, Vec2::new(1280.0, 1400.0))), ..Default::default() }, |ctx| app.render(ctx)));
+        let mut texts = Vec::new();
+        for _ in 0..12 { texts = tall(&mut app); }
+        // The dialog names payments in the semibold face; the calendar uses the body face.
+        let semi = egui::FontFamily::Name("semi".into());
+        let dialog_y = |name: &str| texts.iter().find(|(t, _)| t.galley.job.text == name && t.galley.job.sections[0].format.font_id.family == semi)
+            .map(|(t, _)| t.pos.y).unwrap_or_else(|| panic!("the day dialog must list {name}"));
+        let other = text_center(&texts, |s| s == "Other transactions on this day").expect("non-matching transactions get their own section").y;
+        assert!(texts.iter().any(|(t, _)| t.galley.job.text == "2 of 5 transactions match the search"));
+        for name in ["Bill 8-3", "Bill 8-4"] { assert!(dialog_y(name) < other, "{name} matches and is listed first"); }
+        for name in ["Bill 8-0", "Bill 8-1", "Bill 8-2"] { assert!(dialog_y(name) > other, "{name} is listed under the other transactions"); }
+        app.filter_text.clear();
+        app.set_filter();
+        for _ in 0..2 { texts = tall(&mut app); }
+        assert!(texts.iter().any(|(t, _)| t.galley.job.text == "5 transactions"));
+        assert!(!texts.iter().any(|(t, _)| t.galley.job.text == "Other transactions on this day"));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn escape_closes_the_day_dialog_menu_first_and_the_backdrop_closes_the_dialog() {
+        let (mut app, dir) = fixture();
+        let ctx = gui(&app);
+        app.dialogs.day = Some(20261027);
+        let mut texts = Vec::new();
+        for _ in 0..2 { texts = rendered_text(&frame(&mut app, &ctx, vec![], false)); }
+        let more = text_center(&texts, |s| s == "More").expect("the day dialog offers More");
+        texts = click_at(&mut app, &ctx, more);
+        assert!(texts.iter().any(|(t, _)| t.galley.job.text == "Edit whole payment"), "More opens its menu");
+        frame(&mut app, &ctx, vec![key(Key::Escape, Modifiers::NONE)], false);
+        texts = rendered_text(&frame(&mut app, &ctx, vec![], false));
+        assert!(!texts.iter().any(|(t, _)| t.galley.job.text == "Edit whole payment"), "Escape closes the menu");
+        assert_eq!(app.dialogs.day, Some(20261027), "the first Escape closes only the menu");
+        frame(&mut app, &ctx, vec![key(Key::Escape, Modifiers::NONE)], false);
+        assert_eq!(app.dialogs.day, None, "a second Escape closes the dialog");
+        // A press on the backdrop while the menu is open dismisses only the menu, as Escape does.
+        app.dialogs.day = Some(20261027);
+        frame(&mut app, &ctx, vec![], false);
+        click_at(&mut app, &ctx, more);
+        let backdrop = egui::pos2(20.0, 420.0);
+        texts = click_at(&mut app, &ctx, backdrop);
+        assert!(!texts.iter().any(|(t, _)| t.galley.job.text == "Edit whole payment"));
+        assert_eq!(app.dialogs.day, Some(20261027));
+        click_at(&mut app, &ctx, backdrop);
+        assert_eq!(app.dialogs.day, None, "a backdrop click closes the day dialog, like the other read-only dialogs");
+        app.dialogs.legend = true;
+        frame(&mut app, &ctx, vec![], false);
+        click_at(&mut app, &ctx, backdrop);
+        assert!(!app.dialogs.legend, "the legend closes the same way");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn double_clicking_plus_n_leaves_the_day_dialog_open() {
+        let (mut app, dir) = fixture();
+        let db = app.db.as_mut().unwrap();
+        for n in 0..60 {
+            let mut p = budget_core::Payment::new(20261004);
+            p.description = format!("Busy {n}"); p.amount = -1.0 - n as f64;
+            db.add(p);
+        }
+        let ctx = gui(&app);
+        let mut texts = Vec::new();
+        for _ in 0..3 { texts = rendered_text(&frame(&mut app, &ctx, vec![], false)); }
+        let more = text_center(&texts, |s| s.len() > 1 && s.starts_with('+') && s[1..].chars().all(|c| c.is_ascii_digit())).expect("the busy day shows +N");
+        assert!(more.x < 300.0, "+N must lie outside the centred dialog for this test: {more:?}");
+        let button = |pressed| egui::Event::PointerButton { pos: more, button: egui::PointerButton::Primary, pressed, modifiers: Modifiers::NONE };
+        frame(&mut app, &ctx, vec![egui::Event::PointerMoved(more)], false);
+        for pressed in [true, false] { frame(&mut app, &ctx, vec![button(pressed)], false); }
+        // The second press follows a few frames later (each test frame is 1/60 s; the double-click window is 0.3 s).
+        for _ in 0..4 { frame(&mut app, &ctx, vec![], false); }
+        assert_eq!(app.dialogs.day, Some(20261004), "the first click opens the day dialog");
+        for pressed in [true, false] { frame(&mut app, &ctx, vec![button(pressed)], false); }
+        frame(&mut app, &ctx, vec![], false);
+        assert_eq!(app.dialogs.day, Some(20261004), "the double-click's second click lands on the backdrop but must not close the dialog it opened");
+        for _ in 0..30 { frame(&mut app, &ctx, vec![], false); }
+        click_at(&mut app, &ctx, more);
+        assert_eq!(app.dialogs.day, None, "a later backdrop click closes it");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_file_dropped_while_a_dialog_is_open_is_explained_not_silently_ignored() {
+        let (mut app, dir) = fixture();
+        app.dirty = false;
+        let ctx = gui(&app);
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, Vec2::new(1280.0, 840.0));
+        let dropped = dir.join("other.bgt");
+        let hover = |app: &mut App| rendered_text(&ctx.run(egui::RawInput { screen_rect: Some(screen),
+            hovered_files: vec![egui::HoveredFile { path: Some(dropped.clone()), ..Default::default() }], ..Default::default() }, |ctx| app.render(ctx)));
+        assert!(hover(&mut app).iter().any(|(t, _)| t.galley.job.text == "Drop to open"), "without a dialog the drop target is shown");
+        app.dialogs.legend = true;
+        assert!(!hover(&mut app).iter().any(|(t, _)| t.galley.job.text == "Drop to open"), "no drop target while a dialog is open");
+        let _ = ctx.run(egui::RawInput { screen_rect: Some(screen),
+            dropped_files: vec![egui::DroppedFile { path: Some(dropped.clone()), ..Default::default() }], ..Default::default() }, |ctx| app.render(ctx));
+        assert!(app.toast.as_ref().is_some_and(|t| t.error && t.text.contains("Close the open dialog")), "the drop is explained");
+        assert!(app.dialogs.legend && app.dialogs.pending.is_none() && app.dialogs.password.is_none());
+        assert_eq!(app.file.as_deref(), Some(dir.join("current.bgt").as_path()));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_new_local_date_becomes_today_while_the_app_is_open() {
+        use std::sync::atomic::AtomicI32;
+        use std::sync::Arc;
+        let (mut app, dir) = fixture();
+        app.dirty = false;
+        let clock = Arc::new(AtomicI32::new(20261027));
+        let source = clock.clone();
+        app.date_watch = DateWatch::new(Some(Box::new(move || source.load(Ordering::Relaxed))), Instant::now());
+        let ctx = gui(&app);
+        let wake = |output: &egui::FullOutput| output.viewport_output[&egui::ViewportId::ROOT].repaint_delay;
+        let mut output = frame(&mut app, &ctx, vec![], false);
+        for _ in 0..3 { output = frame(&mut app, &ctx, vec![], false); }
+        assert_eq!(app.today, 20261027);
+        assert!(wake(&output) <= DateWatch::INTERVAL, "an idle window wakes for the next date check: {:?}", wake(&output));
+        // Midnight passes: the grid and the scheduler's today follow without any input.
+        clock.store(20261028, Ordering::Relaxed);
+        app.date_watch.expire();
+        frame(&mut app, &ctx, vec![], false);
+        assert_eq!((app.today, app.db.as_ref().unwrap().today), (20261028, 20261028));
+        let today: Vec<i32> = app.view.as_ref().unwrap().cells.iter().filter(|c| c.is_today).map(|c| c.date).collect();
+        assert_eq!(today, [20261028], "the grid marks the new day");
+        assert!(!app.dirty, "a new day is not an edit");
+        // Someone looking at the current month moves into the next one with it...
+        clock.store(20261101, Ordering::Relaxed);
+        app.date_watch.expire();
+        frame(&mut app, &ctx, vec![], false);
+        assert_eq!((app.today, app.cur.get()), (20261101, 20261101));
+        // ...while someone browsing another month stays there.
+        app.go(2);
+        clock.store(20261102, Ordering::Relaxed);
+        app.date_watch.expire();
+        frame(&mut app, &ctx, vec![], false);
+        assert_eq!((app.today, app.cur.get()), (20261102, 20270101));
+        // `--today` keeps the date fixed and needs no wake-ups.
+        app.date_watch = DateWatch::fixed();
+        clock.store(20261103, Ordering::Relaxed);
+        for _ in 0..3 { output = frame(&mut app, &ctx, vec![], false); }
+        assert_eq!(app.today, 20261102);
+        assert!(wake(&output) > DateWatch::INTERVAL, "{:?}", wake(&output));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn recent_budgets_on_a_stalled_share_never_block_the_window() {
+        let (mut app, dir) = fixture();
+        (app.db, app.file, app.dirty) = (None, None, false);
+        app.cfg.recent_file = vec![r"\\stalled-server\budgets\Home.bgt".to_string()];
+        let (gate, probes) = file_probe::tests::Gate::probes(FileStatus::Present(Some(std::time::SystemTime::now())));
+        app.files = probes;
+        let ctx = gui(&app);
+        let started = Instant::now();
+        let mut texts = Vec::new();
+        for _ in 0..3 { texts = rendered_text(&frame(&mut app, &ctx, vec![], false)); }
+        assert!(started.elapsed() < Duration::from_secs(2), "frames must not wait for the file check");
+        let shown = |texts: &Texts, s: &str| texts.iter().any(|(t, _)| t.galley.job.text == s);
+        assert!(shown(&texts, "Home.bgt") && shown(&texts, "Checking…"), "a neutral placeholder until the answer arrives");
+        assert!(!shown(&texts, "File not found"));
+        gate.open();
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !shown(&texts, "Modified just now") && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(5));
+            texts = rendered_text(&frame(&mut app, &ctx, vec![], false));
+        }
+        assert!(shown(&texts, "Modified just now"));
+        assert_eq!(gate.calls.load(Ordering::SeqCst), 1, "each path is checked once, not every frame");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn clicking_a_recent_budget_on_a_stalled_share_opens_it_without_blocking_the_window() {
+        let (mut app, dir) = fixture();
+        let path = dir.join("Home.bgt");
+        bgt::save_file(&path, &app.db.as_ref().unwrap().to_text(None).unwrap()).unwrap();
+        (app.db, app.file, app.dirty) = (None, None, false);
+        app.cfg.recent_file = vec![path.display().to_string()];
+        let (gate, probes) = file_probe::tests::Gate::reads();
+        app.files = probes;
+        let ctx = gui(&app);
+        let mut texts = Vec::new();
+        for _ in 0..3 { texts = rendered_text(&frame(&mut app, &ctx, vec![], false)); }
+        let card = text_center(&texts, |s| s == "Home.bgt").expect("the recent budget has a card");
+        // Pressed where the pointer arrives, before the card's tooltip can cover it.
+        let click = |app: &mut App| for (events, pressed) in [(vec![egui::Event::PointerMoved(card)], true), (Vec::new(), false)] {
+            let button = egui::Event::PointerButton { pos: card, button: egui::PointerButton::Primary, pressed, modifiers: Modifiers::NONE };
+            frame(app, &ctx, events.into_iter().chain([button]).collect(), false);
+        };
+        let started = Instant::now();
+        click(&mut app);
+        for _ in 0..2 { texts = rendered_text(&frame(&mut app, &ctx, vec![], false)); }
+        assert!(started.elapsed() < Duration::from_secs(2), "frames must not wait for the read");
+        let shown = |texts: &Texts, s: &str| texts.iter().any(|(t, _)| t.galley.job.text == s);
+        assert!(app.db.is_none() && shown(&texts, "Opening…") && shown(&texts, "Opening Home.bgt…"), "the card and the status bar say it is opening");
+        click(&mut app);
+        gate.open();
+        settle(&mut app, &ctx, |app| app.db.is_some());
+        assert_eq!(app.file.as_deref(), Some(path.as_path()));
+        assert!(app.toast.as_ref().is_some_and(|t| t.text == "Opened Home.bgt"));
+        assert_eq!(gate.calls.load(Ordering::SeqCst), 1, "a second click on the opening card does not read it again");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A budget saved beside the fixture with one payment, read through a gate the test opens.
+    fn other_budget(app: &mut App, dir: &Path) -> (PathBuf, file_probe::tests::Gate) {
+        let other = dir.join("other.bgt");
+        let mut db = BudgetDb::new(&app.cur, 12, false);
+        let mut p = budget_core::Payment::new(20261027); p.description = "Other payment".into(); p.amount = -5.0;
+        db.add(p);
+        bgt::save_file(&other, &db.to_text(None).unwrap()).unwrap();
+        let (gate, probes) = file_probe::tests::Gate::reads();
+        app.files = probes;
+        (other, gate)
+    }
+
+    #[test]
+    fn a_budget_opened_in_the_background_closes_dialogs_about_the_replaced_one() {
+        let (mut app, dir) = fixture();
+        app.dirty = false;
+        let (other, gate) = other_budget(&mut app, &dir);
+        let ctx = gui(&app);
+        frame(&mut app, &ctx, vec![], false);
+        app.open(&other);
+        // While it is read, ask to delete a payment of the current budget.
+        let id = app.db.as_ref().unwrap().payments[0].id;
+        app.dialogs.confirm_delete = Some(DeleteTarget { id, date: None });
+        frame(&mut app, &ctx, vec![], false);
+        gate.open();
+        settle(&mut app, &ctx, |app| app.opening.is_none());
+        assert_eq!(app.file.as_deref(), Some(other.as_path()));
+        assert!(app.dialogs.confirm_delete.is_none(), "the confirmation named a payment of the replaced budget");
+        assert_eq!(app.db.as_ref().unwrap().payments.len(), 1, "nothing was deleted");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn asking_again_for_the_budget_being_read_answers_the_prompt_once() {
+        let (mut app, dir) = fixture();
+        app.dirty = false;
+        let (other, gate) = other_budget(&mut app, &dir);
+        let ctx = gui(&app);
+        frame(&mut app, &ctx, vec![], false);
+        app.open(&other);
+        let id = app.db.as_ref().unwrap().payments[0].id;
+        document::change_transaction(app.db.as_mut().unwrap(), id, 20261027, -20.0, "", budget_core::FLAG_NONE).unwrap();
+        app.changed();
+        app.open(&other);
+        assert!(matches!(&app.dialogs.pending, Some(PendingAction::Open(p)) if *p == other), "the edit is asked about");
+        app.dialogs.pending = None; // Discard changes
+        app.perform_pending(PendingAction::Open(other.clone()), &ctx);
+        gate.open();
+        settle(&mut app, &ctx, |app| app.opening.is_none());
+        assert!(app.dialogs.pending.is_none(), "the answered prompt is not shown again");
+        assert_eq!(app.file.as_deref(), Some(other.as_path()));
+        assert_eq!(gate.calls.load(Ordering::SeqCst), 1, "the budget is read once");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn an_edit_made_while_a_budget_is_read_is_kept_until_the_prompt_is_answered() {
+        let (mut app, dir) = fixture();
+        app.dirty = false;
+        let other = dir.join("other.bgt");
+        let mut db = BudgetDb::new(&app.cur, 12, false);
+        let mut p = budget_core::Payment::new(20261027); p.description = "Other payment".into(); p.amount = -5.0;
+        db.add(p);
+        bgt::save_file(&other, &db.to_text(None).unwrap()).unwrap();
+        let (gate, probes) = file_probe::tests::Gate::reads();
+        app.files = probes;
+        let ctx = gui(&app);
+        frame(&mut app, &ctx, vec![], false);
+        app.open(&other);
+        assert!(app.opening.is_some() && app.dialogs.pending.is_none(), "a clean budget opens without asking");
+        let id = app.db.as_ref().unwrap().payments[0].id;
+        document::change_transaction(app.db.as_mut().unwrap(), id, 20261027, -20.0, "", budget_core::FLAG_NONE).unwrap();
+        app.changed();
+        gate.open();
+        settle(&mut app, &ctx, |app| app.opening.is_none());
+        assert!(matches!(&app.dialogs.pending, Some(PendingAction::Open(p)) if *p == other), "the finished open asks first");
+        assert_eq!(app.file.as_deref(), Some(dir.join("current.bgt").as_path()));
+        assert!(app.dirty);
+        assert_eq!(app.db.as_mut().unwrap().get_day(&Cal::from_int(20261027)).unwrap().transactions[0].amount, -20.0);
+        // Discard changes: the budget opens.
+        app.dialogs.pending = None;
+        app.perform_pending(PendingAction::Open(other.clone()), &ctx);
+        settle(&mut app, &ctx, |app| app.opening.is_none());
+        assert_eq!(app.file.as_deref(), Some(other.as_path()));
+        assert!(!app.dirty);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn the_last_budget_on_a_slow_share_opens_when_its_check_returns() {
+        let (mut app, dir) = fixture();
+        let path = dir.join("last.bgt");
+        bgt::save_file(&path, &app.db.as_ref().unwrap().to_text(None).unwrap()).unwrap();
+        (app.db, app.file, app.dirty) = (None, None, false);
+        let (gate, probes) = file_probe::tests::Gate::probes(FileStatus::Present(None));
+        app.files = probes;
+        app.auto_open = Some(path.clone());
+        let ctx = gui(&app);
+        for _ in 0..2 { frame(&mut app, &ctx, vec![], false); }
+        assert!(app.db.is_none() && app.auto_open.is_some(), "the window stays usable while the share is checked");
+        gate.open();
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while app.db.is_none() && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(5));
+            frame(&mut app, &ctx, vec![], false);
+        }
+        assert_eq!(app.file.as_deref(), Some(path.as_path()));
+        assert!(app.auto_open.is_none());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    // ---------- performance harness (ignored; run with `--release -- --ignored perf --nocapture`) ----------
+
+    /// A generated 3000-payment budget: monthly, weekly, fortnightly and yearly payments started
+    /// 2019–2026, a third of them ending, every fifth with a dated amount, note and flag, plus a
+    /// balance adjustment.
+    pub(crate) fn perf_db(cur: &Cal) -> BudgetDb {
+        const KINDS: [&str; 8] = ["Salary", "Groceries", "Gas", "Netflix", "Hydro", "Rent", "Visa", "Insurance"];
+        const CATS: [&str; 19] = ["Loans", "Phone", "Utilities", "Auto", "Housing", "Pets", "Internet", "Clothes", "Gifts",
+            "Food", "Tax", "Fun", "School", "Misc", "Travel", "Health", "Savings", "Kids", "Subscriptions"];
+        let mut seed: u64 = 42;
+        let mut next = move |n: u32| {
+            seed = seed.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1_442_695_040_888_963_407);
+            ((seed >> 33) as u32) % n
+        };
+        let mut db = BudgetDb::new(cur, 12, false);
+        db.adjustments.set_custom_amount(20260101, 5000.0);
+        for n in 0..3000 {
+            let mut p = budget_core::Payment::new(20261027);
+            p.id = n + 1;
+            // Numbered out of order, so the list is not already sorted by name.
+            p.description = format!("Payment {:04} {}", (n * 1847) % 3000, KINDS[next(8) as usize]);
+            p.category = Some(CATS[next(19) as usize].to_string());
+            p.amount = next(4000) as f64 - 2400.0;
+            p.start_date = (2019 + next(8) as i32) * 10000 + (1 + next(12) as i32) * 100 + 1 + next(28) as i32;
+            let (freq, every) = match next(10) { 0..=4 => ('m', 1), 5 | 6 => ('w', 2), 7 | 8 => ('w', 1), _ => ('y', 1) };
+            (p.freq_type, p.frequency) = (freq, every);
+            if next(3) == 0 {
+                p.set_end_mode(budget_core::END_MODE_DATE);
+                p.end_date = p.start_date + 20000;
+            } else {
+                p.set_end_mode(budget_core::END_MODE_INDEFINITE);
+            }
+            if n % 5 == 0 {
+                p.set_custom_amount(20261015, -42.0);
+                p.set_note(20261015, Some("a note"));
+                p.set_flag(20261015, budget_core::FLAG_PAID);
+            }
+            db.payments.push(p);
+        }
+        db.rebuild_db(cur, 12, false);
+        db
+    }
+
+    fn perf_app() -> (App, PathBuf) {
+        let (mut app, dir) = fixture();
+        app.db = Some(perf_db(&app.cur));
+        (app.dirty, app.title_dirty) = (false, false);
+        (app, dir)
+    }
+
+    fn ms(d: Duration) -> f64 { d.as_secs_f64() * 1000.0 }
+
+    fn report(name: &str, mut samples: Vec<f64>) {
+        samples.sort_by(f64::total_cmp);
+        let median = samples[samples.len() / 2];
+        println!("PERF {name}: median {median:.2} ms, max {:.2} ms, min {:.2} ms (n={})", samples[samples.len() - 1], samples[0], samples.len());
+    }
+
+    fn wide_frame(app: &mut App, ctx: &egui::Context) -> egui::FullOutput {
+        ctx.run(egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, Vec2::new(1920.0, 1080.0))), ..Default::default() }, |ctx| app.render(ctx))
+    }
+
+    #[test]
+    #[ignore]
+    fn perf_typing_in_the_search_box() {
+        let (mut app, dir) = perf_app();
+        let ctx = gui(&app);
+        for _ in 0..3 { wide_frame(&mut app, &ctx); }
+        let text = "payment 01 gas";
+        let (mut view, mut frames) = (Vec::new(), Vec::new());
+        for round in 0..3 {
+            for end in 1..=text.len() {
+                app.filter_text = text[..end].to_string();
+                app.set_filter();
+                let started = Instant::now();
+                app.ensure_view();
+                if round > 0 { view.push(ms(started.elapsed())); }
+                // The same keystroke rendered as a whole frame (filter parse, view, panels, grid).
+                app.filter_text = text[..end].to_string();
+                app.view = None;
+                let started = Instant::now();
+                app.set_filter();
+                wide_frame(&mut app, &ctx);
+                if round > 0 { frames.push(ms(started.elapsed())); }
+            }
+        }
+        report("keystroke: month view rebuild", view);
+        report("keystroke: full frame", frames);
+        {
+            let mut f = Filter::new("payment 01 g", app.today).unwrap();
+            f.set_haystacks(Some(Arc::new(Haystacks::new(&app.db.as_ref().unwrap().payments))));
+            let db = app.db.as_mut().unwrap();
+            let mut n = 0;
+            let started = Instant::now();
+            for date in 20261001..=20261031 {
+                let trans = db.get_day(&Cal::from_int(date)).unwrap().transactions.clone();
+                for t in trans { n += 1; std::hint::black_box(f.is_match(&db.payments[t.pmt], t.amount, date)); }
+            }
+            println!("PERF {n} is_match: {:.2} ms", ms(started.elapsed()));
+            let started = Instant::now();
+            std::hint::black_box(budget_core::stats::calc_statistics(db, &app.cur, 1, false, Some(&f)));
+            println!("PERF filtered stats: {:.2} ms", ms(started.elapsed()));
+            let started = Instant::now();
+            std::hint::black_box(budget_core::stats::calc_statistics(db, &app.cur, 1, false, None));
+            println!("PERF unfiltered stats: {:.2} ms", ms(started.elapsed()));
+        }
+        let mut idle = Vec::new();
+        for _ in 0..20 { let started = Instant::now(); wide_frame(&mut app, &ctx); idle.push(ms(started.elapsed())); }
+        report("idle frame with a search", idle);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    #[ignore]
+    fn perf_editing_a_transaction() {
+        let (mut app, dir) = perf_app();
+        let ctx = gui(&app);
+        for _ in 0..2 { wide_frame(&mut app, &ctx); }
+        let (mut fast, mut slow) = (Vec::new(), Vec::new());
+        for k in 0..32 {
+            let db = app.db.as_mut().unwrap();
+            // A payment shown this month: edit that occurrence's amount.
+            let (pmt, date, amount) = (20261001..=20261028).find_map(|date| {
+                db.get_day(&Cal::from_int(date)).and_then(|d| d.transactions.get(k % d.transactions.len().max(1)).map(|t| (t.pmt, date, t.amount)))
+            }).unwrap();
+            let id = db.payments[pmt].id;
+            document::change_transaction(db, id, date, amount - 1.0, "", budget_core::FLAG_NONE).unwrap();
+            let started = Instant::now();
+            let rebuilt = app.changed();
+            let changed_ms = ms(started.elapsed());
+            app.ensure_view();
+            let total_ms = ms(started.elapsed());
+            if k > 1 {
+                (if rebuilt { &mut slow } else { &mut fast }).push((changed_ms, total_ms));
+            }
+        }
+        // Every fifth generated payment has an equal -42.00 dated amount on 15 October, and a few
+        // others share amounts by chance: editing those still rebuilds, to keep their order.
+        for (name, samples) in [("updated in place", fast), ("rebuilt (equal amounts on a day)", slow)] {
+            if samples.is_empty() { println!("PERF edit {name}: none"); continue; }
+            report(&format!("edit {name}: App::changed"), samples.iter().map(|s| s.0).collect());
+            report(&format!("edit {name}: App::changed + month view"), samples.iter().map(|s| s.1).collect());
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    #[ignore]
+    fn perf_payment_list_frames() {
+        let (mut app, dir) = perf_app();
+        app.show_payments = true;
+        let ctx = gui(&app);
+        for _ in 0..3 { wide_frame(&mut app, &ctx); }
+        let rows = rendered_text(&wide_frame(&mut app, &ctx)).iter().filter(|(t, _)| t.galley.job.text.starts_with("Payment ")).count();
+        assert!(rows >= 10, "the list shows its rows ({rows})");
+        let mut idle = Vec::new();
+        for _ in 0..20 { let started = Instant::now(); wide_frame(&mut app, &ctx); idle.push(ms(started.elapsed())); }
+        report("payment list: idle frame", idle);
+        let mut typing = Vec::new();
+        for (round, end) in (0..2).flat_map(|r| (1..=7).map(move |e| (r, e))) {
+            app.payment_list.search = "payment"[..end].to_string();
+            let started = Instant::now();
+            wide_frame(&mut app, &ctx);
+            if round > 0 { typing.push(ms(started.elapsed())); }
+        }
+        report("payment list: search keystroke frame", typing);
         std::fs::remove_dir_all(dir).unwrap();
     }
 }
