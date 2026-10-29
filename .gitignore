@@ -1,2 +1,15 @@
 /target
 /local-releases
+
+# Personal budgets, including mixed-case extensions, backups and save sidecars.
+*.[bB][gG][tT]
+*.[bB][gG][tT].*
+*.[bB][gG][tT]~
+
+# Local preferences can contain personal budget paths.
+.[bB][uU][dD][gG][eE][tT][rR][cC]
+.[bB][uU][dD][gG][eE][tT][rR][cC].*
+.[bB][uU][dD][gG][eE][tT][rR][cC]~
+
+# The bundled demonstration budget is intentionally versioned.
+!/reference/sample.bgt
