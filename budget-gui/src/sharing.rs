@@ -378,6 +378,9 @@ impl App {
             if let Some(doc) = &self.sharing.document {
                 ui.label(format!("{} · revision {} · {}", doc.working.name, doc.revision, doc.role));
                 ui.label(format!("Household time zone: {}", doc.working.time_zone));
+                if ui.button("Copy recovery key").on_hover_text("Copy this household's key to unlock it on another device. Keep it private.").clicked() {
+                    command = Some("copy-key");
+                }
                 if let Some(remote) = &doc.conflict {
                     ui.separator(); ui.heading("Review both versions");
                     ui.label(format!("Your device: {} payments, {} queued changes", doc.working.payments.len(), doc.pending.len()));
@@ -438,6 +441,12 @@ impl App {
             });
         });
         match command {
+            Some("copy-key") => {
+                if let Some(doc) = &self.sharing.document {
+                    ctx.copy_text(doc.recovery_key.clone());
+                    self.notify("Recovery key copied.");
+                }
+            }
             Some("login") => {
                 let server = self.sharing.server.clone(); let username = self.sharing.username.clone(); let password = std::mem::take(&mut self.sharing.password);
                 self.sharing.error = None;
@@ -533,6 +542,72 @@ mod tests {
         let (send, recv) = mpsc::channel(); send.send(event).unwrap();
         app.sharing.job = Some(recv);
         app.poll_shared(&egui::Context::default());
+    }
+    #[test]
+    fn recovery_key_copy_is_explicit_uses_active_household_and_preserves_budget() {
+        let (mut app, dir) = setup();
+        app.db.as_mut().unwrap().notes = "Pending fixture work".into(); app.changed();
+        let key = app.sharing.document.as_ref().unwrap().recovery_key.clone();
+        let before = serde_json::to_value(app.sharing.document.as_ref().unwrap()).unwrap();
+        let cache_before = std::fs::read(dir.join("shared.enc")).unwrap();
+        // The sign-in/unlock fields can refer to a different household or account.
+        // Copy must always use the identity shown in the active document section.
+        app.sharing.key = "unrelated-unlock-key".into();
+        app.sharing.connection.as_mut().unwrap().user.id = "another-account".into();
+        app.sharing.open = true;
+        let ctx = egui::Context::default();
+        theme::install_fonts(&ctx);
+        theme::apply(&ctx, &app.t);
+        let frame = |app: &mut App, events| ctx.run(egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, Vec2::new(900.0, 700.0))),
+            events, ..Default::default()
+        }, |ctx| app.shared_panel(ctx));
+        fn text_shapes(output: &egui::FullOutput) -> Vec<egui::epaint::TextShape> {
+            fn visit(shape: &egui::Shape, out: &mut Vec<egui::epaint::TextShape>) {
+                match shape {
+                    egui::Shape::Text(text) => out.push(text.clone()),
+                    egui::Shape::Vec(shapes) => for shape in shapes { visit(shape, out); },
+                    _ => {}
+                }
+            }
+            let mut out = Vec::new();
+            for shape in &output.shapes { visit(&shape.shape, &mut out); }
+            out
+        }
+        let mut output = frame(&mut app, vec![]);
+        for _ in 0..2 {
+            assert!(output.platform_output.commands.iter().all(|command| !matches!(command, egui::OutputCommand::CopyText(_))),
+                "opening the panel must not overwrite the clipboard");
+            output = frame(&mut app, vec![]);
+        }
+        let texts = text_shapes(&output);
+        assert!(texts.iter().all(|text| !text.galley.job.text.contains(&key)), "the recovery key must not be displayed");
+        let button = texts.iter().find(|text| text.galley.job.text == "Copy recovery key")
+            .expect("an open shared budget must offer recovery-key retrieval");
+        let pointer = button.pos + button.galley.mesh_bounds.center().to_vec2();
+        let mut copied = Vec::new();
+        for pressed in [true, false] {
+            output = frame(&mut app, vec![egui::Event::PointerMoved(pointer), egui::Event::PointerButton {
+                pos: pointer, button: egui::PointerButton::Primary, pressed, modifiers: Modifiers::NONE
+            }]);
+            copied.extend(output.platform_output.commands.iter().filter_map(|command| match command {
+                egui::OutputCommand::CopyText(text) => Some(text.clone()), _ => None
+            }));
+            assert!(text_shapes(&output).iter().all(|text| !text.galley.job.text.contains(&key)));
+        }
+        assert_eq!(copied, vec![key.clone()], "an explicit click must copy only the active household's key");
+        assert!(app.toast.as_ref().is_some_and(|toast| toast.text == "Recovery key copied."));
+        assert_eq!(serde_json::to_value(app.sharing.document.as_ref().unwrap()).unwrap(), before);
+        assert_eq!(std::fs::read(dir.join("shared.enc")).unwrap(), cache_before);
+        assert_eq!(app.sharing.key, "unrelated-unlock-key");
+        app.close_budget();
+        app.sharing.open = true;
+        output = frame(&mut app, vec![]);
+        assert!(text_shapes(&output).iter().all(|text| text.galley.job.text != "Copy recovery key" && !text.galley.job.text.contains(&key)),
+            "closing the household must remove its recovery-key control");
+        assert!(output.platform_output.commands.iter().all(|command| !matches!(command, egui::OutputCommand::CopyText(_))));
+        drop(app);
+        std::fs::remove_dir_all(dir).unwrap();
     }
     #[test]
     fn applied_changes_are_protected_before_saved_and_stable_ids_survive_edits() {

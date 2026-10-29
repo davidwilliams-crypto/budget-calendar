@@ -1,5 +1,9 @@
 # Changelog
 
+## [0.8.1] - 2026-10-29
+
+- **Recover your household key:** File > Shared budget now lets you copy the recovery key for the currently open shared budget after setup. The key stays hidden on screen and is copied only when you choose the button, so you can unlock the same household on another device without creating a new budget.
+
 ## [0.8.0] - 2026-10-29
 
 - **Shared household budgets:** Windows can create or open a private shared budget, keep a protected local copy, and synchronize edits with two separate household accounts. Sharing is an explicit action; the original standalone budget file stays separate.
