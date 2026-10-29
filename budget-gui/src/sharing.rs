@@ -5,6 +5,10 @@ use budget_core::sharing::{snapshot_from_db_with_operation, snapshot_to_db};
 use serde_json::{json, Value};
 use std::sync::mpsc::{self, Receiver};
 
+mod panel;
+
+const POLL_INTERVAL: Duration = Duration::from_secs(5);
+
 pub(crate) struct SharedUi {
     pub document: Option<SharedDocument>,
     pub open: bool,
@@ -27,6 +31,7 @@ pub(crate) struct SharedUi {
     last_poll: Instant,
     deferred: Option<Remote>,
     staged: Option<SharedDocument>,
+    preview: Option<panel::ConflictPreview>,
 }
 
 enum Event {
@@ -82,7 +87,7 @@ impl Default for SharedUi {
         document: None, open: false, error: None,
         cache: home_dir().join(".budget-calendar/shared.enc"), cache_lock: None, server: String::new(), username: String::new(), password: String::new(),
         connection: None, budgets: vec![], key: String::new(), name: "Household".into(), zone: "America/Halifax".into(),
-        saved_key: false, creating: false, job: None, last_poll: Instant::now(), deferred: None, staged: None,
+        saved_key: false, creating: false, job: None, last_poll: Instant::now(), deferred: None, staged: None, preview: None,
     } }
 }
 impl SharedUi {
@@ -115,20 +120,30 @@ impl SharedUi {
         Ok(candidate)
     }
     pub fn disconnect(&mut self) {
-        self.document = None; self.job = None; self.deferred = None; self.staged = None; self.open = false;
+        self.document = None; self.job = None; self.deferred = None; self.staged = None; self.preview = None; self.open = false;
     }
     pub fn status(&self, dirty: bool) -> Option<String> {
         let d = self.document.as_ref()?;
         Some(if dirty { "Shared · not saved on device".into() }
-        else if let Some(error) = &self.error { format!("Shared · {} pending · {error}", d.pending.len()) }
         else if d.conflict.is_some() { "Shared · conflict needs review".into() }
-        else if !d.pending.is_empty() { format!("Saved on device · {} pending · last synced {}", d.pending.len(), d.last_sync) }
-        else { format!("Shared · synced {}", d.last_sync) })
+        else if self.error.is_some() { "Shared · sync needs attention".into() }
+        else if !d.pending.is_empty() { format!("Saved on device · {} pending", d.pending.len()) }
+        else { "Shared · up to date".into() })
     }
-    fn spawn(&mut self, work: impl FnOnce() -> Event + Send + 'static) {
+    fn spawn(&mut self, ctx: &egui::Context, work: impl FnOnce() -> Event + Send + 'static) {
         let (send, receive) = mpsc::channel();
         self.job = Some(receive);
-        std::thread::spawn(move || { let _ = send.send(work()); });
+        let completion = ctx.clone();
+        if std::thread::Builder::new().name("household-sync".into()).spawn(move || {
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(work))
+                .unwrap_or_else(|_| Event::Opened(Err("The shared-budget worker stopped. Retry from Shared budget.".into())));
+            if send.send(result).is_ok() { completion.request_repaint(); }
+        }).is_err() {
+            self.job = None;
+            self.error = Some("The shared-budget worker could not start. Retry shortly.".into());
+            self.last_poll = Instant::now();
+            ctx.request_repaint_after(POLL_INTERVAL);
+        }
     }
     /// Retain a separate protected copy per household so opening another cannot erase queued work.
     fn persist(&mut self, document: &SharedDocument) -> Result<(), String> {
@@ -173,6 +188,7 @@ impl App {
             self.sharing.persist(&doc)
         })();
         // Even a storage failure retains the edit in memory and leaves the unsaved guard active.
+        self.sharing.preview = None;
         self.sharing.document = Some(doc);
         match result {
             Ok(()) => { self.dirty = false; self.dialogs.save_error = None; self.title_dirty = true; true }
@@ -313,9 +329,19 @@ impl App {
                                     let mut current = self.sharing.document.clone().unwrap();
                                     let result = current.acknowledge(remote, &operation).and_then(|_| self.sharing.persist(&current));
                                     // A receipt is applied to CURRENT state; edits made during POST survive.
+                                    self.sharing.preview = None;
                                     self.sharing.document = Some(current);
                                     match result { Ok(()) => self.sharing.error = None, Err(e) => { self.dirty = true; self.sharing.error = Some(e); } }
-                                } else { self.sharing.deferred = Some(remote); self.sharing.error = None; }
+                                } else {
+                                    // The ordinary GET usually returns the revision we already have.
+                                    // Drop it before cloning, decrypting or flushing either device cache,
+                                    // including while a modal keeps newer revisions deferred.
+                                    if self.sharing.document.as_ref().is_some_and(|d| remote.revision > d.revision)
+                                        && self.sharing.deferred.as_ref().is_none_or(|old| remote.revision > old.revision) {
+                                        self.sharing.deferred = Some(remote);
+                                    }
+                                    self.sharing.error = None;
+                                }
                             }
                             Err(e) => {
                                 if let Some(remote) = e.current { self.sharing.deferred = Some(remote); }
@@ -332,11 +358,13 @@ impl App {
         }
         if self.shared_can_apply(ctx) {
             if let Some(remote) = self.sharing.deferred.take() {
-                if let Some(mut current) = self.sharing.document.clone() {
+                if self.sharing.document.as_ref().is_some_and(|d| remote.revision > d.revision) {
+                    let mut current = self.sharing.document.clone().unwrap();
                     let result = current.receive(remote).and_then(|changed| { self.sharing.persist(&current)?; Ok(changed) });
                     match result {
                         Ok(changed) => {
                             let conflict = current.conflict.is_some();
+                            self.sharing.preview = None;
                             self.sharing.document = Some(current);
                             if changed { if let Err(e) = self.refresh_shared_db() { self.sharing.error = Some(e); } }
                             if conflict { self.sharing.open = true; }
@@ -346,17 +374,31 @@ impl App {
                 }
             }
         }
-        if self.sharing.document.is_some() || self.sharing.job.is_some() { ctx.request_repaint_after(Duration::from_millis(250)); }
-        if self.sharing.job.is_some() || self.dirty || self.sharing.last_poll.elapsed() < Duration::from_secs(5) { return; }
-        let Some(mut current) = self.sharing.document.clone() else { return };
+        // Workers wake the window on completion. An idle household needs just its next
+        // deadline, not four redraws per second (or a full document clone on every GET).
+        if self.sharing.job.is_some() || self.dirty { return; }
+        let Some(current) = self.sharing.document.as_ref() else { return };
         if current.conflict.is_some() { return; }
-        let prepared = match current.prepare().and_then(|request| { self.sharing.persist(&current)?; Ok(request) }) {
-            Ok(r) => r, Err(e) => { self.sharing.error = Some(e); self.sharing.last_poll = Instant::now(); return }
-        };
+        let remaining = POLL_INTERVAL.saturating_sub(self.sharing.last_poll.elapsed());
+        if !remaining.is_zero() { ctx.request_repaint_after(remaining); return; }
         let id = current.working.id.clone(); let connection = current.connection.clone();
-        self.sharing.document = Some(current);
+        let prepared = if let Some(first) = current.pending.first() {
+            if let Some(request) = &first.request {
+                // A saved immutable request may be retried without re-encryption or another flush.
+                Some(request.clone())
+            } else {
+                let mut current = current.clone();
+                match current.prepare().and_then(|request| { self.sharing.persist(&current)?; Ok(request) }) {
+                    Ok(request) => { self.sharing.document = Some(current); request }
+                    Err(e) => {
+                        self.sharing.error = Some(e); self.sharing.last_poll = Instant::now();
+                        ctx.request_repaint_after(POLL_INTERVAL); return;
+                    }
+                }
+            }
+        } else { None };
         self.sharing.last_poll = Instant::now();
-        self.sharing.spawn(move || {
+        self.sharing.spawn(ctx, move || {
             let operation = prepared.as_ref().and_then(|v| v["operationId"].as_str()).map(str::to_string);
             let result = Api::new(connection).and_then(|api| if let Some(body) = prepared {
                 api.request("POST", &format!("/api/budgets/{id}/commits"), Some(body)).and_then(|v| serde_json::from_value(v).map_err(|_| client::ServiceError { status: 0, message: "Invalid commit receipt.".into(), current: None }))
@@ -366,85 +408,7 @@ impl App {
     }
     pub(super) fn shared_panel(&mut self, ctx: &egui::Context) {
         if !self.sharing.open { return; }
-        let mut command = None;
-        let busy = self.sharing.job.is_some();
-        egui::Modal::new(egui::Id::new("shared-budget")).show(ctx, |ui| {
-            ui.set_width(530.0);
-            egui::ScrollArea::vertical().max_height((ctx.screen_rect().height() - 100.0).max(240.0)).show(ui, |ui| {
-            ui.heading("Shared budget");
-            ui.label("Encrypted household sync. Your recovery key stays on your devices.");
-            if let Some(s) = self.sharing.status(self.dirty) { ui.label(s); }
-            if let Some(error) = &self.sharing.error { ui.colored_label(self.t.negative, error); }
-            if busy { ui.horizontal(|ui| { ui.spinner(); ui.label("Connecting…"); }); }
-            if let Some(doc) = &self.sharing.document {
-                ui.label(format!("{} · revision {} · {}", doc.working.name, doc.revision, doc.role));
-                ui.label(format!("Household time zone: {}", doc.working.time_zone));
-                if ui.button("Copy recovery key").on_hover_text("Copy this household's key to unlock it on another device. Keep it private.").clicked() {
-                    command = Some("copy-key");
-                }
-                if let Some(remote) = &doc.conflict {
-                    ui.separator(); ui.heading("Review both versions");
-                    ui.label(format!("Your device: {} payments, {} queued changes", doc.working.payments.len(), doc.pending.len()));
-                    match client::unlock(remote, &doc.recovery_key) {
-                        Ok(s) => { ui.label(format!("Current shared: {} payments · {} · {}", s.payments.len(), remote.updated_at, remote.summary));
-                            egui::CollapsingHeader::new("Compare complete contents").show(ui, |ui| {
-                                egui::ScrollArea::vertical().max_height(200.0).show(ui, |ui| {
-                                    ui.label("Your local version"); ui.monospace(serde_json::to_string_pretty(&doc.working).unwrap_or_default());
-                                    ui.label("Current shared version"); ui.monospace(serde_json::to_string_pretty(&s).unwrap_or_default());
-                                });
-                            }); }
-                        Err(e) => { ui.label(e); }
-                    }
-                    ui.label("Keep mine reapplies only records and settings changed on this device to the current shared version.");
-                    if ui.button("Export local backup…").clicked() { command = Some("export"); }
-                    ui.horizontal(|ui| {
-                        if ui.button("Keep mine (reapply my changes)").clicked() { command = Some("mine"); }
-                        if ui.button("Use current shared version").clicked() { command = Some("theirs"); }
-                    });
-                }
-                if ui.button("Sync now").clicked() { command = Some("sync"); }
-                if let Ok(server) = client::normalize_server(&doc.connection.server) {
-                    ui.hyperlink_to("Open mobile app · invitations, members and history", server);
-                }
-            }
-            ui.separator();
-            ui.label("Server address"); ui.text_edit_singleline(&mut self.sharing.server);
-            ui.label("Username"); ui.text_edit_singleline(&mut self.sharing.username);
-            ui.label("Password"); ui.add(egui::TextEdit::singleline(&mut self.sharing.password).password(true));
-            if ui.add_enabled(!busy, Button::new("Sign in / refresh session")).clicked() { command = Some("login"); }
-            if let Some(connection) = &self.sharing.connection {
-                if let Ok(server) = client::normalize_server(&connection.server) {
-                    ui.hyperlink_to("Open mobile app to set up an account or accept an invitation", server);
-                }
-                ui.separator();
-                ui.label("Recovery key for the household you want to open");
-                ui.add(egui::TextEdit::singleline(&mut self.sharing.key).password(true));
-                for budget in &self.sharing.budgets {
-                    let label = format!("Open {} · revision {}", budget["name"].as_str().unwrap_or("Household"), budget["revision"]);
-                    if ui.add_enabled(!busy && !self.sharing.key.is_empty(), Button::new(label)).clicked() { command = Some("open"); self.sharing.name = budget["id"].as_str().unwrap_or_default().into(); }
-                }
-                if self.db.is_some() && self.sharing.document.is_none() {
-                    ui.separator();
-                    if ui.button("Prepare to share current budget…").clicked() { command = Some("prepare"); }
-                    if self.sharing.creating {
-                        ui.label("Household name"); ui.text_edit_singleline(&mut self.sharing.name);
-                        ui.label("Household time zone (IANA, for example America/Halifax)"); ui.text_edit_singleline(&mut self.sharing.zone);
-                        ui.label("Save this recovery key somewhere safe. Share it with household members separately from invitations.");
-                        ui.add(egui::TextEdit::multiline(&mut self.sharing.key).desired_rows(2));
-                        if ui.button("Copy recovery key").clicked() { ui.ctx().copy_text(self.sharing.key.clone()); }
-                        ui.checkbox(&mut self.sharing.saved_key, "I saved the recovery key");
-                        if ui.add_enabled(!busy && self.sharing.saved_key && !self.has_draft(), Button::new("Share current budget (upload encrypted copy)")).clicked() { command = Some("create"); }
-                    }
-                }
-            } else if let Ok(server) = client::normalize_server(&self.sharing.server) {
-                ui.hyperlink_to("Open mobile app for account setup / invitation", server);
-            }
-            ui.separator();
-            if ui.add_enabled(!busy, Button::new("Open cached shared budget on this device")).clicked() { command = Some("cache"); }
-            if ui.add_enabled(!busy, Button::new("Resume pending household creation")).clicked() { command = Some("resume-create"); }
-            if ui.button("Close").clicked() || ui.input(|i| i.key_pressed(Key::Escape)) { self.sharing.open = false; }
-            });
-        });
+        let command = self.shared_panel_contents(ctx);
         match command {
             Some("copy-key") => {
                 if let Some(doc) = &self.sharing.document {
@@ -455,7 +419,7 @@ impl App {
             Some("login") => {
                 let server = self.sharing.server.clone(); let username = self.sharing.username.clone(); let password = std::mem::take(&mut self.sharing.password);
                 self.sharing.error = None;
-                self.sharing.spawn(move || Event::SignedIn((|| {
+                self.sharing.spawn(ctx, move || Event::SignedIn((|| {
                     let connection = Api::login(&server, &username, &password).map_err(|e| e.to_string())?;
                     let list = Api::new(connection.clone()).map_err(|e| e.to_string())?.request("GET", "/api/budgets", None).map_err(|e| e.to_string())?;
                     Ok((connection, list["budgets"].as_array().cloned().unwrap_or_default()))
@@ -464,7 +428,7 @@ impl App {
             Some("open") => {
                 if let Err(e) = self.sharing.ensure_cache_lock() { self.sharing.error = Some(e); return; }
                 let connection = self.sharing.connection.clone().unwrap(); let id = self.sharing.name.clone(); let key = self.sharing.key.trim().to_string();
-                self.sharing.spawn(move || Event::Opened((|| { let remote = Api::new(connection.clone()).map_err(|e| e.to_string())?.remote(&id).map_err(|e| e.to_string())?; SharedDocument::open(connection, key, remote) })()));
+                self.sharing.spawn(ctx, move || Event::Opened((|| { let remote = Api::new(connection.clone()).map_err(|e| e.to_string())?.remote(&id).map_err(|e| e.to_string())?; SharedDocument::open(connection, key, remote) })()));
             }
             Some("cache") => {
                 match self.sharing.load_cached() {
@@ -484,7 +448,7 @@ impl App {
                         let connection = self.sharing.connection.clone().unwrap(); let key = self.sharing.key.clone();
                         // The explicit upload button is the only creation path.
                         match CreationCandidate::new(connection, key, snapshot).and_then(|candidate| { self.sharing.persist_creation(&candidate)?; Ok(candidate) }) {
-                            Ok(candidate) => self.sharing.spawn(move || Event::Opened(submit_creation(candidate))),
+                            Ok(candidate) => self.sharing.spawn(ctx, move || Event::Opened(submit_creation(candidate))),
                             Err(e) => self.sharing.error = Some(e),
                         }
                     }
@@ -505,7 +469,7 @@ impl App {
                     Ok(candidate) => {
                         self.sharing.key = candidate.recovery_key.clone(); self.sharing.server = candidate.connection.server.clone();
                         self.sharing.username = candidate.connection.user.username.clone(); self.sharing.error = None;
-                        self.sharing.spawn(move || Event::Opened(submit_creation(candidate)));
+                        self.sharing.spawn(ctx, move || Event::Opened(submit_creation(candidate)));
                     }
                     Err(e) => self.sharing.error = Some(e),
                 }
@@ -547,6 +511,101 @@ mod tests {
         let (send, recv) = mpsc::channel(); send.send(event).unwrap();
         app.sharing.job = Some(recv);
         app.poll_shared(&egui::Context::default());
+    }
+    #[cfg(windows)]
+    #[test]
+    fn idle_poll_does_not_touch_the_protected_cache() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let (mut app, _dir) = setup();
+        let before = std::fs::read(&app.sharing.cache).unwrap();
+        let held = std::fs::OpenOptions::new().read(true).share_mode(1).open(&app.sharing.cache).unwrap();
+        // Invalid local fixture origin makes the background worker finish without network I/O.
+        app.sharing.document.as_mut().unwrap().connection.server = "fixture-not-a-url".into();
+        app.sharing.last_poll = Instant::now() - Duration::from_secs(6);
+        app.poll_shared(&egui::Context::default());
+        assert!(app.sharing.error.is_none(), "an idle read must not try to rewrite a locked cache: {:?}", app.sharing.error);
+        assert!(app.sharing.job.is_some(), "the background read must be admitted without cache writes");
+        assert_eq!(std::fs::read(&app.sharing.cache).unwrap(), before);
+        drop(held);
+    }
+    #[cfg(windows)]
+    #[test]
+    fn unchanged_receipt_does_not_write_or_defer_a_budget() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let (mut app, _dir) = setup();
+        let generation = app.generation;
+        let doc = app.sharing.document.as_ref().unwrap();
+        let same = remote(&doc.working, &doc.recovery_key, doc.revision);
+        let id = doc.working.id.clone();
+        let held = std::fs::OpenOptions::new().read(true).share_mode(1).open(&app.sharing.cache).unwrap();
+        deliver(&mut app, Event::Sync { id:id.clone(), operation:None, result:Ok(same.clone()) });
+        assert!(app.sharing.error.is_none(), "unchanged data must not be persisted: {:?}", app.sharing.error);
+        assert_eq!(app.generation, generation);
+        app.sharing.open = true;
+        deliver(&mut app, Event::Sync { id, operation:None, result:Ok(same) });
+        assert!(app.sharing.deferred.is_none(), "an unchanged full payload must not wait behind the dialog");
+        drop(held);
+    }
+    #[test]
+    fn idle_shared_window_sleeps_until_its_next_poll_deadline() {
+        let (mut app, _dir) = setup();
+        let ctx = egui::Context::default();
+        let mut output = ctx.run(egui::RawInput::default(), |ctx| app.poll_shared(ctx));
+        for _ in 0..3 { output = ctx.run(egui::RawInput::default(), |ctx| app.poll_shared(ctx)); }
+        assert!(output.viewport_output[&egui::ViewportId::ROOT].repaint_delay > Duration::from_secs(4),
+            "idle sync must not redraw four times each second: {:?}", output.viewport_output[&egui::ViewportId::ROOT].repaint_delay);
+    }
+    #[test]
+    fn completion_wakes_a_shared_window_without_periodic_redraws() {
+        use std::sync::{Arc, atomic::{AtomicBool, Ordering}};
+        let mut sharing = SharedUi::default();
+        let ctx = egui::Context::default();
+        for _ in 0..3 { let _ = ctx.run(egui::RawInput::default(), |_| {}); }
+        let awakened = Arc::new(AtomicBool::new(false));
+        let observed = awakened.clone();
+        ctx.set_request_repaint_callback(move |_| { observed.store(true, Ordering::SeqCst); });
+        sharing.spawn(&ctx, || Event::Opened(Err("generated fixture result".into())));
+        let deadline = Instant::now() + Duration::from_millis(250);
+        while !awakened.load(Ordering::SeqCst) && Instant::now() < deadline { std::thread::sleep(Duration::from_millis(1)); }
+        assert!(awakened.load(Ordering::SeqCst), "the completed worker must wake an otherwise idle window");
+    }
+    #[test]
+    fn newer_conflict_is_still_durable_and_never_replaces_local_edits() {
+        let (mut app, _dir) = setup();
+        app.db.as_mut().unwrap().notes = "Saved local fixture edit".into();
+        app.changed();
+        let doc = app.sharing.document.as_ref().unwrap();
+        let mut newer = doc.baseline.clone(); newer.notes = "Other device fixture edit".into();
+        let receipt = remote(&newer, &doc.recovery_key, 2);
+        let id = doc.working.id.clone();
+        deliver(&mut app, Event::Sync { id, operation:None, result:Ok(receipt) });
+        let persisted = client::load_device(&app.sharing.cache).unwrap();
+        assert_eq!(persisted.working.notes, "Saved local fixture edit");
+        assert_eq!(persisted.pending.len(), 1);
+        assert_eq!(persisted.conflict.as_ref().unwrap().revision, 2);
+        assert!(app.sharing.open && !app.dirty);
+        assert_eq!(app.db.as_ref().unwrap().notes, "Saved local fixture edit");
+    }
+    #[cfg(windows)]
+    #[test]
+    fn durable_commit_retry_does_not_rewrite_or_change_its_request() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let (mut app, _dir) = setup();
+        app.db.as_mut().unwrap().notes = "Queued fixture edit".into(); app.changed();
+        let mut doc = app.sharing.document.clone().unwrap();
+        doc.connection.server = "fixture-not-a-url".into();
+        let exact = doc.prepare().unwrap().unwrap();
+        app.sharing.persist(&doc).unwrap();
+        app.sharing.document = Some(doc);
+        let before = std::fs::read(&app.sharing.cache).unwrap();
+        let held = std::fs::OpenOptions::new().read(true).share_mode(1).open(&app.sharing.cache).unwrap();
+        app.sharing.last_poll = Instant::now() - Duration::from_secs(6);
+        app.poll_shared(&egui::Context::default());
+        assert!(app.sharing.error.is_none(), "a durable retry must not rewrite its request: {:?}", app.sharing.error);
+        assert!(app.sharing.job.is_some());
+        assert_eq!(app.sharing.document.as_ref().unwrap().pending[0].request.as_ref(), Some(&exact));
+        assert_eq!(std::fs::read(&app.sharing.cache).unwrap(), before);
+        drop(held);
     }
     #[test]
     fn sharing_links_open_only_canonical_origins_in_every_panel_state() {

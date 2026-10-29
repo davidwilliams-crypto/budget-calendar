@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.8.4] - 2026-10-29
+
+- **Steady shared-budget screen:** the dialog fits compact and high-DPI windows, keeps its Close button visible and uses a stable status line so background connection checks do not move controls. Account forms and long content scroll within the dialog; errors appear once.
+- **Quiet background sync:** unchanged checks no longer clone and rewrite the protected budget caches or rebuild the calendar. Idle windows wake at the next check or completed worker instead of redrawing four times per second; saved commit retries retain their exact durable request without another cache flush.
+- **Responsive conflict review:** remote conflict data is decrypted once and complete comparison contents are prepared only when requested, preserving local edits and the existing explicit conflict choices.
+
 ## [0.8.3] - 2026-10-29
 
 - **Safe Windows links:** opening a web address uses a Windows URL-opening API without a command interpreter. Shared-budget links accept validated server origins.
