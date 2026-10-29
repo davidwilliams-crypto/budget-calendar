@@ -4,6 +4,10 @@ use budget_core::{bgt, BudgetDb};
 use std::path::Path;
 
 pub fn save_checked(db: &BudgetDb, path: &Path, password: Option<&str>, expected: Option<&[u8]>) -> Result<Vec<u8>, String> {
+    save_generated(path, expected, || db.to_text(password))
+}
+
+fn check_expected(path: &Path, expected: Option<&[u8]>) -> Result<(), String> {
     if let Some(expected) = expected {
         match std::fs::read(path) {
             Ok(current) if current != expected => {
@@ -15,7 +19,15 @@ pub fn save_checked(db: &BudgetDb, path: &Path, password: Option<&str>, expected
             Err(e) => return Err(format!("The budget file is unavailable: {e}. Use Save as to keep your edits in a separate file.")),
         }
     }
-    let text = db.to_text(password)?;
+    Ok(())
+}
+
+fn save_generated(path: &Path, expected: Option<&[u8]>, generate: impl FnOnce() -> Result<String, String>) -> Result<Vec<u8>, String> {
+    check_expected(path, expected)?;
+    let text = generate()?;
+    // Password derivation deliberately takes work. Recheck after it, so another writer's
+    // change during encryption is not overwritten or relegated to a backup unasked.
+    check_expected(path, expected)?;
     bgt::save_file(path, &text)?;
     Ok(bgt::latin1_encode(&text))
 }
@@ -26,6 +38,19 @@ mod tests {
     use budget_core::{bgt, Cal, Field, Payment, END_MODE_INDEFINITE, END_MODE_DATE, END_MODE_N_PAYS, END_MODE_LOAN_PAID, FLAG_PAID, FLAG_NONE};
     use std::sync::atomic::{AtomicUsize, Ordering};
     static NEXT: AtomicUsize = AtomicUsize::new(0);
+
+    #[test]
+    fn another_writer_during_password_encryption_is_preserved() {
+        let path = temp_file();
+        std::fs::write(&path, b"original").unwrap();
+        let result = save_generated(&path, Some(b"original"), || {
+            std::fs::write(&path, b"other writer's budget").unwrap();
+            Ok("new encrypted file".into())
+        });
+        assert!(result.unwrap_err().contains("changed on disk"));
+        assert_eq!(std::fs::read(&path).unwrap(), b"other writer's budget");
+        std::fs::remove_dir_all(path.parent().unwrap()).unwrap();
+    }
 
     #[test]
     fn unchanged_legacy_flags_remain_editable_in_standalone_documents() {

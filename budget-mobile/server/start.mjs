@@ -10,6 +10,8 @@ const app = createBudgetServer({
   setupToken: process.env.BUDGET_SETUP_TOKEN,
   publicOrigin: process.env.BUDGET_PUBLIC_ORIGIN,
   development: process.env.BUDGET_DEVELOPMENT === '1',
+  trustedProxy: process.env.BUDGET_TRUSTED_PROXY ?? 'none',
+  renderEnvironment: process.env.RENDER === 'true',
   ...(process.env.BUDGET_MAX_PAYLOAD_BYTES ? { maxPayloadBytes: Number(process.env.BUDGET_MAX_PAYLOAD_BYTES) } : {}),
 });
 app.server.listen(port, host, () => process.stdout.write(`Budget private service listening on ${host}:${port}\n`));

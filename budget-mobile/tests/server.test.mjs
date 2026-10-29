@@ -5,6 +5,7 @@ import { resolve, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import { createHook } from 'node:async_hooks';
+import { request as httpRequest } from 'node:http';
 
 let createBudgetServer;
 try { ({ createBudgetServer } = await import('../server/server.mjs')); } catch (error) {
@@ -31,8 +32,19 @@ async function fixture(t, extra = {}) {
   async function start() {
     app = createBudgetServer({ dataDir: join(dir, 'data'), publicDir, setupToken,
       publicOrigin: 'http://localhost:8787', development: true, now: () => clock, ...extra });
-    await new Promise(resolveListen => app.server.listen(0, '127.0.0.1', resolveListen));
-    base = `http://127.0.0.1:${app.server.address().port}`;
+    for (;;) {
+      await new Promise(resolveListen => app.server.listen(0, '127.0.0.1', resolveListen));
+      base = `http://127.0.0.1:${app.server.address().port}`;
+      try {
+        const health = await fetch(base + '/health', { signal: AbortSignal.timeout(15000) });
+        await health.arrayBuffer();
+        break;
+      } catch (error) {
+        // Windows can assign an ephemeral port that Fetch forbids (for example 6000).
+        if (error.cause?.message !== 'bad port') throw error;
+        await new Promise(resolveClose => app.server.close(resolveClose));
+      }
+    }
   }
   await start();
   t.after(async () => { await app.close(); });
@@ -68,6 +80,8 @@ async function fixture(t, extra = {}) {
     return joined.data;
   };
   return { request, setup, create, joinUser, dir, advance: ms => { clock += ms; },
+    get base() { return base; },
+    get server() { return app.server; },
     restart: async () => { await app.close(); await start(); },
     browser: async (method, path, body, cookie, origin = 'http://localhost:8787', extraHeaders = {}) => {
       const response = await fetch(base + path, { method, headers: {
@@ -229,6 +243,161 @@ test('production refuses plaintext origins and credentials are throttled', async
   const limited = await f.request('POST', '/api/login', { username: ownerName, password });
   assert.equal(limited.status, 429);
   assert.ok(Number(limited.headers.get('retry-after')) > 0);
+});
+
+test('anonymous API exhaustion cannot consume signed-in read or commit allowances', async t => {
+  const f = await fixture(t); const owner = await f.setup(); const budget = await f.create(owner.token);
+  let limited;
+  for (let i = 0; i < 1201; i++) limited = await f.request('GET', '/api/me');
+  assert.equal(limited.status, 429);
+  assert.equal((await f.request('GET', `/api/budgets/${budget.id}`, undefined, owner.token)).status, 200);
+  const committed = await f.request('POST', `/api/budgets/${budget.id}/commits`, {
+    operationId: 'fixture-after-anonymous-exhaustion', expectedRevision: 1, payload, summary: 'Updated budget',
+  }, owner.token);
+  assert.equal(committed.status, 200);
+  assert.equal(committed.data.revision, 2);
+});
+
+test('forwarded headers are ignored by default instead of granting extra login attempts', async t => {
+  const f = await fixture(t); await f.setup();
+  for (let i = 0; i < 10; i++) {
+    assert.equal((await f.request('POST', '/api/login', { username: '!', password }, undefined,
+      { 'CF-Connecting-IP': `192.0.2.${i + 1}`, 'X-Forwarded-For': `198.51.100.${i + 1}` })).status, 400);
+  }
+  assert.equal((await f.request('POST', '/api/login', { username: ownerName, password }, undefined,
+    { 'CF-Connecting-IP': '203.0.113.1' })).status, 429);
+});
+
+test('Render trust requires explicit platform configuration and rejects missing or malformed client identity', async t => {
+  const options = { dataDir: 'target/shared-server-tests/invalid-proxy', setupToken, publicOrigin: 'https://example.invalid' };
+  assert.throws(() => createBudgetServer({ ...options, trustedProxy: 'render' }), /Render/);
+  assert.throws(() => createBudgetServer({ ...options, trustedProxy: 'anything', renderEnvironment: true }), /proxy/i);
+  const f = await fixture(t, { trustedProxy: 'render', renderEnvironment: true });
+  for (const header of [undefined, '', '192.0.2.1, 192.0.2.2', '192.0.2.1:443', 'fe80::1%eth0', 'x'.repeat(1024)]) {
+    const result = await f.request('GET', '/api/me', undefined, undefined,
+      header === undefined ? {} : { 'CF-Connecting-IP': header });
+    assert.equal(result.status, 400);
+    assert.equal(result.data.error.code, 'invalid_client_identity');
+  }
+});
+
+test('Render clients have independent authentication quotas behind a shared socket peer', async t => {
+  const f = await fixture(t, { trustedProxy: 'render', renderEnvironment: true });
+  const setup = await f.request('POST', '/api/setup', { setupToken, username: ownerName, password }, undefined,
+    { 'CF-Connecting-IP': '203.0.113.2' });
+  assert.equal(setup.status, 201);
+  for (let i = 0; i < 10; i++) assert.equal((await f.request('POST', '/api/login', { username: '!', password }, undefined,
+    { 'CF-Connecting-IP': '192.0.2.1' })).status, 400);
+  assert.equal((await f.request('POST', '/api/login', { username: ownerName, password }, undefined,
+    { 'CF-Connecting-IP': '192.0.2.1' })).status, 429);
+  const login = await f.request('POST', '/api/login', { username: ownerName, password }, undefined,
+    { 'CF-Connecting-IP': '198.51.100.1' });
+  assert.equal(login.status, 200);
+  assert.equal((await f.request('GET', '/api/me', undefined, login.data.token,
+    { 'CF-Connecting-IP': '192.0.2.1' })).status, 200);
+});
+
+test('equivalent IPv4-mapped and expanded IPv6 identities cannot reset authentication quotas', async t => {
+  const f = await fixture(t, { trustedProxy: 'render', renderEnvironment: true });
+  for (const addresses of [
+    ['192.0.2.20', '::ffff:192.0.2.20', '0:0:0:0:0:ffff:c000:214'],
+    ['2001:db8::20', '2001:0db8:0000:0000:0000:0000:0000:0020', '2001:DB8::20'],
+  ]) {
+    for (let i = 0; i < 10; i++) assert.equal((await f.request('POST', '/api/login', { username: '!', password }, undefined,
+      { 'CF-Connecting-IP': addresses[i % addresses.length] })).status, 400);
+    assert.equal((await f.request('POST', '/api/login', { username: '!', password }, undefined,
+      { 'CF-Connecting-IP': addresses[1] })).status, 429);
+  }
+});
+
+test('full client-rate maps admit new identities with enforced overflow quotas and reclaim expired entries', async t => {
+  const f = await fixture(t, { trustedProxy: 'render', renderEnvironment: true });
+  // Generated identities exercise the real bounded maps without KDF work or a production test hook.
+  for (let i = 0; i < 10000; i++) {
+    const address = `2001:db8::${(i + 1).toString(16)}`;
+    const result = await f.request('POST', '/api/login', { username: '!', password }, undefined, { 'CF-Connecting-IP': address });
+    assert.equal(result.status, 400, `generated identity ${i} must retain its initial allowance`);
+  }
+  f.advance(1000);
+  for (let i = 0; i < 10; i++) assert.equal((await f.request('POST', '/api/login', { username: '!', password }, undefined,
+    { 'CF-Connecting-IP': '198.51.100.200' })).status, 400);
+  assert.equal((await f.request('POST', '/api/login', { username: '!', password }, undefined,
+    { 'CF-Connecting-IP': '198.51.100.200' })).status, 429);
+  f.advance(15 * 60000 - 999);
+  assert.equal((await f.request('POST', '/api/login', { username: '!', password }, undefined,
+    { 'CF-Connecting-IP': '198.51.100.200' })).status, 429, 'cleanup must preserve unexpired overflow quotas');
+  f.advance(1000);
+  assert.equal((await f.request('POST', '/api/setup', { setupToken, username: ownerName, password }, undefined,
+    { 'CF-Connecting-IP': '203.0.113.200' })).status, 201);
+});
+
+test('authentication bodies are bounded before password hashing and do not consume later admitted work', async t => {
+  const f = await fixture(t); await f.setup();
+  let kdfs = 0;
+  const hook = createHook({ init(_id, type) { if (type === 'SCRYPTREQUEST') kdfs++; } });
+  try {
+    hook.enable();
+    const oversized = await f.request('POST', '/api/login', { username: ownerName, password, padding: 'x'.repeat(17 * 1024) });
+    assert.equal(oversized.status, 413);
+    assert.equal(kdfs, 0);
+    assert.equal((await f.request('POST', '/api/login', { username: ownerName, password })).status, 200);
+    assert.equal(kdfs, 1);
+  } finally { hook.disable(); }
+});
+
+test('concurrent password hashing has bounded admission and releases capacity after completion', async t => {
+  const f = await fixture(t, { trustedProxy: 'render', renderEnvironment: true });
+  assert.equal((await f.request('POST', '/api/setup', { setupToken, username: ownerName, password }, undefined,
+    { 'CF-Connecting-IP': '192.0.2.200' })).status, 201);
+  let kdfs = 0; let release;
+  const started = new Promise(resolveStarted => { release = resolveStarted; });
+  const hook = createHook({ init(_id, type) { if (type === 'SCRYPTREQUEST' && ++kdfs === 2) release(); } });
+  try {
+    hook.enable();
+    const first = f.request('POST', '/api/login', { username: ownerName, password }, undefined, { 'CF-Connecting-IP': '192.0.2.1' });
+    const second = f.request('POST', '/api/login', { username: ownerName, password }, undefined, { 'CF-Connecting-IP': '192.0.2.2' });
+    await started;
+    const denied = await f.request('POST', '/api/login', { username: ownerName, password }, undefined, { 'CF-Connecting-IP': '192.0.2.3' });
+    assert.equal(denied.status, 503);
+    assert.equal(denied.data.error.code, 'service_busy');
+    assert.equal(kdfs, 2, 'a rejected request must never enqueue a KDF');
+    assert.deepEqual((await Promise.all([first, second])).map(result => result.status), [200, 200]);
+    assert.equal((await f.request('POST', '/api/login', { username: ownerName, password }, undefined,
+      { 'CF-Connecting-IP': '192.0.2.3' })).status, 200);
+    assert.equal(kdfs, 3);
+  } finally { hook.disable(); }
+});
+
+test('unfinished authentication uploads cannot accumulate unbounded bodies or block signed-in writes', async t => {
+  const f = await fixture(t); const owner = await f.setup(); const budget = await f.create(owner.token);
+  const uploads = [];
+  let remaining = 2; let resolveStarted;
+  const started = new Promise(resolve => { resolveStarted = resolve; });
+  const observe = req => { if (req.url === '/api/login' && --remaining === 0) resolveStarted(); };
+  f.server.on('request', observe);
+  try {
+    for (let i = 0; i < 2; i++) {
+      const upload = httpRequest(f.base + '/api/login', { method: 'POST', headers: {
+        'X-Budget-Client': 'native', 'Content-Type': 'application/json', 'Transfer-Encoding': 'chunked',
+      } });
+      upload.on('error', () => {});
+      upload.write('{"username":');
+      uploads.push(upload);
+    }
+    await started;
+    f.server.off('request', observe);
+    const denied = await f.request('POST', '/api/login', { username: ownerName, password });
+    assert.equal(denied.status, 503);
+    assert.ok(Number(denied.headers.get('retry-after')) > 0);
+    assert.equal((await f.request('POST', `/api/budgets/${budget.id}/commits`, {
+      operationId: 'fixture-concurrent-auth-bodies', expectedRevision: 1, payload,
+    }, owner.token)).status, 200);
+    await Promise.all(uploads.map(upload => new Promise(resolveResponse => {
+      upload.on('response', response => { response.resume(); response.on('end', resolveResponse); });
+      upload.end(); // Invalid JSON completes each body and releases its admission slot.
+    })));
+  } finally { f.server.off('request', observe); for (const upload of uploads) upload.destroy(); }
+  assert.equal((await f.request('POST', '/api/login', { username: ownerName, password })).status, 200);
 });
 
 test('request bounds reject oversize and malformed writes without changing the acknowledged budget', async t => {

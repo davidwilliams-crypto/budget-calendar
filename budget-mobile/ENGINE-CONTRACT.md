@@ -26,8 +26,8 @@ URL note 99990102 and default highlight 99990101 survive snapshot round trips.
 ## Requests
 
 - `{action:"new",id,name,timeZone,today}` → empty snapshot.
-- `{action:"import",text,id,name,timeZone,today,password?}` → snapshot; text is legacy .bgt content.
-- `{action:"export",snapshot,today,password?}` → `{text}` legacy .bgt content.
+- `{action:"import",text,id,name,timeZone,today,password?}` → snapshot; text is plain, sealed, or legacy encrypted .bgt content.
+- `{action:"export",snapshot,today,password?}` → `{text}`; without a password the original plain .bgt serialization is retained. With a password, exports use the authenticated standalone format below.
 - `{action:"validate",snapshot}` → `{valid:true}`.
 - `{action:"forecast",snapshot,today,from,to}` → `{days:[{date,openingBalance,closingBalance,adjusted,note,transactions:[{id,internalId,description,category,amount,balance,flag,note,suffix,disabled}]}],lowPoint:{date,balance}}`.
 - `{action:"apply",snapshot,today,operationId,command}` → updated snapshot (atomic).
@@ -57,3 +57,40 @@ Read result using a **fresh memory buffer view after request**, because Rust may
 memory. Each instance is sequential (one request at a time). Inputs are capped at 8 MiB.
 Native `budget-engine` reexports the same `request_json` function and has a CLI reading
 one JSON request per stdin line, emitting one response per stdout line for parity tests.
+
+## Password-protected standalone files
+
+New password exports are ASCII files with `#db*sealed`, a newline, and one JSON object:
+
+```json
+{"version":1,"cipher":"AES-256-GCM","kdf":"argon2id","kdfVersion":19,"memoryKiB":65536,"iterations":3,"parallelism":4,"salt":"base64 of 16 bytes","nonce":"base64 of 12 bytes","ciphertext":"base64 of ciphertext followed by a 16-byte GCM tag"}
+```
+
+Argon2id v1.3 derives a 32-byte key using the full UTF-8 password and the RFC 9106
+second recommended profile. Passwords must contain 1–65536 UTF-8 bytes, with no
+normalization or silent truncation. Each export generates a fresh salt and nonce.
+AES-256-GCM authenticates the complete plain serialization before parsing any budget
+records. Associated data is the UTF-8 bytes `#db*sealed\n` followed by compact JSON
+for this fixed-order tuple:
+`[version,cipher,kdf,kdfVersion,memoryKiB,iterations,parallelism,salt,nonce]`.
+The JSON envelope property order and whitespace do not affect this canonical AAD.
+
+Readers reject unknown or duplicate fields, additional JSON values, unsupported
+algorithms/versions/costs, invalid canonical padded base64 and invalid lengths
+before running the KDF. The plaintext cap is 64 MiB; the envelope cap is
+`4 * ceil((64 MiB + 16) / 3) + 1024` bytes. The JSON engine's existing 8 MiB
+request cap also applies to imports and exports through this API. Authentication
+errors return no payments, adjustments or notes. Native files may retain an outer
+BOM and CRLF/CR line separator for compatibility. Legacy Blowfish and XOR files
+remain readable; an explicit password save migrates them to the sealed format,
+while the previous file bytes remain intact in the normal backup.
+
+The WASM module has no imports and cannot obtain OS randomness itself. Raw ABI
+password export therefore requires an additional request field:
+`entropy:{salt:[16 byte values],nonce:[12 byte values]}`. A trusted host must obtain
+fresh, independent bytes from a CSPRNG for **each** export. Missing or malformed
+entropy fails closed. Use `loadEngine()` from `public/engine.mjs` in browser clients:
+it always generates both arrays with `crypto.getRandomValues`, replaces any
+caller-supplied entropy without mutating the caller's request, and fails if secure
+randomness is unavailable. Native exports always obtain OS randomness and ignore
+any entropy in incoming JSON. Plain exports and all imports require no host entropy.

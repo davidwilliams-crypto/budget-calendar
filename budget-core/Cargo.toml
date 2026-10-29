@@ -9,3 +9,12 @@ blowfish = "0.9"
 cipher = "0.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+aes-gcm = { version = "0.10.3", default-features = false, features = ["aes", "alloc", "zeroize"] }
+# Enable erasure of the AES expanded key as well as AES-GCM's temporary key material.
+aes = { version = "0.8", features = ["zeroize"] }
+argon2 = { version = "0.6", default-features = false, features = ["alloc", "zeroize"] }
+base64 = "0.22"
+zeroize = "1"
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+getrandom = "0.2"

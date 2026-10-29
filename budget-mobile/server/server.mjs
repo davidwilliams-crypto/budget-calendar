@@ -1,6 +1,7 @@
 import { createServer } from 'node:http';
 import { DatabaseSync } from 'node:sqlite';
-import { createHash, randomBytes, randomUUID, scrypt, timingSafeEqual } from 'node:crypto';
+import { createHash, createHmac, randomBytes, randomUUID, scrypt, timingSafeEqual } from 'node:crypto';
+import { BlockList, isIP } from 'node:net';
 import { promisify } from 'node:util';
 import { mkdirSync, realpathSync } from 'node:fs';
 import { readFile, realpath, stat } from 'node:fs/promises';
@@ -8,6 +9,8 @@ import { resolve, join, relative, extname, isAbsolute } from 'node:path';
 
 const derive = promisify(scrypt);
 const PAYLOAD_LIMIT = 8 * 1024 * 1024;
+const AUTH_BODY_LIMIT = 16 * 1024;
+const RATE_CAPACITY = 10000;
 const KDF = { N: 32768, r: 8, p: 1, maxmem: 64 * 1024 * 1024 };
 const MIME = { '.html': 'text/html; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.json': 'application/json',
@@ -52,11 +55,27 @@ function payload(value, limit) {
 }
 function publicUser(row) { return { id: row.id, username: row.username }; }
 function within(root, path) { const rel = relative(root, path); return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel)); }
+function canonicalAddress(value) {
+  if (typeof value !== 'string' || value.length > 45 || value.includes('%') || !isIP(value)) return null;
+  if (isIP(value) === 4) return value;
+  const normalized = new URL(`http://[${value}]/`).hostname.slice(1, -1);
+  const mapped = /^::ffff:([0-9a-f]+):([0-9a-f]+)$/.exec(normalized);
+  if (!mapped) return normalized;
+  const high = Number.parseInt(mapped[1], 16); const low = Number.parseInt(mapped[2], 16);
+  return `${high >>> 8}.${high & 255}.${low >>> 8}.${low & 255}`;
+}
+const proxyNetworks = new BlockList();
+for (const [address, prefix] of [['127.0.0.0', 8], ['10.0.0.0', 8], ['172.16.0.0', 12], ['192.168.0.0', 16]]) proxyNetworks.addSubnet(address, prefix, 'ipv4');
+proxyNetworks.addAddress('::1', 'ipv6');
+proxyNetworks.addSubnet('fc00::', 7, 'ipv6');
 
 /** Private, dependency-free HTTP API. TLS termination belongs to the hosting reverse proxy. */
 export function createBudgetServer(options) {
   const { setupToken, development = false, now = Date.now, inviteTtlMs = 48 * 3600000,
-    sessionTtlMs = 7 * 86400000, historyLimit = 50, maxPayloadBytes = PAYLOAD_LIMIT } = options;
+    sessionTtlMs = 7 * 86400000, historyLimit = 50, maxPayloadBytes = PAYLOAD_LIMIT,
+    trustedProxy = 'none', renderEnvironment = false } = options;
+  if (!['none', 'render'].includes(trustedProxy)) throw new Error('Unsupported trusted proxy configuration');
+  if (trustedProxy === 'render' && renderEnvironment !== true) throw new Error('Render proxy mode requires the Render platform environment');
   let origin;
   try { origin = new URL(options.publicOrigin); } catch { throw new Error('Configure a public HTTPS origin'); }
   if (origin.origin !== options.publicOrigin || origin.username || origin.password ||
@@ -89,16 +108,59 @@ export function createBudgetServer(options) {
     db.exec('BEGIN IMMEDIATE');
     try { const result = fn(); db.exec('COMMIT'); return result; } catch (error) { db.exec('ROLLBACK'); throw error; }
   };
-  const rate = new Map();
-  function throttle(key, limit, windowMs = 15 * 60000) {
+  const overflowSecret = randomBytes(32);
+  const limiter = () => ({ entries: new Map(), overflow: new Array(1024), nextCleanup: 0, usingOverflow: false });
+  const anonymousRate = limiter(); const authenticationRate = limiter();
+  const authenticatedRate = limiter(); const invitationRate = limiter();
+  function throttle(rate, key, limit, windowMs = 15 * 60000) {
     const time = now();
-    if (rate.size > 10000) for (const [k, entry] of rate) if (entry.reset <= time) rate.delete(k);
-    if (!rate.has(key) && rate.size >= 10000) fail(429, 'rate_limited', 'Too many requests');
-    let entry = rate.get(key);
-    if (!entry || entry.reset <= time) { entry = { count: 0, reset: time + windowMs }; rate.set(key, entry); }
+    let entry = rate.entries.get(key);
+    if (!entry && rate.entries.size >= RATE_CAPACITY && time >= rate.nextCleanup) {
+      for (const [stored, value] of rate.entries) if (value.reset <= time) rate.entries.delete(stored);
+      rate.nextCleanup = time + 60000;
+    }
+    if (!entry) {
+      const slot = rate.usingOverflow || rate.entries.size >= RATE_CAPACITY
+        ? createHmac('sha256', overflowSecret).update(key).digest().readUInt16BE(0) % rate.overflow.length : null;
+      const overflow = slot === null ? null : rate.overflow[slot];
+      if (rate.entries.size < RATE_CAPACITY) {
+        // Keep an unexpired fallback allowance when cleanup makes room for this identity.
+        entry = overflow?.reset > time ? overflow : { count: 0, reset: time + windowMs };
+        rate.entries.set(key, entry);
+      } else {
+        // Saturation must neither disable limiting nor lock out every new client. The keyed,
+        // fixed-size fallback bounds memory and prevents callers choosing known bucket collisions.
+        rate.usingOverflow = true;
+        entry = overflow;
+        if (!entry || entry.reset <= time) rate.overflow[slot] = entry = { count: 0, reset: time + windowMs };
+      }
+    }
+    if (entry.reset <= time) { entry.count = 0; entry.reset = time + windowMs; }
     if (entry.count >= limit) { const error = new HttpError(429, 'rate_limited', 'Too many requests'); error.retryAfter = Math.max(1, Math.ceil((entry.reset - time) / 1000)); throw error; }
     entry.count++;
   }
+  function clientIdentity(req) {
+    const peer = canonicalAddress(req.socket.remoteAddress);
+    if (trustedProxy === 'none') return peer ?? 'unknown';
+    if (!peer || !proxyNetworks.check(peer, isIP(peer) === 4 ? 'ipv4' : 'ipv6')) fail(400, 'invalid_client_identity', 'Trusted proxy connection required');
+    const client = canonicalAddress(req.headers['cf-connecting-ip']);
+    if (!client) fail(400, 'invalid_client_identity', 'Trusted proxy client address required');
+    return client;
+  }
+  const busy = () => { const error = new HttpError(503, 'service_busy', 'The service is busy; retry shortly'); error.retryAfter = 1; throw error; };
+  function admission(limit, perClient) {
+    let active = 0; const clients = new Map();
+    return key => {
+      const count = clients.get(key) ?? 0;
+      if (active >= limit || count >= perClient) busy();
+      active++; clients.set(key, count + 1);
+      return () => { active--; const left = clients.get(key) - 1; if (left) clients.set(key, left); else clients.delete(key); };
+    };
+  }
+  const admitAuthentication = admission(8, 2);
+  const admitAnonymousBody = admission(8, 2);
+  const admitAuthenticatedBody = admission(4, 2);
+  const admitKdf = admission(2, 2);
   const iso = () => new Date(now()).toISOString();
   const membership = (budgetId, userId, ownerOnly = false) => {
     const row = sql('SELECT b.*,m.role FROM budgets b JOIN members m ON m.budget_id=b.id WHERE b.id=? AND m.user_id=?').get(budgetId, userId);
@@ -113,7 +175,10 @@ export function createBudgetServer(options) {
       updatedAt: row.created_at, author: { id: row.author_id, username: row.username }, summary: row.summary,
       operationId: row.operation_id, role: budget.role };
   }
-  const kdf = async (secret, salt) => Buffer.from(await derive(secret, salt, 64, KDF));
+  const kdf = async (secret, salt) => {
+    const release = admitKdf('password');
+    try { return Buffer.from(await derive(secret, salt, 64, KDF)); } finally { release(); }
+  };
   async function newUserCredentials(name, secret) {
     const salt = randomBytes(16).toString('hex');
     return { id: randomUUID(), username: name, salt, password_hash: (await kdf(secret, salt)).toString('hex') };
@@ -138,19 +203,22 @@ export function createBudgetServer(options) {
     if (!native) res.setHeader('Set-Cookie', `budget_session=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${Math.floor(sessionTtlMs / 1000)}${development ? '' : '; Secure'}`);
     return native ? { user: publicUser(user), token } : { user: publicUser(user) };
   }
-  async function body(req) {
-    if (req.headers['content-type']?.split(';')[0].trim().toLowerCase() !== 'application/json') fail(415, 'unsupported_media_type', 'Use application/json');
-    if (Number(req.headers['content-length']) > maxPayloadBytes + 64 * 1024) { req.resume(); fail(413, 'payload_too_large', 'Request too large'); }
-    const chunks = []; let length = 0;
-    for await (const chunk of req) {
-      length += chunk.length;
-      if (length > maxPayloadBytes + 64 * 1024) { req.resume(); fail(413, 'payload_too_large', 'Request too large'); }
-      chunks.push(chunk);
-    }
-    let parsed;
-    try { parsed = JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { fail(400, 'invalid_json', 'Invalid JSON body'); }
-    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) fail(400, 'invalid_request', 'Use a JSON object');
-    return parsed;
+  async function body(req, user, identity, limit) {
+    const release = (user ? admitAuthenticatedBody : admitAnonymousBody)(user?.id ?? identity);
+    try {
+      if (req.headers['content-type']?.split(';')[0].trim().toLowerCase() !== 'application/json') fail(415, 'unsupported_media_type', 'Use application/json');
+      if (Number(req.headers['content-length']) > limit) { req.resume(); fail(413, 'payload_too_large', 'Request too large'); }
+      const chunks = []; let length = 0;
+      for await (const chunk of req) {
+        length += chunk.length;
+        if (length > limit) { req.resume(); fail(413, 'payload_too_large', 'Request too large'); }
+        chunks.push(chunk);
+      }
+      let parsed;
+      try { parsed = JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { fail(400, 'invalid_json', 'Invalid JSON body'); }
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) fail(400, 'invalid_request', 'Use a JSON object');
+      return parsed;
+    } finally { release(); }
   }
   const send = (res, status, data) => { res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' }); res.end(JSON.stringify(data)); };
   function commit(user, budgetId, input) {
@@ -196,6 +264,7 @@ export function createBudgetServer(options) {
     res.end(req.method === 'HEAD' ? undefined : contents);
   }
   const server = createServer(async (req, res) => {
+    let releaseAuthentication;
     res.setHeader('Cache-Control', 'no-store');
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('Referrer-Policy', 'no-referrer');
@@ -213,12 +282,16 @@ export function createBudgetServer(options) {
       if (native && req.headers.origin !== undefined) fail(403, 'invalid_origin', 'Native requests must not contain Origin');
       if (!native && !['GET', 'HEAD'].includes(req.method) && req.headers.origin !== origin.origin) fail(403, 'invalid_origin', 'Same-origin request required');
       if (req.headers['sec-fetch-site'] === 'cross-site') fail(403, 'invalid_origin', 'Same-origin request required');
-      const ip = req.socket.remoteAddress ?? 'unknown';
-      throttle(`api:${ip}`, 1200, 60000);
+      const identity = clientIdentity(req);
       const user = authenticate(req, native);
-      if (['/api/setup', '/api/login', '/api/invites/accept'].includes(path) && req.method === 'POST') {
-        throttle(`auth:${path}:${ip}`, 10);
-        const input = await body(req);
+      const authRoute = ['/api/setup', '/api/login', '/api/invites/accept'].includes(path) && req.method === 'POST';
+      if (user) throttle(authenticatedRate, user.id, 1200, 60000);
+      else if (!authRoute) throttle(anonymousRate, identity, 1200, 60000);
+      const readBody = () => body(req, user, identity, authRoute ? AUTH_BODY_LIMIT : maxPayloadBytes + 64 * 1024);
+      if (authRoute) {
+        throttle(authenticationRate, `${path}:${identity}`, 10);
+        releaseAuthentication = admitAuthentication(identity);
+        const input = await readBody();
         if (path === '/api/setup') {
           if (sql('SELECT 1 FROM users LIMIT 1').get()) fail(409, 'already_setup', 'Setup is already complete');
           if (typeof input.setupToken !== 'string' || !timingSafeEqual(Buffer.from(hash(input.setupToken)), Buffer.from(hash(setupToken)))) fail(403, 'setup_denied', 'Invalid setup token');
@@ -266,7 +339,7 @@ export function createBudgetServer(options) {
       if (!user) fail(401, 'authentication_required', 'Sign in required');
       if (path === '/api/me' && req.method === 'GET') return send(res, 200, { user: publicUser(user) });
       if (path === '/api/logout' && req.method === 'POST') {
-        await body(req);
+        await readBody();
         sql('DELETE FROM sessions WHERE token_hash=?').run(user.token_hash);
         if (!native) res.setHeader('Set-Cookie', `budget_session=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0${development ? '' : '; Secure'}`);
         return send(res, 200, { ok: true });
@@ -277,7 +350,7 @@ export function createBudgetServer(options) {
           return send(res, 200, { budgets });
         }
         if (req.method === 'POST') {
-          const input = await body(req);
+          const input = await readBody();
           if (typeof input.id !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(input.id)) fail(400, 'invalid_request', 'A UUID budget id is required');
           const name = text(input.name, 'name', 1, 100); const encoded = payload(input.payload, maxPayloadBytes);
           const result = transaction(() => {
@@ -296,7 +369,7 @@ export function createBudgetServer(options) {
       const [, budgetId, route, item] = match;
       const budget = membership(budgetId, user.id);
       if (!route && req.method === 'GET') return send(res, 200, snapshot(budget));
-      if (route === 'commits' && !item && req.method === 'POST') return send(res, 200, commit(user, budgetId, await body(req)));
+      if (route === 'commits' && !item && req.method === 'POST') return send(res, 200, commit(user, budgetId, await readBody()));
       if (route === 'history' && req.method === 'GET') {
         if (item) return send(res, 200, snapshot(budget, revision(Number(item))));
         const history = sql('SELECT s.revision,s.author_id,u.username,s.summary,s.created_at,s.operation_id FROM snapshots s JOIN users u ON u.id=s.author_id WHERE budget_id=? ORDER BY revision DESC LIMIT ?').all(budgetId, historyLimit).map(row => ({ revision: row.revision, author: { id: row.author_id, username: row.username }, summary: row.summary, createdAt: row.created_at, operationId: row.operation_id }));
@@ -307,7 +380,7 @@ export function createBudgetServer(options) {
         return send(res, 200, { members });
       }
       if (route === 'members' && req.method === 'DELETE' && item) {
-        membership(budgetId, user.id, true); await body(req);
+        membership(budgetId, user.id, true); await readBody();
         transaction(() => {
           membership(budgetId, user.id, true);
           const member = sql('SELECT role FROM members WHERE budget_id=? AND user_id=?').get(budgetId, item);
@@ -322,8 +395,8 @@ export function createBudgetServer(options) {
       if (route === 'invites') {
         membership(budgetId, user.id, true);
         if (req.method === 'POST' && !item) {
-          throttle(`invite:${user.id}`, 30, 3600000);
-          const input = await body(req); const recipient = username(input.recipient);
+          throttle(invitationRate, user.id, 30, 3600000);
+          const input = await readBody(); const recipient = username(input.recipient);
           const id = randomUUID(); const code = opaqueToken(); const expiry = now() + inviteTtlMs;
           transaction(() => {
             sql('DELETE FROM invites WHERE used=1 OR expires_at<=?').run(now());
@@ -333,13 +406,14 @@ export function createBudgetServer(options) {
           return send(res, 201, { invite: { id, recipient, expiresAt: new Date(expiry).toISOString() }, code });
         }
         if (req.method === 'DELETE' && item) {
-          await body(req);
+          await readBody();
           sql('UPDATE invites SET used=1 WHERE id=? AND budget_id=?').run(item, budgetId);
           return send(res, 200, { ok: true });
         }
       }
       fail(404, 'not_found', 'Not found');
     } catch (error) {
+      req.resume();
       if (res.headersSent || res.destroyed) { res.destroy(); return; }
       if (error instanceof HttpError) {
         if (error.retryAfter) res.setHeader('Retry-After', error.retryAfter);
@@ -347,7 +421,7 @@ export function createBudgetServer(options) {
       }
       // Never log request bodies, credential material, ciphertext or database exception details.
       send(res, 500, { error: { code: 'internal_error', message: 'The service could not complete this request' } });
-    }
+    } finally { releaseAuthentication?.(); }
   });
   server.requestTimeout = 30000;
   server.headersTimeout = 15000;

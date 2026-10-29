@@ -173,6 +173,8 @@ struct PasswordPrompt {
     bytes: Vec<u8>,
     typed: String,
     error: String,
+    /// One authentication/build attempt. Polling and cancellation never block the UI.
+    attempt: Option<Opening>,
 }
 
 /// What reading a budget found.
@@ -595,10 +597,14 @@ impl App {
                 return;
             }
         }
+        self.opening = Some(self.opening_job(path, bytes, password, quiet));
+    }
+
+    fn opening_job(&self, path: &Path, bytes: Option<Vec<u8>>, password: Option<String>, quiet: bool) -> Opening {
         let settings = self.load_settings();
         let (job_path, job_password) = (path.to_path_buf(), password.clone());
         let task = self.files.spawn(move |read| load_budget(read, &job_path, bytes, job_password.as_deref(), settings));
-        self.opening = Some(Opening { path: path.to_path_buf(), password, edits: self.edits, quiet, settings, task, loaded: None });
+        Opening { path: path.to_path_buf(), password, edits: self.edits, quiet, settings, task, loaded: None }
     }
 
     /// Takes a finished background open. Edits made while the file was read, or an editor opened
@@ -665,7 +671,7 @@ impl App {
                 if !quiet { self.notify(format!("Opened {}", file_name(path))); }
             }
             Loaded::Locked(bytes) => {
-                self.dialogs.password = Some(PasswordPrompt { path: path.to_path_buf(), bytes, typed: String::new(), error: String::new() });
+                self.dialogs.password = Some(PasswordPrompt { path: path.to_path_buf(), bytes, typed: String::new(), error: String::new(), attempt: None });
             }
             Loaded::Failed(log) => self.fail_load(path, &log),
         }
@@ -1370,7 +1376,28 @@ impl App {
     }
 
     fn password_prompt(&mut self, ctx: &egui::Context) {
-        let Some(PasswordPrompt { path, bytes, typed: pw, error: err }) = &mut self.dialogs.password else { return };
+        if let Some(prompt) = &mut self.dialogs.password {
+            if let Some(attempt) = &mut prompt.attempt {
+                match attempt.task.poll() {
+                    TaskState::Running => {},
+                    TaskState::Done(loaded @ Loaded::Budget(..)) => {
+                        attempt.loaded = Some(loaded);
+                        // Reuse the authenticated result, including the original file bytes. The
+                        // normal open path still guards against edits and changed load settings.
+                        self.opening = prompt.attempt.take();
+                        self.dialogs.password = None;
+                        ctx.request_repaint();
+                        return;
+                    }
+                    TaskState::Done(_) | TaskState::Lost => {
+                        prompt.attempt = None;
+                        prompt.error = "The password is incorrect or the encrypted file is damaged.".into();
+                    }
+                }
+            }
+        }
+        let Some(PasswordPrompt { path, typed: pw, error: err, attempt, .. }) = &mut self.dialogs.password else { return };
+        let busy = attempt.is_some();
         let t = &self.t;
         let mut done: Option<Option<String>> = None;
         let name = file_name(path);
@@ -1379,14 +1406,15 @@ impl App {
             ui.label(RichText::new("Password required").text_style(ts(TITLE)));
             ui.label(RichText::new(format!("{name} is encrypted.")).color(t.text_muted));
             ui.add_space(SP2);
-            let r = ui.add(TextEdit::singleline(pw).password(true).desired_width(f32::INFINITY).hint_text("Password"));
+            let r = ui.add_enabled(!busy, TextEdit::singleline(pw).password(true).desired_width(f32::INFINITY).hint_text("Password"));
             let enter = (r.has_focus() || r.lost_focus()) && ui.input(|i| i.key_pressed(Key::Enter));
             // Enter gives up focus; take it back whenever nothing else holds it.
-            if ctx.memory(|m| m.focused()).is_none() { r.request_focus(); }
+            if !busy && ctx.memory(|m| m.focused()).is_none() { r.request_focus(); }
+            if busy { ui.horizontal(|ui| { ui.spinner(); ui.label("Unlocking…"); }); }
             if !err.is_empty() { ui.label(RichText::new(err.as_str()).color(t.negative)); }
             ui.add_space(SP2);
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                if theme::primary_button(ui, "Unlock", t).clicked() || enter { done = Some(Some(pw.clone())); }
+                if ui.add_enabled_ui(!busy, |ui| theme::primary_button(ui, "Unlock", t)).inner.clicked() || (!busy && enter) { done = Some(Some(pw.clone())); }
                 if ui.button("Cancel").clicked() || ui.input(|i| i.key_pressed(Key::Escape)) { done = Some(None); }
             });
         });
@@ -1394,15 +1422,12 @@ impl App {
             Some(Some(p)) => {
                 if p.is_empty() { err.clear(); err.push_str("Empty password!"); return; }
                 pw.clear();
-                // The file was read when it was opened; unlocking never reads it again here.
-                if bgt::is_decryptable(&bgt::latin1_decode(bytes), &p) {
-                    let (path, bytes) = (path.clone(), std::mem::take(bytes));
-                    self.dialogs.password = None;
-                    self.start_opening(&path, Some(bytes), Some(p), false);
-                } else {
-                    err.clear();
-                    err.push_str("The password appears to be invalid.");
-                }
+                err.clear();
+                // Keep the captured bytes for retries. The worker authenticates and builds once;
+                // there is no preliminary KDF/decrypt on the window thread and no second read.
+                let prompt = self.dialogs.password.as_ref().unwrap();
+                let job = self.opening_job(&prompt.path, Some(prompt.bytes.clone()), Some(p), false);
+                self.dialogs.password.as_mut().unwrap().attempt = Some(job);
             }
             Some(None) => self.dialogs.password = None,
             None => {}
@@ -2277,7 +2302,7 @@ mod dialog_tests {
             ("day", |d| d.day = Some(20261027)),
             ("delete", |d| d.confirm_delete = Some(DeleteTarget { id: 1, date: None })),
             ("pending", |d| d.pending = Some(PendingAction::Close)),
-            ("password", |d| d.password = Some(PasswordPrompt { path: PathBuf::from("x.bgt"), bytes: Vec::new(), typed: String::new(), error: String::new() })),
+            ("password", |d| d.password = Some(PasswordPrompt { path: PathBuf::from("x.bgt"), bytes: Vec::new(), typed: String::new(), error: String::new(), attempt: None })),
             ("about", |d| d.about = true),
             ("legend", |d| d.legend = true),
             ("shortcuts", |d| d.shortcuts = true),
@@ -2878,6 +2903,27 @@ mod lifecycle_tests {
     }
 
     #[test]
+    fn password_unlock_runs_in_background_and_cancel_preserves_the_open_budget() {
+        let (mut app, dir) = fixture();
+        let previous = app.file.clone();
+        let path = dir.join("cancel-unlock.bgt");
+        let text = app.db.as_ref().unwrap().to_text(Some("secret")).unwrap();
+        bgt::save_file(&path, &text).unwrap();
+        app.dirty = false;
+        let ctx = gui(&app);
+        app.open(&path);
+        settle(&mut app, &ctx, |app| app.dialogs.password.is_some());
+        frame(&mut app, &ctx, vec![], false);
+        frame(&mut app, &ctx, vec![egui::Event::Text("secret".into())], false);
+        frame(&mut app, &ctx, vec![key(Key::Enter, Modifiers::NONE)], false);
+        assert!(app.dialogs.password.is_some(), "unlock must return with a cancellable password job, without decrypting on the UI thread");
+        frame(&mut app, &ctx, vec![key(Key::Escape, Modifiers::NONE)], false);
+        assert!(app.dialogs.password.is_none() && app.opening.is_none());
+        assert_eq!(app.file, previous, "cancel must preserve the open document");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
     fn rejected_password_keeps_the_field_usable_from_the_keyboard() {
         let (mut app, dir) = fixture();
         let path = dir.join("secret.bgt");
@@ -2892,11 +2938,13 @@ mod lifecycle_tests {
         frame(&mut app, &ctx, vec![], false);
         frame(&mut app, &ctx, vec![egui::Event::Text("wrong".into())], false);
         frame(&mut app, &ctx, vec![key(Key::Enter, Modifiers::NONE)], false);
-        assert_eq!(app.dialogs.password.as_ref().unwrap().error, "The password appears to be invalid.");
+        settle(&mut app, &ctx, |app| app.dialogs.password.as_ref().is_some_and(|p| !p.error.is_empty()));
+        assert_eq!(app.dialogs.password.as_ref().unwrap().error, "The password is incorrect or the encrypted file is damaged.");
         frame(&mut app, &ctx, vec![], false);
         assert!(ctx.memory(|m| m.focused()).is_some(), "the password field must regain focus");
         frame(&mut app, &ctx, vec![egui::Event::Text("secret".into())], false);
         frame(&mut app, &ctx, vec![key(Key::Enter, Modifiers::NONE)], false);
+        settle(&mut app, &ctx, |app| app.dialogs.password.is_none());
         assert!(app.dialogs.password.is_none(), "retyping and Enter must unlock");
         settle(&mut app, &ctx, |app| app.opening.is_none());
         assert_eq!(app.file.as_deref().map(file_name).as_deref(), Some("secret.bgt"));

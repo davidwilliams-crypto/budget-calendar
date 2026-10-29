@@ -4,6 +4,8 @@ import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import {webcrypto} from 'node:crypto';
+import {loadEngine} from '../../budget-mobile/public/engine.mjs';
 const root=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..');
 const executable=process.env.BUDGET_ENGINE_NATIVE||path.join(root,'target/debug/budget-engine-cli.exe');
 const wasm=process.env.BUDGET_ENGINE_WASM||path.join(root,'target/wasm32-unknown-unknown/release/budget_engine.wasm');
@@ -19,6 +21,29 @@ function portable(request){
   return JSON.parse(new TextDecoder().decode(new Uint8Array(engine.memory.buffer,engine.result_ptr(),engine.result_len())));
 }
 function same(request){const a=native(request);const b=portable(request);assert.deepEqual(b,a,JSON.stringify(request));return a;}
+
+test('password files interoperate between native and no-import WASM with trusted host entropy',async()=>{
+  const snapshot=start(),password='long Unicode passphrase past the old fifty-six-byte boundary: café 🔐';
+  const exported=native({action:'export',snapshot,today,password,entropy:{salt:Array(16).fill(0),nonce:Array(12).fill(0)}});
+  assert.equal(exported.ok,true,exported.error);assert.ok(exported.result.text.startsWith('#db*sealed\n'));
+  const envelope=JSON.parse(exported.result.text.split('\n')[1]);
+  assert.notEqual(envelope.salt,Buffer.alloc(16).toString('base64'),'native callers cannot choose the salt');
+  assert.notEqual(envelope.nonce,Buffer.alloc(12).toString('base64'),'native callers cannot choose the nonce');
+  const importRequest=text=>({action:'import',text,password,id:'encrypted-copy',name:'Encrypted fixture',timeZone:'America/Halifax',today});
+  assert.equal(portable(importRequest(exported.result.text)).ok,true);
+  assert.equal(portable({action:'export',snapshot,today,password}).ok,false,'raw WASM must fail closed without fresh host entropy');
+  const host={salt:[...webcrypto.getRandomValues(new Uint8Array(16))],nonce:[...webcrypto.getRandomValues(new Uint8Array(12))]};
+  const raw=portable({action:'export',snapshot,today,password,entropy:host});assert.equal(raw.ok,true,raw.error);
+  assert.equal(native(importRequest(raw.result.text)).ok,true);
+  const wrapped=await loadEngine(`data:application/wasm;base64,${readFileSync(wasm).toString('base64')}`);
+  const request={action:'export',snapshot,today,password,entropy:{salt:Array(16).fill(0),nonce:Array(12).fill(0)}};
+  const a=wrapped(request),b=wrapped(request),ea=JSON.parse(a.text.split('\n')[1]),eb=JSON.parse(b.text.split('\n')[1]);
+  assert.notEqual(ea.salt,eb.salt);assert.notEqual(ea.nonce,eb.nonce);assert.notEqual(ea.ciphertext,eb.ciphertext);
+  assert.notEqual(ea.salt,Buffer.alloc(16).toString('base64'));assert.notEqual(ea.nonce,Buffer.alloc(12).toString('base64'));
+  assert.equal(native(importRequest(a.text)).ok,true);
+  assert.equal(portable({...importRequest(a.text),password:'wrong'}).ok,false);
+  assert.deepEqual(request.entropy,{salt:Array(16).fill(0),nonce:Array(12).fill(0)},'wrapper must not mutate caller input');
+});
 const today=20261029;
 function start(){return same({action:'new',id:'parity-household',name:'Generated fixture',timeZone:'America/Halifax',today}).result;}
 function apply(snapshot,command,operationId){const result=same({action:'apply',snapshot,today,command,operationId});assert.equal(result.ok,true,result.error);return result.result;}

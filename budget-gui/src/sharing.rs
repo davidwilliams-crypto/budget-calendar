@@ -47,13 +47,13 @@ struct CreationCandidate {
 impl CreationCandidate {
     fn new(connection: Connection, recovery_key: String, snapshot: budget_core::sharing::Snapshot) -> Result<Self, String> {
         let request = json!({"id":snapshot.id,"name":snapshot.name,"payload":client::seal(&snapshot, &recovery_key, 1)?});
-        let candidate = Self { connection, recovery_key, snapshot, request };
+        let mut candidate = Self { connection, recovery_key, snapshot, request };
         candidate.validate()?;
         Ok(candidate)
     }
-    fn validate(&self) -> Result<(), String> {
+    fn validate(&mut self) -> Result<(), String> {
         uuid::Uuid::parse_str(&self.snapshot.id).map_err(|_| "Invalid pending household identity.")?;
-        client::normalize_server(&self.connection.server)?;
+        self.connection.server = client::normalize_server(&self.connection.server)?;
         if self.request["id"].as_str() != Some(self.snapshot.id.as_str()) || self.request["name"].as_str() != Some(self.snapshot.name.as_str()) {
             return Err("Pending household request does not match its protected snapshot.".into());
         }
@@ -64,7 +64,7 @@ impl CreationCandidate {
     }
 }
 
-fn submit_creation(candidate: CreationCandidate) -> Result<SharedDocument, String> {
+fn submit_creation(mut candidate: CreationCandidate) -> Result<SharedDocument, String> {
     candidate.validate()?;
     let api = Api::new(candidate.connection.clone()).map_err(|e| e.to_string())?;
     let posted = api.request("POST", "/api/budgets", Some(candidate.request)).and_then(|v| serde_json::from_value::<Remote>(v)
@@ -110,7 +110,7 @@ impl SharedUi {
     }
     fn load_creation(&mut self) -> Result<CreationCandidate, String> {
         self.ensure_cache_lock()?;
-        let candidate: CreationCandidate = client::load_protected(&self.creation_path())?;
+        let mut candidate: CreationCandidate = client::load_protected(&self.creation_path())?;
         candidate.validate()?;
         Ok(candidate)
     }
@@ -141,16 +141,17 @@ impl SharedUi {
     fn creation_path(&self) -> PathBuf { self.cache.with_file_name("shared-creation.enc") }
     fn persist_creation(&mut self, candidate: &CreationCandidate) -> Result<(), String> {
         self.ensure_cache_lock()?;
+        let mut candidate = candidate.clone();
         candidate.validate()?;
         let path = self.creation_path();
         if path.exists() {
-            let old: CreationCandidate = client::load_protected(&path)?;
+            let mut old: CreationCandidate = client::load_protected(&path)?;
             old.validate()?;
-            if old.snapshot.id != candidate.snapshot.id || old.connection.server != candidate.connection.server {
+            if old.snapshot.id != candidate.snapshot.id || !client::same_server(&old.connection.server, &candidate.connection.server) {
                 return Err("A previous household creation is pending on this device. Resume it before starting another household.".into());
             }
         }
-        client::save_protected(&path, candidate)
+        client::save_protected(&path, &candidate)
     }
 }
 impl App {
@@ -206,12 +207,12 @@ impl App {
             } else { None }
         } else { None };
         if let Some(current) = self.sharing.document.as_ref().filter(|d| d.working.id == doc.working.id).or(cached.as_ref()) {
-            if current.connection.server != doc.connection.server {
+            if !client::same_server(&current.connection.server, &doc.connection.server) {
                 self.sharing.error = Some("A protected cache with this household identity belongs to another server. It has been kept unchanged.".into());
                 self.sharing.open = true;
                 return;
             }
-            if current.working.id == doc.working.id && current.connection.server == doc.connection.server {
+            if current.working.id == doc.working.id && client::same_server(&current.connection.server, &doc.connection.server) {
                 if !current.pending.is_empty() && current.connection.user.id != doc.connection.user.id {
                     self.sharing.error = Some("This device has pending edits for a different account. Open its cached budget and export a backup, or sign in with that account to synchronize it first.".into());
                     self.sharing.open = true;
@@ -258,7 +259,7 @@ impl App {
                 self.generation += 1; self.month = None; self.view = None; self.haystacks = None; self.title_dirty = true;
                 let candidate_path = self.sharing.creation_path();
                 if let Ok(candidate) = client::load_protected::<CreationCandidate>(&candidate_path) {
-                    if candidate.snapshot.id == created_id && candidate.connection.server == created_server {
+                    if candidate.snapshot.id == created_id && client::same_server(&candidate.connection.server, &created_server) {
                         // The normal protected document is durable before its recovery candidate is removed.
                         let _ = std::fs::remove_file(candidate_path);
                     }
@@ -294,7 +295,7 @@ impl App {
                         // Reauthentication changes credentials only, retaining every queued request.
                         let mut changed = self.sharing.document.clone();
                         if let Some(d) = &mut changed {
-                            if d.connection.server == connection.server && d.connection.user.id == connection.user.id {
+                            if client::same_server(&d.connection.server, &connection.server) && d.connection.user.id == connection.user.id {
                                 d.connection = connection.clone();
                                 match self.sharing.persist(d) { Ok(()) => self.sharing.document = changed, Err(e) => self.sharing.error = Some(e) }
                             }
@@ -402,7 +403,9 @@ impl App {
                     });
                 }
                 if ui.button("Sync now").clicked() { command = Some("sync"); }
-                ui.hyperlink_to("Open mobile app · invitations, members and history", &doc.connection.server);
+                if let Ok(server) = client::normalize_server(&doc.connection.server) {
+                    ui.hyperlink_to("Open mobile app · invitations, members and history", server);
+                }
             }
             ui.separator();
             ui.label("Server address"); ui.text_edit_singleline(&mut self.sharing.server);
@@ -410,7 +413,9 @@ impl App {
             ui.label("Password"); ui.add(egui::TextEdit::singleline(&mut self.sharing.password).password(true));
             if ui.add_enabled(!busy, Button::new("Sign in / refresh session")).clicked() { command = Some("login"); }
             if let Some(connection) = &self.sharing.connection {
-                ui.hyperlink_to("Open mobile app to set up an account or accept an invitation", &connection.server);
+                if let Ok(server) = client::normalize_server(&connection.server) {
+                    ui.hyperlink_to("Open mobile app to set up an account or accept an invitation", server);
+                }
                 ui.separator();
                 ui.label("Recovery key for the household you want to open");
                 ui.add(egui::TextEdit::singleline(&mut self.sharing.key).password(true));
@@ -431,8 +436,8 @@ impl App {
                         if ui.add_enabled(!busy && self.sharing.saved_key && !self.has_draft(), Button::new("Share current budget (upload encrypted copy)")).clicked() { command = Some("create"); }
                     }
                 }
-            } else if !self.sharing.server.is_empty() {
-                ui.hyperlink_to("Open mobile app for account setup / invitation", &self.sharing.server);
+            } else if let Ok(server) = client::normalize_server(&self.sharing.server) {
+                ui.hyperlink_to("Open mobile app for account setup / invitation", server);
             }
             ui.separator();
             if ui.add_enabled(!busy, Button::new("Open cached shared budget on this device")).clicked() { command = Some("cache"); }
@@ -489,7 +494,7 @@ impl App {
                 let result = (|| {
                     let mut candidate = self.sharing.load_creation()?;
                     if let Some(connection) = &self.sharing.connection {
-                        if candidate.connection.server == connection.server && candidate.connection.user.id == connection.user.id {
+                        if client::same_server(&candidate.connection.server, &connection.server) && candidate.connection.user.id == connection.user.id {
                             candidate.connection = connection.clone();
                         } else { return Err("Sign in with the account and server used for the pending household creation.".into()); }
                     }
@@ -542,6 +547,96 @@ mod tests {
         let (send, recv) = mpsc::channel(); send.send(event).unwrap();
         app.sharing.job = Some(recv);
         app.poll_shared(&egui::Context::default());
+    }
+    #[test]
+    fn sharing_links_open_only_canonical_origins_in_every_panel_state() {
+        fn click_link(app: &mut App, label: &str) -> Option<String> {
+            fn find_text(shape: &egui::Shape, label: &str) -> Option<egui::Pos2> {
+                match shape {
+                    egui::Shape::Text(text) if text.galley.job.text == label => Some(text.pos + text.galley.mesh_bounds.center().to_vec2()),
+                    egui::Shape::Vec(shapes) => shapes.iter().find_map(|shape| find_text(shape, label)),
+                    _ => None,
+                }
+            }
+            let ctx = egui::Context::default();
+            theme::install_fonts(&ctx); theme::apply(&ctx, &app.t);
+            let frame = |app: &mut App, events| ctx.run(egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, Vec2::new(1000.0, 1000.0))),
+                events, ..Default::default()
+            }, |ctx| app.shared_panel(ctx));
+            let mut output = frame(app, vec![]);
+            for _ in 0..2 { output = frame(app, vec![]); }
+            let pointer = output.shapes.iter().find_map(|shape| find_text(&shape.shape, label))?;
+            let mut opened = None;
+            for pressed in [true, false] {
+                output = frame(app, vec![egui::Event::PointerMoved(pointer), egui::Event::PointerButton {
+                    pos: pointer, button: egui::PointerButton::Primary, pressed, modifiers: Modifiers::NONE
+                }]);
+                for command in output.platform_output.commands {
+                    if let egui::OutputCommand::OpenUrl(url) = command { opened = Some(url.url); }
+                }
+            }
+            opened
+        }
+        let (mut app, _dir) = setup(); app.sharing.open = true;
+        for (raw, expected) in [
+            (" HTTPS://Example.COM:443/ ", Some("https://example.com")),
+            ("HTTP://LOCALHOST:8787/", Some("http://localhost:8787")),
+            ("https://example.com/&calc.exe", None),
+            ("https://example.com/|calc.exe", None),
+            ("https://example.com/%PATH%", None),
+            ("https://example.com/\"&calc.exe", None),
+            ("https://example.com\0", None),
+            ("https://exam\nple.com", None),
+            ("https://user@example.com", None),
+            ("file:///C:/Windows/System32/calc.exe", None),
+        ] {
+            for state in 0..3 {
+                let doc = app.sharing.document.clone(); let connection = app.sharing.connection.clone();
+                if state == 0 { app.sharing.document.as_mut().unwrap().connection.server = raw.into(); }
+                else if state == 1 { app.sharing.document = None; app.sharing.connection.as_mut().unwrap().server = raw.into(); }
+                else { app.sharing.document = None; app.sharing.connection = None; app.sharing.server = raw.into(); }
+                let label = match state {
+                    0 => "Open mobile app · invitations, members and history",
+                    1 => "Open mobile app to set up an account or accept an invitation",
+                    _ => "Open mobile app for account setup / invitation",
+                };
+                assert_eq!(click_link(&mut app, label).as_deref(), expected, "panel state {state}, server {raw:?}");
+                app.sharing.document = doc; app.sharing.connection = connection;
+            }
+        }
+    }
+    #[test]
+    fn pending_creation_normalizes_reopened_origins_before_identity_checks() {
+        let (mut app, _dir) = setup();
+        let mut candidate = creation(&app);
+        candidate.connection.server = " HTTPS://Example.COM:443/ ".into();
+        client::save_protected(&app.sharing.creation_path(), &candidate).unwrap();
+        let reopened = app.sharing.load_creation().unwrap();
+        assert_eq!(reopened.connection.server, "https://example.com");
+        candidate.connection.server = "https://example.com".into();
+        app.sharing.persist_creation(&candidate).unwrap();
+        assert_eq!(app.sharing.load_creation().unwrap().connection.server, "https://example.com");
+    }
+    #[test]
+    fn session_refresh_matches_canonical_origins_and_retains_pending_work() {
+        let (mut app, _dir) = setup();
+        app.db.as_mut().unwrap().notes = "Pending offline work".into(); app.changed();
+        let mut connection = app.sharing.document.as_ref().unwrap().connection.clone();
+        connection.server = "HTTP://127.0.0.1:8787/".into();
+        connection.token = "refreshed-fixture-session".into();
+        deliver(&mut app, Event::SignedIn(Ok((connection.clone(), vec![]))));
+        let stored = client::load_device(&app.sharing.cache).unwrap();
+        assert_eq!(stored.connection.token, "refreshed-fixture-session");
+        assert_eq!(stored.connection.server, "http://127.0.0.1:8787");
+        assert_eq!(stored.working.notes, "Pending offline work");
+        assert_eq!(stored.pending.len(), 1);
+        connection.server = "https://another.example".into(); connection.token = "foreign-fixture-session".into();
+        deliver(&mut app, Event::SignedIn(Ok((connection, vec![]))));
+        let stored = client::load_device(&app.sharing.cache).unwrap();
+        assert_eq!(stored.connection.token, "refreshed-fixture-session");
+        assert_eq!(stored.pending.len(), 1);
+        assert_eq!(stored.working.notes, "Pending offline work");
     }
     #[test]
     fn recovery_key_copy_is_explicit_uses_active_household_and_preserves_budget() {
@@ -771,7 +866,7 @@ mod tests {
         let (mut app, _dir) = setup(); let current = app.sharing.document.as_ref().unwrap().working.clone();
         let candidate = creation(&app);
         app.sharing.persist_creation(&candidate).unwrap();
-        let loaded: CreationCandidate = client::load_protected(&app.sharing.creation_path()).unwrap();
+        let mut loaded: CreationCandidate = client::load_protected(&app.sharing.creation_path()).unwrap();
         loaded.validate().unwrap();
         assert_eq!(loaded.request, candidate.request); assert_eq!(loaded.recovery_key, candidate.recovery_key);
         assert_eq!(client::load_device(&app.sharing.cache).unwrap().working, current);

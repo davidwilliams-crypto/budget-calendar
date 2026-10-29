@@ -5,3 +5,4 @@ edition = "2021"
 description = "Workspace shim: the real crate links shell32 with raw-dylib, which the GNU toolchain here cannot build"
 
 [dependencies]
+url = "2"

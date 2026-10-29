@@ -1,5 +1,5 @@
 //! The `.bgt` file format (loader `BudgetDB.loadFileData`, saver `BudgetDB.save`).
-//! Reads plain, Blowfish (`#db*encrypted`) and legacy XOR files; saves plain or Blowfish.
+//! Reads plain, authenticated envelopes, Blowfish and legacy XOR files; saves plain or sealed.
 
 use crate::crypto::{xor_line, LineCipher, HEADER_BLOWFISH, HEADER_XOR};
 use crate::date::{is_leap, DATE_MAX};
@@ -247,7 +247,7 @@ pub(crate) fn strip_bom(text: &str) -> &str {
 /// `isEncrypted`: first line is one of the two encryption headers.
 pub fn is_encrypted_text(text: &str) -> bool {
     let first = logical_lines(strip_bom(text)).next().unwrap_or("");
-    first == HEADER_XOR || first == HEADER_BLOWFISH
+    first == HEADER_XOR || first == HEADER_BLOWFISH || first.starts_with(crate::sealed::HEADER)
 }
 
 /// `isDecryptable(path, password)`: the file parses with this password.
@@ -261,6 +261,14 @@ enum Mode<'a> { Plain, Xor(&'a str), Blowfish(Box<LineCipher>) }
 /// only when the first line is an encryption header (a plain file ignores it, like the original).
 pub fn load_str(text: &str, today: i32, password: Option<&str>) -> Result<Loaded, Box<Loaded>> {
     let text = strip_bom(text);
+    if logical_lines(text).any(|l| l.starts_with(crate::sealed::HEADER)) {
+        let fail = |log: String| Box::new(Loaded { log, ..Default::default() });
+        let password = password.ok_or_else(|| fail("Password required to unlock encrypted budget.".into()))?;
+        let plain = crate::sealed::open(text, password).map_err(fail)?;
+        // The authenticated payload is always an ordinary plain `.bgt`, never another cipher.
+        if !plain.starts_with("v,2\n") { return Err(fail("Invalid encrypted budget payload.".into())); }
+        return load_with(&plain, today, None, false);
+    }
     let first = load_with(text, today, password, false);
     if first.is_err() {
         // Files saved by earlier builds with a 1-3 byte password used a zero-padded key.
@@ -400,23 +408,36 @@ fn check_finite(name: &str, p: &Payment) -> Result<(), String> {
     if finite { Ok(()) } else { Err(format!("Cannot save: '{name}' has an amount that is not a finite number")) }
 }
 
-/// Whole file text including the END-OF-DATA trailer (no final newline). With a password every
-/// line is Blowfish-encrypted and the `#db*encrypted` header is prepended (it counts as a line).
+/// Whole file text including the END-OF-DATA trailer (no final newline). Password saves encrypt
+/// and authenticate the complete plain serialization with a fresh salt and nonce.
 pub fn save_str(payments: &[Payment], adjustments: &Payment, notes: &str, password: Option<&str>) -> Result<String, String> {
+    match password {
+        Some(p) => {
+            let plain = zeroize::Zeroizing::new(plain_str(payments, adjustments, notes)?);
+            crate::sealed::seal(&plain, p)
+        }
+        None => plain_str(payments, adjustments, notes),
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+pub(crate) fn save_str_with_entropy(payments: &[Payment], adjustments: &Payment, notes: &str, password: &str, entropy: crate::sealed::HostEntropy) -> Result<String, String> {
+    let plain = zeroize::Zeroizing::new(plain_str(payments, adjustments, notes)?);
+    crate::sealed::seal_with_entropy(&plain, password, entropy.salt, entropy.nonce)
+}
+
+fn plain_str(payments: &[Payment], adjustments: &Payment, notes: &str) -> Result<String, String> {
     for p in payments { check_finite(&p.description, p)?; }
     check_finite("balance adjustments", adjustments)?;
-    let cipher = match password { Some(p) => Some(LineCipher::new(p)?), None => None };
-    let enc = |s: String| match &cipher { Some(c) => c.encrypt_line(&s), None => s };
     let mut out = String::new();
     let mut n = 0;
-    if cipher.is_some() { n += 1; out.push_str(HEADER_BLOWFISH); out.push('\n'); }
-    let mut line = |s: String, out: &mut String| { n += 1; out.push_str(&enc(s)); out.push('\n'); };
+    let mut line = |s: String, out: &mut String| { n += 1; out.push_str(&s); out.push('\n'); };
     line("v,2".into(), &mut out);
     line(format!(":{}", opts_string(adjustments)), &mut out);
     line(format!("=,{}", encode_description(notes)), &mut out);
     for p in payments { line(payment_line(p), &mut out); }
     n += 1;
-    out.push_str(&enc(format!("{EOD_PREFIX}{n}{EOD_TRAILER}")));
+    out.push_str(&format!("{EOD_PREFIX}{n}{EOD_TRAILER}"));
     Ok(out)
 }
 
@@ -701,7 +722,7 @@ mod tests {
         p.amount = -1100.0;
         let adj = Payment::new(20240101);
         let text = save_str(&[p.clone()], &adj, "my notes", Some("pw")).unwrap();
-        assert!(text.starts_with("#db*encrypted\n"));
+        assert!(text.starts_with("#db*sealed\n"));
         assert!(is_encrypted_text(&text));
         assert!(!is_decryptable(&text, "wrong"));
         assert!(is_decryptable(&text, "pw"));

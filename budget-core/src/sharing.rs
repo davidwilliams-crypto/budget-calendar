@@ -1,4 +1,5 @@
 //! Versioned, clock-independent sharing boundary. No files, network or system clock.
+//! Native password exports use OS randomness; raw WASM exports require fresh host entropy.
 use crate::{bgt, commands, date::is_calendar_date, BudgetDb, Cal, Field, Payment};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -509,9 +510,20 @@ fn dispatch(v: Value) -> Result<Value, String> {
             validate_snapshot(&s)?;
             check_date(integer(&v, "today")?)?;
             let payments: Vec<_> = s.payments.iter().map(|r| r.payment.clone()).collect();
-            Ok(
-                json!({"text":bgt::save_str(&payments,&s.adjustments,&s.notes,v.get("password").and_then(Value::as_str))?}),
-            )
+            let password = v.get("password").and_then(Value::as_str);
+            #[cfg(not(target_arch = "wasm32"))]
+            let text = bgt::save_str(&payments, &s.adjustments, &s.notes, password)?;
+            #[cfg(target_arch = "wasm32")]
+            let text = match password {
+                None => bgt::save_str(&payments, &s.adjustments, &s.notes, None)?,
+                Some(password) => {
+                    let entropy = v.get("entropy").ok_or("Password export requires fresh CSPRNG entropy from the browser host.")?;
+                    let entropy = serde_json::from_value::<crate::sealed::HostEntropy>(entropy.clone())
+                        .map_err(|_| "Password export requires a 16-byte salt and 12-byte nonce from the browser CSPRNG.")?;
+                    bgt::save_str_with_entropy(&payments, &s.adjustments, &s.notes, password, entropy)?
+                }
+            };
+            Ok(json!({"text":text}))
         }
         "forecast" => forecast(
             &snapshot(&v)?,
@@ -529,7 +541,7 @@ fn dispatch(v: Value) -> Result<Value, String> {
         _ => Err("Unsupported engine action.".into()),
     }
 }
-/// All errors are data; no ambient date or I/O is used by this entry point.
+/// All errors are data; password export uses native OS entropy or fresh browser host entropy.
 pub fn request_json(request: &str) -> String {
     let result = if request.len() > MAX_REQUEST_BYTES {
         Err("Request exceeds 8 MiB.".into())

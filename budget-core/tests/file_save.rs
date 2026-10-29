@@ -90,6 +90,26 @@ fn replacing_existing_file_keeps_original_bytes_in_backup() {
 }
 
 #[test]
+fn explicit_save_migrates_legacy_encryption_and_backs_up_exact_previous_bytes() {
+    let dir = TestDir::new();
+    let path = dir.file("generated-legacy.bgt");
+    let plain = "v,2\n:\n=,legacy fixture\n## END-OF-DATA; line_no=5 ##";
+    let cipher = budget_core::crypto::LineCipher::new("ab").unwrap();
+    let legacy = format!("\u{feff}#db*encrypted\r\n{}", plain.lines().map(|l| cipher.encrypt_line(l)).collect::<Vec<_>>().join("\r\n"));
+    let old = [b"\xef\xbb\xbf".as_slice(), &bgt::latin1_encode(legacy.trim_start_matches('\u{feff}'))].concat();
+    fs::write(&path, &old).unwrap();
+    let loaded = bgt::load_file(&path, 20260101, Some("ab")).unwrap();
+    assert_eq!(fs::read(&path).unwrap(), old, "opening must not migrate the file");
+    assert_eq!(dir.entries(), ["generated-legacy.bgt"]);
+    let new = bgt::save_str(&loaded.payments, loaded.adjustments.as_ref().unwrap(), &loaded.notes, Some("ab")).unwrap();
+    bgt::save_file(&path, &new).unwrap();
+    assert!(new.starts_with("#db*sealed\n"));
+    assert_eq!(fs::read(dir.file("generated-legacy.bgt.bak")).unwrap(), old);
+    assert_eq!(fs::read(&path).unwrap(), new.as_bytes());
+    assert_eq!(bgt::load_file(&path, 20260101, Some("ab")).unwrap().notes, "legacy fixture");
+}
+
+#[test]
 fn repeated_changes_keep_all_prior_versions() {
     let dir = TestDir::new();
     let path = dir.file("budget.bgt");

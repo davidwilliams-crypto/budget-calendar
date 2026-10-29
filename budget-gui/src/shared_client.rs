@@ -36,13 +36,19 @@ impl std::fmt::Display for ServiceError { fn fmt(&self,f:&mut std::fmt::Formatte
 fn local_error(message: impl Into<String>) -> ServiceError { ServiceError { status:0,message:message.into(),current:None } }
 
 pub fn normalize_server(server:&str)->Result<String,String>{
-    let url=reqwest::Url::parse(server.trim()).map_err(|_|"Enter a complete HTTPS server address.")?;
+    if server.chars().any(char::is_control){return Err("The server address must not contain control characters.".into())}
+    let server=server.trim();
+    let (scheme,rest)=server.split_once("://").ok_or("Enter a complete HTTPS server address.")?;
+    let authority=rest.split(['/', '?', '#', '\\']).next().unwrap_or_default();
+    if !(scheme.eq_ignore_ascii_case("https")||scheme.eq_ignore_ascii_case("http"))||authority.is_empty()||authority.contains('@'){return Err("Use a complete HTTPS server address without account credentials.".into())}
+    let url=reqwest::Url::parse(server).map_err(|_|"Enter a complete HTTPS server address.")?;
     let loopback=matches!(url.host_str(),Some("localhost"|"127.0.0.1"|"[::1]"));
-    if (url.scheme()!="https"&&!(url.scheme()=="http"&&loopback))||!url.username().is_empty()||url.password().is_some()||url.query().is_some()||url.fragment().is_some()||url.path()!="/" {
+    if url.host_str().is_none()||(url.scheme()!="https"&&!(url.scheme()=="http"&&loopback))||!url.username().is_empty()||url.password().is_some()||url.query().is_some()||url.fragment().is_some()||url.path()!="/" {
         return Err("Use an HTTPS server origin without a path, password or query. HTTP is allowed only on localhost for testing.".into());
     }
     Ok(url.as_str().trim_end_matches('/').into())
 }
+pub fn same_server(left:&str,right:&str)->bool{matches!((normalize_server(left),normalize_server(right)),(Ok(left),Ok(right)) if left==right)}
 pub struct Api { connection: Connection, client:reqwest::blocking::Client }
 impl Api {
     pub fn new(connection:Connection)->Result<Self,ServiceError>{
@@ -111,7 +117,7 @@ pub fn unlock(remote:&Remote,key:&str)->Result<Snapshot,String>{
 pub fn household_today(time_zone:&str)->Result<i32,String>{use chrono::Datelike;let zone:chrono_tz::Tz=time_zone.parse().map_err(|_|"Unknown household time zone.")?;let now=chrono::Utc::now().with_timezone(&zone);Ok(now.year()*10000+now.month() as i32*100+now.day() as i32)}
 
 impl SharedDocument {
-    pub fn open(connection:Connection,recovery_key:String,remote:Remote)->Result<Self,String>{let snapshot=unlock(&remote,&recovery_key)?;Ok(Self{connection,recovery_key,baseline:snapshot.clone(),working:snapshot,revision:remote.revision,pending:vec![],conflict:None,role:remote.role,last_sync:remote.updated_at})}
+    pub fn open(mut connection:Connection,recovery_key:String,remote:Remote)->Result<Self,String>{connection.server=normalize_server(&connection.server)?;let snapshot=unlock(&remote,&recovery_key)?;Ok(Self{connection,recovery_key,baseline:snapshot.clone(),working:snapshot,revision:remote.revision,pending:vec![],conflict:None,role:remote.role,last_sync:remote.updated_at})}
     pub fn capture(&mut self,snapshot:Snapshot)->Result<(),String>{
         if self.conflict.is_some(){return Err("Review the conflicting shared version before editing.".into())}
         if snapshot==self.working{return Ok(())}budget_core::sharing::validate_snapshot(&snapshot)?;
@@ -239,7 +245,7 @@ pub fn save_device(path:&Path,document:&SharedDocument)->Result<(),String>{
     let bytes=serde_json::to_vec(document).map_err(|_|"Unable to encode device state.")?;let encrypted=protect(&bytes,false)?;
     write_protected_bytes(path,&encrypted,MAX_DEVICE_BYTES).map_err(|e|format!("Changes could not be saved to this device: {e}"))
 }
-pub fn load_device(path:&Path)->Result<SharedDocument,String>{let bytes=std::fs::read(path).map_err(|e|format!("Unable to read the shared device cache: {e}"))?;if bytes.len()>MAX_DEVICE_BYTES{return Err("Shared device cache exceeds the supported limit.".into())}let plaintext=protect(&bytes,true)?;let doc:SharedDocument=serde_json::from_slice(&plaintext).map_err(|_|"The shared device cache is damaged.")?;budget_core::sharing::validate_snapshot(&doc.working)?;budget_core::sharing::validate_snapshot(&doc.baseline)?;normalize_server(&doc.connection.server)?;key_bytes(&doc.recovery_key)?;Ok(doc)}
+pub fn load_device(path:&Path)->Result<SharedDocument,String>{let bytes=std::fs::read(path).map_err(|e|format!("Unable to read the shared device cache: {e}"))?;if bytes.len()>MAX_DEVICE_BYTES{return Err("Shared device cache exceeds the supported limit.".into())}let plaintext=protect(&bytes,true)?;let mut doc:SharedDocument=serde_json::from_slice(&plaintext).map_err(|_|"The shared device cache is damaged.")?;budget_core::sharing::validate_snapshot(&doc.working)?;budget_core::sharing::validate_snapshot(&doc.baseline)?;doc.connection.server=normalize_server(&doc.connection.server)?;key_bytes(&doc.recovery_key)?;Ok(doc)}
 #[cfg(windows)]
 fn protect(bytes:&[u8],decrypt:bool)->Result<Vec<u8>,String>{
     #[repr(C)]struct Blob{length:u32,data:*mut u8}
@@ -288,6 +294,29 @@ pub fn load_protected<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T, 
     fn connection()->Connection{Connection{server:"http://127.0.0.1:8787".into(),token:"fixture-session".into(),user:User{id:"fixture".into(),username:"fixture".into()}}}
     #[test]fn encryption_binds_key_budget_revision_and_detects_tampering(){let s=fixture();let key=generate_recovery_key();let mut r=remote(&s,&key,1);assert_eq!(unlock(&r,&key).unwrap(),s);assert!(unlock(&r,&generate_recovery_key()).is_err());r.revision=2;assert!(unlock(&r,&key).is_err());r.revision=1;r.payload["data"]=json!("AAAAAAAAAAAAAAAAAAAAAAAAAAAA");assert!(unlock(&r,&key).is_err());}
     #[test]fn native_transport_rejects_insecure_or_credential_bearing_origins(){assert!(normalize_server("https://example.com").is_ok());assert!(normalize_server("http://127.0.0.1:8787").is_ok());for input in ["http://example.com","https://user:password@example.com","https://example.com/api","https://example.com/?token=x"]{assert!(normalize_server(input).is_err(),"{input}")}}
+    #[test]
+    fn server_origins_reject_parser_discarded_controls_and_empty_userinfo() {
+        for input in ["https://exam\nple.com", "https://example.com\r", "\thttps://example.com", "https://example.com\0", "https://@example.com", "https:///example.com", "https:example.com"] {
+            assert!(normalize_server(input).is_err(), "unsafe server accepted: {input:?}");
+        }
+        assert_eq!(normalize_server(" HTTPS://Example.COM:443/ ").unwrap(), "https://example.com");
+        assert_eq!(normalize_server("HTTP://LOCALHOST:8787/").unwrap(), "http://localhost:8787");
+    }
+    #[cfg(windows)]
+    #[test]
+    fn reopening_device_cache_retains_the_canonical_server_origin() {
+        let s = fixture(); let key = generate_recovery_key();
+        let mut doc = SharedDocument::open(connection(), key.clone(), remote(&s, &key, 1)).unwrap();
+        // A previous application version could persist the unnormalized form.
+        doc.connection.server = " HTTPS://Example.COM:443/ ".into();
+        let dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).parent().unwrap()
+            .join("target/shared-device-tests").join(uuid::Uuid::new_v4().to_string());
+        let path = dir.join("state.enc");
+        save_device(&path, &doc).unwrap();
+        let reopened = load_device(&path).unwrap();
+        assert_eq!(reopened.connection.server, "https://example.com");
+        assert_eq!(reopened.working, doc.working);
+    }
     #[test]fn pending_request_survives_serialization_and_later_edits_survive_ack(){let s=fixture();let key=generate_recovery_key();let mut d=SharedDocument::open(connection(),key.clone(),remote(&s,&key,1)).unwrap();let mut a=s.clone();a.notes="first".into();d.capture(a.clone()).unwrap();let first=d.prepare().unwrap().unwrap();let mut b=a.clone();b.notes="second".into();d.capture(b.clone()).unwrap();let mut d:SharedDocument=serde_json::from_str(&serde_json::to_string(&d).unwrap()).unwrap();assert_eq!(d.prepare().unwrap().unwrap(),first);d.acknowledge(remote(&a,&key,2),first["operationId"].as_str().unwrap()).unwrap();assert_eq!(d.working,b);assert_eq!(d.pending.len(),1);assert_eq!(d.prepare().unwrap().unwrap()["expectedRevision"],2);}
     #[test]
     fn an_unsyncable_snapshot_is_refused_before_changing_the_working_copy_or_pending_request() {

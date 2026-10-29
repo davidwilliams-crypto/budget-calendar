@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.8.3] - 2026-10-29
+
+- **Safe Windows links:** opening a web address uses a Windows URL-opening API without a command interpreter. Shared-budget links accept validated server origins.
+- **Independent service limits:** signed-in clients have separate request allowances from anonymous traffic. Explicit trusted Render client identification, bounded request/password work and expiring limiter storage prevent a single caller from consuming the household's shared quota.
+- **Modern encrypted files:** password-protected standalone budgets use salted Argon2id key derivation and whole-file AES-256-GCM authentication. Old encrypted budgets still open and upgrade when explicitly saved; existing file backups remain readable. Plain standalone files and shared budgets retain their established formats.
+
 ## [0.8.2] - 2026-10-29
 
 - **Choose a household before unlocking:** when your account has more than one household, the Android/web unlock screen now lets you choose which budget to open. A new phone can open the intended budget using its recovery key without first unlocking another household.
