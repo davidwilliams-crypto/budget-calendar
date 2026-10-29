@@ -1,5 +1,9 @@
 # Changelog
 
+## [0.8.2] - 2026-10-29
+
+- **Choose a household before unlocking:** when your account has more than one household, the Android/web unlock screen now lets you choose which budget to open. A new phone can open the intended budget using its recovery key without first unlocking another household.
+
 ## [0.8.1] - 2026-10-29
 
 - **Recover your household key:** File > Shared budget now lets you copy the recovery key for the currently open shared budget after setup. The key stays hidden on screen and is copied only when you choose the button, so you can unlock the same household on another device without creating a new budget.

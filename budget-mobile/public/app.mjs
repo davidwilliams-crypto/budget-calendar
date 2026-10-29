@@ -69,7 +69,11 @@ async function openBudget(id,epoch=++contextEpoch){
 }
 function requestKey(id){
  const epoch=contextEpoch,accountId=user.id,current=()=>activeContext(epoch,accountId);
- modal('Unlock your household',`<p class="lead">Enter the household recovery key shared privately by its owner. The service never receives this key.</p><form><label>Recovery key<textarea name="recoveryKey" required autocomplete="off" spellcheck="false"></textarea></label><p class="help">The key is saved as a nonextractable device key in this browser. Keep the original key in your password manager for another device.</p>${footer('Unlock budget')}</form>`,async data=>{const candidate=await importRecoveryKey(data.get('recoveryKey').trim());if(!current())return;const remote=await api(`/budgets/${id}`);if(!current())return;await openSnapshot(remote.payload,candidate,id,remote.revision);if(!current())return;await db.put(`key:${accountId}:${id}`,candidate);if(!current())return;sheet.close();await openBudget(id)});
+ const choices=budgets.some(b=>b.id===id)?budgets:[{id,name:budget?.id===id?budget.name||'Saved household':'Saved household'}];
+ modal('Unlock your household',`<p class="lead">Choose the household you want to open and enter its recovery key. The service never receives this key.</p><form><label for="unlock-household">Household</label><select id="unlock-household" name="household" required>${choices.map(b=>`<option value="${esc(b.id)}" ${b.id===id?'selected':''}>${esc(b.name)}</option>`).join('')}</select><label>Recovery key<textarea name="recoveryKey" required autocomplete="off" spellcheck="false"></textarea></label><p class="help">The key is saved as a nonextractable device key in this browser. Keep the original key in your password manager for another device.</p>${footer('Unlock budget')}</form>`,async data=>{
+  if(!current())return;const selected=data.get('household');if(!choices.some(b=>b.id===selected))throw Error('Choose a listed household.');
+  const candidate=await importRecoveryKey(data.get('recoveryKey').trim());if(!current())return;const remote=await api(`/budgets/${selected}`);if(!current())return;await openSnapshot(remote.payload,candidate,selected,remote.revision);if(!current())return;await db.put(`key:${accountId}:${selected}`,candidate);if(!current())return;sheet.close();await openBudget(selected);
+ });
 }
 async function synchronize(){
  if(!writerLease||transitioning||syncBusy||!state||!key||!user||state.value.conflict)return;

@@ -1,4 +1,4 @@
-const CACHE='budget-household-0.8.0';
+const CACHE='budget-household-0.8.2';
 const SHELL=['./','./index.html','./styles.css','./app.mjs','./backup.mjs','./api.mjs','./engine.mjs','./editor-scope.mjs','./state.mjs','./storage.mjs','./writer-lock.mjs','./crypto.mjs','./budget_engine.wasm','./manifest.webmanifest','./icon-192.png','./icon-512.png'];
 self.addEventListener('install',event=>event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(SHELL))));
 self.addEventListener('activate',event=>event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k.startsWith('budget-household-')&&k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim())));
