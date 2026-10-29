@@ -84,9 +84,10 @@
 
 - [x] Run two-mobile-client plus native-client integration with generated budgets, including offline replay, conflict and revocation cases.
 - [x] Review authentication, encryption boundary, key recovery, snapshot restore and data exclusion independently; repair findings before release.
-- [ ] Build deployable service/PWA package. Select and configure hosting using the user's account and permitted cost; do not invent a deployed URL or claim phone installation was tested without a device.
-- [ ] Run all workspace tests, standalone build-fingerprint tests, archive script tests, release build, version CLI checks and archive validation.
-- [ ] Archive the final immutable 0.8.0 build and report build ID, checks, archive, hosted URL or precise remaining deployment requirement.
+- [x] Build the deployable service/PWA package.
+- [ ] Select and configure hosting using the user's account and permitted cost; do not invent a deployed URL or claim phone installation was tested without a device.
+- [x] Run all workspace tests, standalone build-fingerprint tests, archive script tests, release build, version CLI checks and archive validation.
+- [x] Archive the final immutable 0.8.0 build and report build ID, checks, archive, hosted URL or precise remaining deployment requirement.
 
 ## Progress and decisions
 
@@ -106,3 +107,11 @@
 - The Android delivery is a PWA. Automated browser trials are not physical-phone installation tests or a measured five-second/95-percent propagation trial. The native integration exercises the production client against a local fixture service, not a hosted TLS endpoint.
 - Hosting has not been provisioned and no personal budget has been uploaded. User confirmed hosted service; hosting account/provider, allowed recurring cost, production privacy/recovery setup, real HTTPS origin, and real-device installation remain activation steps. The implementation uses client-side AES-GCM with a household recovery key; account recovery cannot recreate that key.
 - Docker deployment inputs are packaged, but no Docker image was built here because the local Docker daemon was not running. The Node service and SQLite persistence were exercised directly.
+
+## Delivered local release
+
+- Version 0.8.0, build `b75e379e30528840`; release executable and both version CLI modes verified without opening a GUI.
+- Windows archive: `local-releases/v0.8.0/`, including executable, icon, changelog, exact build input manifest, source ZIP and verified SHA256 release manifest. Release source commit: `88137f5c9540031a7d6313f984b0b95d8c4851c4`.
+- Mobile/service package: `target/mobile-release-v0.8.0/budget-mobile-v0.8.0.zip` with matching `release.json`; ZIP checksum verified.
+- Release build used `target/sharing-release-v0.8.0/` so the running application's executable and unsaved work were left alone. Personal `.bgt` files were neither read nor changed.
+- Source remains on the local `codex/android-household-sharing` branch. No new service was deployed and this feature branch has not been pushed. Hosting selection/account access is the next required input.
