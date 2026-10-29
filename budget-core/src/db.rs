@@ -76,7 +76,7 @@ fn sort_transactions(day: &mut BudgetDay, disabled: impl Fn(usize) -> bool) {
     day.sorted = true;
 }
 
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct BudgetDb {
     pub payments: Vec<Payment>,
     /// Container payment: `opt` = balance adjustments, `note` = day notes.
@@ -95,12 +95,18 @@ pub struct BudgetDb {
     pub file_name: Option<String>,
     /// Process-start "today" (yyyymmdd) used by the tentative logic.
     pub today: i32,
+    /// Monotonic native identity counter; deletion never makes an ID reusable.
+    pub(crate) next_payment_id: i32,
 }
 
 impl BudgetDb {
     /// Empty database, rebuilt around `cal`.
     pub fn new(cal: &Cal, future_months: i32, unlimited_history: bool) -> BudgetDb {
-        let today = Cal::today().get();
+        Self::new_with_today(cal, future_months, unlimited_history, Cal::today().get())
+    }
+
+    /// Explicit household-local date; works in runtimes without a system clock.
+    pub fn new_with_today(cal: &Cal, future_months: i32, unlimited_history: bool, today: i32) -> BudgetDb {
         let mut db = BudgetDb {
             adjustments: Payment::new(today),
             version: "1".into(),
@@ -113,7 +119,10 @@ impl BudgetDb {
 
     /// `BudgetDB.load`: parse, build, then clean up name collisions.
     pub fn from_loaded(l: bgt::Loaded, cal: &Cal, future_months: i32, unlimited_history: bool) -> BudgetDb {
-        let today = Cal::today().get();
+        Self::from_loaded_with_today(l, cal, future_months, unlimited_history, Cal::today().get())
+    }
+
+    pub fn from_loaded_with_today(l: bgt::Loaded, cal: &Cal, future_months: i32, unlimited_history: bool, today: i32) -> BudgetDb {
         let mut db = BudgetDb {
             payments: l.payments,
             adjustments: l.adjustments.unwrap_or_else(|| Payment::new(today)),
@@ -386,7 +395,8 @@ impl BudgetDb {
 
     /// `add(p)`: assigns `max id + 1`, appends, schedules; returns the index.
     pub fn add(&mut self, mut p: Payment) -> usize {
-        p.id = self.payments.iter().map(|q| q.id).max().unwrap_or(0) + 1;
+        p.id = self.next_payment_id.max(self.payments.iter().map(|q| q.id).max().unwrap_or(0) + 1).max(1);
+        self.next_payment_id = p.id + 1;
         p.calendar_days.clear();
         self.payments.push(p);
         let i = self.payments.len() - 1;

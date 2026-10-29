@@ -40,32 +40,33 @@ pub(crate) fn amount_order(a: f64, b: f64) -> std::cmp::Ordering {
     order.unwrap_or(std::cmp::Ordering::Equal)
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct PaymentOption {
     pub date: i32,
     pub amount: f64,
     pub deleted: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct PaymentFlag {
     pub date: i32,
     pub value: char,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Note {
     pub date: i32,
     pub note: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct Hilight {
     pub date: i32,
     pub bg_color: i32,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(default, deny_unknown_fields)]
 pub struct Payment {
     pub id: i32,
     pub amount: f64,
@@ -87,6 +88,7 @@ pub struct Payment {
     pub flag_value: char,
     pub grace_period_days: i32,
     /// Transient: indices of every `BudgetDay` that references this payment.
+    #[serde(skip)]
     pub(crate) calendar_days: Vec<usize>,
 }
 

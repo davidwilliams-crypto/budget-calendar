@@ -1,0 +1,15 @@
+[package]
+name = "budget-engine"
+version = "0.1.0"
+edition = "2021"
+description = "Shared Budget Calendar JSON engine for native and raw WebAssembly clients"
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[[bin]]
+name = "budget-engine-cli"
+path = "src/main.rs"
+
+[dependencies]
+budget-core = { path = "../budget-core" }

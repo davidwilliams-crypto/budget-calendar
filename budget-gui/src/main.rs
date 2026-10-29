@@ -18,6 +18,8 @@ mod reports;
 mod theme;
 mod view;
 mod version;
+mod shared_client;
+mod sharing;
 
 use budget_core::config::BudgetConfig;
 use budget_core::filter::{Filter, Haystacks};
@@ -151,7 +153,7 @@ fn load_error_summary(log: &str) -> String {
 }
 
 #[derive(Clone)]
-enum PendingAction { Open(PathBuf), Close, New(PathBuf), CloseBudget }
+enum PendingAction { Open(PathBuf), Close, New(PathBuf), CloseBudget, Shared(Box<shared_client::SharedDocument>) }
 
 /// Adds `.bgt` unless the name already ends with it (any case). Only the end of the name counts:
 /// `Household 2026.10` becomes `Household 2026.10.bgt`.
@@ -307,6 +309,7 @@ struct DayDialogInput {
 }
 
 struct App {
+    sharing: sharing::SharedUi,
     cfg: BudgetConfig,
     rc_path: PathBuf,
     /// Switches `today` when the local date changes (fixed with `--today`).
@@ -388,6 +391,7 @@ impl App {
         cur.set_day_one();
         let t = Tokens::new(&cfg.colors, cli.dark);
         let mut app = App {
+            sharing: sharing::SharedUi::default(),
             date_watch: if cli.today.is_some() { DateWatch::fixed() } else { DateWatch::system() },
             files: FileProbes::default(), auto_open: None, opening: None, edits: 0, focus_return: None,
             cfg, rc_path, db: None, file: None, password: None, cur, today: cli.today.unwrap_or_else(|| Cal::today().get()),
@@ -435,6 +439,13 @@ impl App {
     /// The original's 20 s date-change timer (analysis/03 §11.4), switching without asking:
     /// the new day becomes today for the grid, the filters and the tentative scheduler.
     fn check_date(&mut self, ctx: &egui::Context) {
+        if let Some(doc) = &self.sharing.document {
+            ctx.request_repaint_after(Duration::from_secs(20));
+            if let Ok(today) = shared_client::household_today(&doc.working.time_zone) {
+                if today != self.today && !egui::DragAndDrop::has_payload_of_type::<calendar::DraggedTransaction>(ctx) { self.set_today(today); }
+            }
+            return;
+        }
         let (date, next) = self.date_watch.poll(Instant::now());
         // Wake an idle window for the next check.
         if let Some(next) = next { ctx.request_repaint_after(next); }
@@ -457,7 +468,14 @@ impl App {
         self.view = None;
     }
 
-    fn notify(&mut self, text: impl Into<String>) { self.toast = Some(Toast { text: text.into(), error: false, until: Instant::now() + Duration::from_secs(4) }); }
+    fn notify(&mut self, text: impl Into<String>) {
+        let text = text.into();
+        let text = if self.sharing.document.is_some() && text.contains("Press Ctrl+S to save") {
+            if self.dirty { "Change applied but not saved on this device. See the error message.".into() }
+            else { "Saved on this device. Changes are queued for household sync.".into() }
+        } else { text };
+        self.toast = Some(Toast { text, error: false, until: Instant::now() + Duration::from_secs(4) });
+    }
     /// A brief warning that needs no dismissing (unlike the persistent error banner).
     fn warn(&mut self, text: impl Into<String>) { self.toast = Some(Toast { text: text.into(), error: true, until: Instant::now() + Duration::from_secs(5) }); }
     fn fail(&mut self, text: impl Into<String>) { self.banner = Some(Banner::plain(text)); }
@@ -529,6 +547,7 @@ impl App {
     /// Drops the open budget and its editors; the window shows the empty state. The closed budget is
     /// not reopened at the next start.
     fn close_budget(&mut self) {
+        self.sharing.disconnect();
         // A close requested while another budget is still being read wins over that open.
         self.opening = None;
         self.auto_open = None;
@@ -623,6 +642,7 @@ impl App {
     fn apply_loaded(&mut self, path: &Path, password: Option<String>, loaded: Loaded, quiet: bool) {
         match loaded {
             Loaded::Budget(db, bytes) => {
+                self.sharing.disconnect();
                 self.db = Some(*db);
                 self.generation += 1;
                 self.file = Some(path.to_path_buf());
@@ -652,6 +672,7 @@ impl App {
     }
 
     fn save(&mut self) -> bool {
+        if self.sharing.document.is_some() { return self.save_shared(); }
         if self.db.is_some() && !self.dirty { return true; }
         let Some(path) = self.file.clone() else { return false };
         let expected = self.saved_bytes.clone();
@@ -659,6 +680,7 @@ impl App {
     }
 
     fn save_as(&mut self) -> bool {
+        if self.sharing.document.is_some() { return self.export_shared_copy(); }
         let dialog = rfd::FileDialog::new().add_filter("Budget", &["bgt"])
             .set_file_name(self.file.as_deref().map(file_name).unwrap_or_else(|| "budget.bgt".into()));
         let Some(path) = dialog.save_file() else { return false };
@@ -700,6 +722,7 @@ impl App {
     }
 
     fn save_to(&mut self, path: &Path, expected: Option<&[u8]>) -> bool {
+        if self.sharing.document.is_some() { self.fail("Use Export copy to save a shared budget as a standalone file."); return false; }
         let path = &resolve_path(path);
         let Some(db) = &self.db else { return false };
         match document::save_checked(db, path, self.password.as_deref(), expected) {
@@ -832,7 +855,10 @@ impl App {
                     }
                 }
                 if self.db.is_some() {
-                    let (text, dot) = if self.dirty { ("Unsaved changes", t.important) } else { ("Saved", t.positive) };
+                    let (text, dot) = if self.dirty { ("Unsaved changes", t.important) }
+                        else if self.sharing.document.as_ref().is_some_and(|d| d.conflict.is_some()) { ("Sync conflict", t.important) }
+                        else if self.sharing.document.as_ref().is_some_and(|d| !d.pending.is_empty()) { ("Saved on device", t.important) }
+                        else { ("Saved", t.positive) };
                     theme::status_pill(ui, text, dot, self.dirty, &t)
                         .on_hover_text(if self.dirty { "Press Ctrl+S to save your changes" } else { "Everything is saved to disk" });
                 }
@@ -853,7 +879,8 @@ impl App {
                     ui.set_min_width(210.0);
                     if menu_item(ui, "Open budget…", "Ctrl+O").clicked() { ui.close_menu(); self.open_dialog(); }
                     if ui.button("New budget…").clicked() { ui.close_menu(); self.new_budget_dialog(); }
-                    if ui.add_enabled(self.db.is_some(), menu_btn("Save as…", "")).clicked() { ui.close_menu(); self.save_as(); }
+                    if ui.button("Shared budget…").clicked() { ui.close_menu(); self.sharing.open = true; }
+                    if ui.add_enabled(self.db.is_some(), menu_btn(if self.sharing.document.is_some() { "Export copy…" } else { "Save as…" }, "")).clicked() { ui.close_menu(); self.save_as(); }
                     if ui.add_enabled(self.db.is_some(), egui::Button::new("Close budget")).clicked() { ui.close_menu(); self.request_close_budget(); }
                     ui.separator();
                     for recent in self.cfg.recent_file.clone() {
@@ -1406,7 +1433,7 @@ impl App {
 
     fn has_draft(&self) -> bool { self.dialogs.has_draft() }
 
-    fn has_modal(&self) -> bool { self.dialogs.any() }
+    fn has_modal(&self) -> bool { self.dialogs.any() || self.sharing.open }
 
     /// After an applied edit. Returns whether the schedule had to be rebuilt.
     fn changed(&mut self) -> bool {
@@ -1418,21 +1445,26 @@ impl App {
         self.view = None;
         // The edit already rescheduled its payment in place; rebuild only where that would differ.
         let Some(db) = &mut self.db else { return false };
-        refresh::after_edit(db, &self.cur, self.cfg.future_n_months, self.cfg.unlimited_history)
+        let rebuilt = refresh::after_edit(db, &self.cur, self.cfg.future_n_months, self.cfg.unlimited_history);
+        if self.sharing.document.is_some() { self.save_shared(); }
+        rebuilt
     }
 
     fn new_payment(&mut self, date: i32) {
+        if !self.shared_editable() { return; }
         if self.db.is_some() && !self.has_draft() { self.dialogs.payment_editor = Some(PaymentEditor::new(date)); }
     }
 
     /// `from`: the calendar occurrence the whole payment is edited from, if any.
     fn edit_payment(&mut self, id: i32, from: Option<i32>) {
+        if !self.shared_editable() { return; }
         if let Some(db) = &self.db {
             if let Some(i) = db.get_by_id(id) { self.dialogs.payment_editor = Some(PaymentEditor::edit_at(&db.payments[i], from)); }
         }
     }
 
     fn edit_transaction(&mut self, id: i32, date: i32, amount: f64) {
+        if !self.shared_editable() { return; }
         if let Some(db) = &self.db {
             if let Some(i) = db.get_by_id(id) { self.dialogs.transaction_editor = Some(TransactionEditor::new(&db.payments[i], date, amount)); }
         }
@@ -1468,6 +1500,7 @@ impl App {
     }
 
     fn edit_balance(&mut self, date: i32) {
+        if !self.shared_editable() { return; }
         if self.has_draft() { return; }
         let Some(db) = &mut self.db else { return };
         let cal = Cal::from_int(date);
@@ -1505,6 +1538,7 @@ impl App {
     }
 
     fn calendar_action(&mut self, action: calendar::Action) {
+        if !self.shared_editable() { return; }
         match action {
             calendar::Action::Filter(f) => self.apply_filter(&f),
             calendar::Action::Add(date) => self.new_payment(date),
@@ -1702,6 +1736,7 @@ impl App {
             PendingAction::Close => { self.allow_close = true; ctx.send_viewport_cmd(egui::ViewportCommand::Close); }
             PendingAction::New(path) => self.create_budget(&path),
             PendingAction::CloseBudget => self.close_budget(),
+            PendingAction::Shared(document) => self.activate_shared(*document),
         }
     }
 
@@ -1986,6 +2021,7 @@ impl App {
             self.drag_month_hover = None;
         }
         self.finish_auto_open();
+        self.poll_shared(ctx);
         // A dragged transaction belongs to the budget it was picked up from: the swap waits for the drop.
         if !egui::DragAndDrop::has_payload_of_type::<calendar::DraggedTransaction>(ctx) { self.finish_opening(); }
         self.check_date(ctx);
@@ -2003,7 +2039,7 @@ impl App {
         }
         if self.title_dirty {
             self.title_dirty = false;
-            let name = self.file.as_deref().map(file_name);
+            let name = self.file.as_deref().map(file_name).or_else(|| self.sharing.document.as_ref().map(|d| format!("{} (shared)", d.working.name)));
             let title = version::window_title(name.as_deref(), self.dirty);
             ctx.send_viewport_cmd(egui::ViewportCommand::Title(title));
         }
@@ -2031,7 +2067,8 @@ impl App {
                             if let Some(view) = &self.view { ui.label(RichText::new(format!("·  {} of {} transactions", view.shown, view.total)).text_style(ts(CAPTION)).color(t.accent)); }
                         }
                         ui.label(RichText::new("·").color(t.text_faint));
-                        ui.label(RichText::new(if self.dirty { "Changes waiting to be saved" } else { "All changes saved" }).text_style(ts(CAPTION)).color(if self.dirty { theme::legible(t.important, t.surface) } else { t.text_muted }));
+                        let saved = self.sharing.status(self.dirty).unwrap_or_else(|| if self.dirty { "Changes waiting to be saved".into() } else { "All changes saved".into() });
+                        ui.label(RichText::new(saved).text_style(ts(CAPTION)).color(if self.dirty { theme::legible(t.important, t.surface) } else { t.text_muted }));
                         // The calendar's gestures have no other cue; the wide window names all three.
                         let crowded = ctx.screen_rect().width() < 1000.0 && (self.dirty || self.filter.is_some());
                         if !self.show_payments && !crowded {
@@ -2110,6 +2147,7 @@ impl App {
             p.text(r.center(), Align2::CENTER_CENTER, "Drop to open", ts(TITLE).resolve(&ctx.style()), t.accent);
         }
         self.toast(ctx);
+        self.shared_panel(ctx);
         // Keyboard focus goes back to the control that opened a dialog (e.g. a row opened with Enter).
         match (modal_before, self.has_modal()) {
             (false, true) => self.focus_return = focus_before,
@@ -2262,7 +2300,7 @@ mod lifecycle_tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
     static NEXT: AtomicUsize = AtomicUsize::new(0);
 
-    fn fixture() -> (App, PathBuf) {
+    pub(super) fn fixture() -> (App, PathBuf) {
         let dir = std::path::absolute(Path::new(env!("CARGO_MANIFEST_DIR")).join("../target/lifecycle-tests")).unwrap()
             .join(format!("{}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed)));
         std::fs::create_dir_all(&dir).unwrap();
@@ -2273,6 +2311,7 @@ mod lifecycle_tests {
         let mut p = budget_core::Payment::new(20261027); p.description = "Fixture payment".into(); p.amount = -12.0;
         db.add(p);
         let app = App {
+            sharing: sharing::SharedUi::default(),
             date_watch: DateWatch::fixed(), files: FileProbes::default(), auto_open: None, opening: None, edits: 0, focus_return: None,
             cfg, rc_path: dir.join(".budgetrc"), db: Some(db), file: Some(dir.join("current.bgt")), password: None,
             saved_bytes: Some(b"previous budget".to_vec()), dirty: true, dialogs: Dialogs::default(), drag_month_hover: None,

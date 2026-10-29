@@ -14,6 +14,10 @@ fn main() {
     for directory in [
         "budget-gui",
         "budget-core",
+        "budget-engine",
+        "budget-mobile/public",
+        "budget-mobile/server",
+        "budget-mobile/tests",
         "vendor/webbrowser",
         "scripts",
         "installer",
@@ -208,6 +212,15 @@ fn source_inputs(root: &Path) -> io::Result<Vec<PathBuf>> {
         "budget-core/Cargo.toml",
         "vendor/webbrowser/Cargo.toml",
         "docs/ux.md",
+        "README.md",
+        "budget-engine/Cargo.toml",
+        "budget-mobile/package.json",
+        "budget-mobile/README.md",
+        "budget-mobile/ENGINE-CONTRACT.md",
+        "budget-mobile/SERVER-CONTRACT.md",
+        "budget-mobile/server/DEPLOYMENT.md",
+        "budget-mobile/Dockerfile",
+        "budget-mobile/.dockerignore",
     ]
     .into_iter()
     .map(PathBuf::from)
@@ -217,6 +230,14 @@ fn source_inputs(root: &Path) -> io::Result<Vec<PathBuf>> {
         ("budget-gui/assets", &["ico", "png", "svg"][..]),
         ("budget-core/src", &["rs"][..]),
         ("budget-core/tests", &["rs"][..]),
+        ("budget-engine/src", &["rs"][..]),
+        ("budget-engine/tests", &["mjs"][..]),
+        (
+            "budget-mobile/public",
+            &["mjs", "js", "html", "css", "webmanifest", "png", "wasm"][..],
+        ),
+        ("budget-mobile/server", &["mjs"][..]),
+        ("budget-mobile/tests", &["mjs"][..]),
         ("vendor/webbrowser/src", &["rs"][..]),
         ("scripts", &["ps1"][..]),
         ("installer", &["nsi", "ps1"][..]),
@@ -259,6 +280,12 @@ fn collect_inputs(
             "docs",
             "reference",
             "analysis",
+            "node_modules",
+            "data",
+            "private",
+            "secrets",
+            "credentials",
+            "backups",
         ]
         .iter()
         .any(|ignored| name.to_string_lossy().eq_ignore_ascii_case(ignored))
@@ -547,6 +574,26 @@ mod tests {
                 "CHANGELOG.md",
                 "AGENTS.md",
                 "docs/ux.md",
+                "README.md",
+                "budget-engine/Cargo.toml",
+                "budget-mobile/package.json",
+                "budget-mobile/README.md",
+                "budget-mobile/ENGINE-CONTRACT.md",
+                "budget-mobile/SERVER-CONTRACT.md",
+                "budget-mobile/server/DEPLOYMENT.md",
+                "budget-mobile/Dockerfile",
+                "budget-mobile/.dockerignore",
+                "budget-engine/src/lib.rs",
+                "budget-engine/tests/parity.mjs",
+                "budget-mobile/public/app.mjs",
+                "budget-mobile/public/sw.js",
+                "budget-mobile/public/index.html",
+                "budget-mobile/public/styles.css",
+                "budget-mobile/public/manifest.webmanifest",
+                "budget-mobile/public/icon-192.png",
+                "budget-mobile/public/budget_engine.wasm",
+                "budget-mobile/server/server.mjs",
+                "budget-mobile/tests/server.test.mjs",
                 "scripts/archive-release.ps1",
                 "budget-gui/Cargo.toml",
                 "budget-core/Cargo.toml",
@@ -607,6 +654,12 @@ mod tests {
             "docs/screenshot.png",
             "scripts/private.bgt",
             "budget-gui/assets/private.bgt",
+            "budget-mobile/public/cached-budget.json",
+            "budget-mobile/public/private.sqlite",
+            "budget-mobile/public/.env",
+            "budget-mobile/public/local.bgt",
+            "budget-mobile/server/credentials.json",
+            "budget-engine/tests/private.json",
         ] {
             fixture.write(path, b"not a source input");
         }
@@ -625,6 +678,26 @@ mod tests {
             "CHANGELOG.md",
             "AGENTS.md",
             "docs/ux.md",
+            "README.md",
+            "budget-engine/Cargo.toml",
+            "budget-mobile/package.json",
+            "budget-mobile/README.md",
+            "budget-mobile/ENGINE-CONTRACT.md",
+            "budget-mobile/SERVER-CONTRACT.md",
+            "budget-mobile/server/DEPLOYMENT.md",
+            "budget-mobile/Dockerfile",
+            "budget-mobile/.dockerignore",
+            "budget-engine/src/lib.rs",
+            "budget-engine/tests/parity.mjs",
+            "budget-mobile/public/app.mjs",
+            "budget-mobile/public/sw.js",
+            "budget-mobile/public/index.html",
+            "budget-mobile/public/styles.css",
+            "budget-mobile/public/manifest.webmanifest",
+            "budget-mobile/public/icon-192.png",
+            "budget-mobile/public/budget_engine.wasm",
+            "budget-mobile/server/server.mjs",
+            "budget-mobile/tests/server.test.mjs",
             "scripts/archive-release.ps1",
             "budget-gui/Cargo.toml",
             "budget-core/Cargo.toml",
@@ -646,7 +719,7 @@ mod tests {
         }
         assert_eq!(
             paths.len(),
-            22,
+            42,
             "unexpected generated or local input: {paths:?}"
         );
         assert!(paths.windows(2).all(|pair| pair[0] < pair[1]));
@@ -663,12 +736,26 @@ mod tests {
             "Docs",
             "Reference",
             "Analysis",
+            "Node_Modules",
+            "Data",
+            "Private",
+            "Secrets",
+            "Credentials",
+            "Backups",
         ] {
             fixture.write(
                 &format!("budget-core/src/{directory}/generated.rs"),
                 b"generated",
             );
             fixture.write(&format!("scripts/{directory}/generated.ps1"), b"generated");
+            fixture.write(
+                &format!("budget-mobile/public/{directory}/private.mjs"),
+                b"private",
+            );
+            fixture.write(
+                &format!("budget-engine/tests/{directory}/generated.mjs"),
+                b"generated",
+            );
         }
         assert_eq!(source_inputs(&fixture.0).unwrap(), original);
     }
@@ -715,6 +802,26 @@ mod tests {
             "SPEC.md",
             "docs/ux.md",
             "scripts/new-script.ps1",
+            "README.md",
+            "budget-engine/Cargo.toml",
+            "budget-mobile/package.json",
+            "budget-mobile/README.md",
+            "budget-mobile/ENGINE-CONTRACT.md",
+            "budget-mobile/SERVER-CONTRACT.md",
+            "budget-mobile/server/DEPLOYMENT.md",
+            "budget-mobile/Dockerfile",
+            "budget-mobile/.dockerignore",
+            "budget-engine/src/lib.rs",
+            "budget-engine/tests/parity.mjs",
+            "budget-mobile/public/app.mjs",
+            "budget-mobile/public/sw.js",
+            "budget-mobile/public/index.html",
+            "budget-mobile/public/styles.css",
+            "budget-mobile/public/manifest.webmanifest",
+            "budget-mobile/public/icon-192.png",
+            "budget-mobile/public/budget_engine.wasm",
+            "budget-mobile/server/server.mjs",
+            "budget-mobile/tests/server.test.mjs",
         ] {
             let fixture = Fixture::new();
             let before = fixture.id(&[]);

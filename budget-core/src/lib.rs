@@ -3,6 +3,8 @@
 
 pub mod bgt;
 pub mod calc;
+pub mod commands;
+pub mod sharing;
 pub mod config;
 pub mod crypto;
 pub mod date;

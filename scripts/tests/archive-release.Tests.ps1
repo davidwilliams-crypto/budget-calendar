@@ -85,6 +85,9 @@ function New-Fixture([string]$Name) {
     Write-Text (Join-Path $root 'docs/ux.md') 'Fixture UX'
     Write-Text (Join-Path $root 'installer/budget.nsi') "; fixture installer`n"
     Write-Text (Join-Path $root 'installer/build-installer.ps1') "# fixture installer wrapper`n"
+    foreach ($relative in @('README.md', 'budget-engine/Cargo.toml', 'budget-mobile/package.json', 'budget-mobile/README.md', 'budget-mobile/ENGINE-CONTRACT.md', 'budget-mobile/SERVER-CONTRACT.md', 'budget-mobile/server/DEPLOYMENT.md', 'budget-mobile/Dockerfile', 'budget-mobile/.dockerignore', 'budget-engine/src/lib.rs', 'budget-engine/tests/parity.mjs', 'budget-mobile/public/app.mjs', 'budget-mobile/public/sw.js', 'budget-mobile/public/index.html', 'budget-mobile/public/styles.css', 'budget-mobile/public/manifest.webmanifest', 'budget-mobile/public/icon-192.png', 'budget-mobile/public/budget_engine.wasm', 'budget-mobile/server/server.mjs', 'budget-mobile/tests/server.test.mjs')) {
+        Write-Text (Join-Path $root $relative) "fixture source: $relative"
+    }
     # These all contain user/private or generated data and must never enter source.zip.
     foreach ($relative in @('Dave.bgt', 'budget-core/src/private.bgt', 'budget-gui/assets/private.bgt',
         'budget-gui/src/.env', 'budget-gui/src/secrets.json', 'reference/source.rs', 'analysis/source.rs',
@@ -92,7 +95,13 @@ function New-Fixture([string]$Name) {
         'budget-gui/src/target/generated.rs', 'budget-core/tests/docs/generated.rs',
         'scripts/.git/private.ps1', 'vendor/webbrowser/src/local-releases/old.rs',
         'budget-core/src/analysis/private.rs', 'budget-gui/src/reference/private.rs',
-        'budget-core/src/TARGET/generated.rs')) {
+        'budget-core/src/TARGET/generated.rs',
+        'budget-engine/src/data/private.rs', 'budget-engine/tests/node_modules/private.mjs',
+        'budget-mobile/public/cached-budget.json', 'budget-mobile/public/private.sqlite', 'budget-mobile/public/.env',
+        'budget-mobile/public/household.bgt', 'budget-mobile/public/data/private.mjs',
+        'budget-mobile/public/credentials/private.js', 'budget-mobile/public/secrets/private.mjs',
+        'budget-mobile/server/node_modules/private.mjs', 'budget-mobile/server/private.sqlite',
+        'budget-mobile/tests/target/generated.mjs', 'budget-mobile/data/private.mjs', 'budget-mobile/.env')) {
         Write-Text (Join-Path $root $relative) 'DO NOT ARCHIVE PRIVATE DATA'
     }
     New-Executable $root 'budget app.exe' '0.3.0' 'fixture-build-a' 'first'
@@ -105,7 +114,8 @@ function New-BuildManifest([string]$Root, [string]$BuildId) {
         'budget-gui/src/main.rs', 'budget-gui/assets/budget-calendar.ico', 'budget-core/Cargo.toml',
         'budget-core/src/lib.rs', 'budget-core/tests/example.rs', 'vendor/webbrowser/Cargo.toml',
         'vendor/webbrowser/src/lib.rs', 'docs/ux.md', 'scripts/archive-release.ps1',
-        'installer/budget.nsi', 'installer/build-installer.ps1') | Sort-Object
+        'installer/budget.nsi', 'installer/build-installer.ps1',
+        'README.md', 'budget-engine/Cargo.toml', 'budget-mobile/package.json', 'budget-mobile/README.md', 'budget-mobile/ENGINE-CONTRACT.md', 'budget-mobile/SERVER-CONTRACT.md', 'budget-mobile/server/DEPLOYMENT.md', 'budget-mobile/Dockerfile', 'budget-mobile/.dockerignore', 'budget-engine/src/lib.rs', 'budget-engine/tests/parity.mjs', 'budget-mobile/public/app.mjs', 'budget-mobile/public/sw.js', 'budget-mobile/public/index.html', 'budget-mobile/public/styles.css', 'budget-mobile/public/manifest.webmanifest', 'budget-mobile/public/icon-192.png', 'budget-mobile/public/budget_engine.wasm', 'budget-mobile/server/server.mjs', 'budget-mobile/tests/server.test.mjs') | Sort-Object
     $entries = @($inputs | ForEach-Object {
         @{ path = $_; fnv1a = [BudgetArchiveTestHash]::FileHash((Join-Path $Root $_)) }
     })
@@ -234,10 +244,11 @@ Test-Case 'archives binary identity and only application source; repeated archiv
         foreach ($required in @('Cargo.toml', 'Cargo.lock', 'budget-gui/Cargo.toml', 'budget-gui/build.rs',
             'budget-gui/src/main.rs', 'budget-gui/assets/budget-calendar.ico', 'budget-core/src/lib.rs',
             'budget-core/tests/example.rs', 'vendor/webbrowser/src/lib.rs', 'AGENTS.md', 'CHANGELOG.md',
-            'scripts/archive-release.ps1', 'docs/ux.md')) {
+            'scripts/archive-release.ps1', 'docs/ux.md',
+            'README.md', 'budget-engine/Cargo.toml', 'budget-mobile/package.json', 'budget-mobile/README.md', 'budget-mobile/ENGINE-CONTRACT.md', 'budget-mobile/SERVER-CONTRACT.md', 'budget-mobile/server/DEPLOYMENT.md', 'budget-mobile/Dockerfile', 'budget-mobile/.dockerignore', 'budget-engine/src/lib.rs', 'budget-engine/tests/parity.mjs', 'budget-mobile/public/app.mjs', 'budget-mobile/public/sw.js', 'budget-mobile/public/index.html', 'budget-mobile/public/styles.css', 'budget-mobile/public/manifest.webmanifest', 'budget-mobile/public/icon-192.png', 'budget-mobile/public/budget_engine.wasm', 'budget-mobile/server/server.mjs', 'budget-mobile/tests/server.test.mjs')) {
             Assert-True ($names -contains $required) "Source archive is missing $required"
         }
-        Assert-True (-not ($names | Where-Object { $_ -match '(?i)(^|/)(target|reference|analysis|\.git|local-releases)/|\.bgt$|\.env$|secrets\.json$' })) 'Source archive contains private or generated files.'
+        Assert-True (-not ($names | Where-Object { $_ -match '(?i)(^|/)(target|reference|analysis|\.git|local-releases|node_modules|data|credentials|secrets)/|\.bgt$|\.env$|secrets\.json$|cached-budget\.json$|\.sqlite$' })) 'Source archive contains private or generated files.'
     } finally { $zip.Dispose() }
     $before = Get-ArchiveSnapshot $root
     Invoke-Archive $root

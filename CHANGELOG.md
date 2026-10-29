@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.8.0] - 2026-10-29
+
+- **Shared household budgets:** Windows can create or open a private shared budget, keep a protected local copy, and synchronize edits with two separate household accounts. Sharing is an explicit action; the original standalone budget file stays separate.
+- **Android app:** an installable web app provides Today, upcoming entries, a calendar, a 31-day lowest-balance forecast, quick income and expenses, recurring edits, paid status, balance checkpoints and notes. The Rust calculation and editing engine is shared with Windows.
+- **Offline editing and recovery:** pending edits survive normal restart. Retried writes and interrupted budget creation reuse their original identity. Concurrent edits pause for review; recovery exports and retained history help recover work. Windows waits for open editor drafts before applying remote changes.
+- **Private service:** separate owner/editor accounts, expiring invitations, membership revocation, encrypted budget contents, and durable revision history. Device recovery keys are required to open encrypted budgets. The deployment package includes the service, Android assets and hosting instructions; this release does not provision hosting or upload any personal budget.
+- **Release packaging:** source archives and build fingerprints now include the mobile application, shared engine and service. A separate versioned mobile deployment ZIP records SHA256 checksums and refuses changed content at an existing release version.
+
 ## [0.7.2] - 2026-10-28
 
 - **New app identity:** a sculpted emerald calendar and rising cashflow motif, a gold highlighted day, and a midnight-blue tile replace the plain blue calendar icon. The same artwork appears in the app header and native window.

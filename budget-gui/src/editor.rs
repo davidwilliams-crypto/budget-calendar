@@ -873,10 +873,9 @@ fn flag_label(flag: char) -> &'static str {
     match flag { FLAG_NONE => "None", FLAG_PAID => "Paid", FLAG_IMPORTANT => "Important", _ => "Existing status" }
 }
 /// Largest absolute amount or balance accepted; keeps running balances far from f64 overflow.
-pub(crate) const MAX_ABS_AMOUNT: f64 = 1e12;
-pub(crate) fn amount_in_range(v: f64) -> bool { v.is_finite() && v.abs() <= MAX_ABS_AMOUNT }
+pub(crate) use budget_core::commands::MAX_ABS_AMOUNT;
 
-pub(crate) const SAME_CATEGORY_ERROR: &str = "The category cannot be the same as the payment's description.";
+pub(crate) use budget_core::commands::SAME_CATEGORY_ERROR;
 
 /// True when amount text is a formula rather than a plain number: an operator after the first
 /// character, `*`/`/`, a `%` income percentage, or a `k`/`m`/`b`/`t` multiplier suffix.
@@ -991,62 +990,7 @@ fn parse_iso_date(text: &str) -> Result<i32, String> {
     Ok(date)
 }
 
-// Bound all values before the scheduler multiplies intervals or loops through finite payments.
-fn period_span(p: &Payment) -> i32 {
-    let start = Cal::from_int(p.start_date);
-    match p.freq_type {
-        'd' => Cal::diff(&start, &Cal::from_int(DATE_MAX)),
-        'w' => Cal::diff(&start, &Cal::from_int(DATE_MAX)) / 7,
-        'y' => YEAR_MAX - start.year(),
-        _ => (YEAR_MAX - start.year()) * 12 + 11 - start.month(),
-    }
-}
-fn max_frequency(p: &Payment) -> i32 { period_span(p).max(1) }
-/// The largest repeat interval a saved file keeps: the loader clamps a larger one on reopen (SPEC.md §6).
-const MAX_STORED_FREQUENCY: i32 = 100_000;
-
-/// The loader raises a stored end date to the start date (budget-core `bgt`). The in-memory end date
-/// is raised the same way, so saving and reopening give one end date. A date end is never moved:
-/// the editor refuses an end before the start instead.
-pub(crate) fn align_end_date(p: &mut Payment) {
-    if p.end_mode() != END_MODE_DATE { p.end_date = p.end_date.max(p.start_date); }
-}
-
-pub(crate) fn validate_schedule_bounds(p: &Payment) -> Result<(), String> {
-    if p.frequency <= 0 || p.frequency > max_frequency(p) {
-        return Err("Frequency would exceed the supported calendar range (through year 9999).".into());
-    }
-    if p.frequency > MAX_STORED_FREQUENCY {
-        return Err("Repeat every cannot exceed 100,000: a larger interval would change when the budget is reopened.".into());
-    }
-    // The engine's numbered-weekday recurrence is monthly regardless of its stored interval.
-    let frequency = if p.freq_type == 'W' { 1 } else { p.frequency };
-    let max_count = period_span(p) / frequency + 1;
-    match p.end_mode() {
-        END_MODE_N_PAYS if p.n_pays <= 0 || p.n_pays > max_count => {
-            return Err("Number of payments would extend beyond year 9999.".into());
-        }
-        END_MODE_LOAN_PAID => {
-            let sum: f64 = p.opt.iter().filter(|o| !o.deleted).map(|o| o.amount).sum();
-            let paid = if p.amount < 0.0 { -sum } else { sum };
-            // The scheduler subtracts every saved payment from the principal up front, so more than the
-            // principal would overpay the loan silently. Every edit path refuses it, naming the principal.
-            if !paid.is_finite() || paid > p.loan_amount.abs() + 0.005 {
-                return Err(format!("The saved payments would exceed the loan principal of {}, custom payments included. Lower a payment or raise the principal.",
-                    budget_core::numfmt::format_frac2(p.loan_amount.abs())));
-            }
-            let remaining = p.loan_amount.abs() - paid;
-            // Every exception can displace one regular payment. This conservative upper bound
-            // prevents a huge/near-zero loan from locking the scheduler or overflowing dates.
-            let count = (remaining / p.amount.abs()).ceil() + p.opt.len() as f64;
-            if !count.is_finite() || count > max_count as f64 {
-                return Err("Loan would require payments beyond year 9999; increase the payment or reduce the loan amount.".into());
-            }
-        }
-        _ => {}
-    }
-    Ok(())
-}
+pub(crate) use budget_core::commands::{align_end_date, validate_schedule_bounds, max_frequency};
 
 #[cfg(test)]
 mod tests {

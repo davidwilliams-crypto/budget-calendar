@@ -7,3 +7,5 @@ description = "Engine of the Budget Calendar port: dates, model, .bgt file forma
 [dependencies]
 blowfish = "0.9"
 cipher = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

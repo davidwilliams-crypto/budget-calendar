@@ -115,7 +115,8 @@ function Get-SourceFiles {
     $files = [Collections.Generic.SortedDictionary[string, string]]::new([StringComparer]::Ordinal)
     foreach ($relative in @('Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', '.gitattributes', '.gitignore',
         'SPEC.md', 'CHANGELOG.md', 'AGENTS.md', 'budget-gui/Cargo.toml', 'budget-gui/build.rs',
-        'budget-core/Cargo.toml', 'vendor/webbrowser/Cargo.toml', 'docs/ux.md')) {
+        'budget-core/Cargo.toml', 'vendor/webbrowser/Cargo.toml', 'docs/ux.md',
+        'README.md', 'budget-engine/Cargo.toml', 'budget-mobile/package.json', 'budget-mobile/README.md', 'budget-mobile/ENGINE-CONTRACT.md', 'budget-mobile/SERVER-CONTRACT.md', 'budget-mobile/server/DEPLOYMENT.md', 'budget-mobile/Dockerfile', 'budget-mobile/.dockerignore')) {
         $files.Add($relative, (Require-File (Join-Path $repository $relative) 'source input'))
     }
     foreach ($rule in @(
@@ -123,6 +124,11 @@ function Get-SourceFiles {
         @{ Directory = 'budget-gui/assets'; Extensions = @('.ico', '.png', '.svg') },
         @{ Directory = 'budget-core/src'; Extensions = @('.rs') },
         @{ Directory = 'budget-core/tests'; Extensions = @('.rs') },
+        @{ Directory = 'budget-engine/src'; Extensions = @('.rs') },
+        @{ Directory = 'budget-engine/tests'; Extensions = @('.mjs') },
+        @{ Directory = 'budget-mobile/public'; Extensions = @('.mjs', '.js', '.html', '.css', '.webmanifest', '.png', '.wasm') },
+        @{ Directory = 'budget-mobile/server'; Extensions = @('.mjs') },
+        @{ Directory = 'budget-mobile/tests'; Extensions = @('.mjs') },
         @{ Directory = 'vendor/webbrowser/src'; Extensions = @('.rs') },
         @{ Directory = 'scripts'; Extensions = @('.ps1') },
         @{ Directory = 'installer'; Extensions = @('.nsi', '.ps1') }
@@ -144,7 +150,7 @@ function Get-SourceFiles {
 
 function Add-SourceDirectory([string]$Directory, [string[]]$Extensions, $Files) {
     foreach ($item in Get-ChildItem -LiteralPath $Directory -Force) {
-        if (@('target', 'local-releases', '.git', 'docs', 'reference', 'analysis') -contains $item.Name) { continue }
+        if (@('target', 'local-releases', '.git', 'docs', 'reference', 'analysis', 'node_modules', 'data', 'private', 'secrets', 'credentials', 'backups') -contains $item.Name) { continue }
         if ($item.PSIsContainer) {
             Assert-NoReparsePoint $item.FullName
             Add-SourceDirectory $item.FullName $Extensions $Files

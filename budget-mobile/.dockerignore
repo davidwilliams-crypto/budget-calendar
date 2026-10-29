@@ -1,0 +1,23 @@
+# Deny the whole context, then admit direct runtime files only.
+**
+!package.json
+!server/
+!server/*.mjs
+!public/
+!public/*.mjs
+!public/*.js
+!public/*.html
+!public/*.css
+!public/*.webmanifest
+!public/*.png
+!public/*.wasm
+# Defense in depth: never admit runtime/private directories or user budgets.
+**/node_modules/**
+**/data/**
+**/private/**
+**/secrets/**
+**/credentials/**
+**/backups/**
+**/.env*
+**/*.sqlite*
+**/*.bgt*

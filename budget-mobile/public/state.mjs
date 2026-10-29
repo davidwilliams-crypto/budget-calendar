@@ -1,0 +1,13 @@
+// All observable state changes follow a completed durable write.
+export class SyncState {
+ constructor(input,save){this.save=save;this.value=input.working?structuredClone(input):{revision:input.revision,baseline:input.snapshot,working:input.snapshot,pending:[],conflict:null,updatedAt:input.updatedAt};this.tail=Promise.resolve()}
+ transaction(update){const task=this.tail.then(async()=>{const next=structuredClone(this.value);const result=await update(next);await this.save(next);this.value=next;return result});this.tail=task.catch(()=>{});return task}
+ edit(snapshot,command,summary,operationId=crypto.randomUUID()){return this.mutate(()=>snapshot,command,summary,operationId)}
+ mutate(apply,command,summary,operationId=crypto.randomUUID()){return this.transaction(async s=>{if(s.conflict)throw Error('Review the conflicting version before editing.');const snapshot=await apply(s.working);s.pending.push({operationId,snapshot:structuredClone(snapshot),commands:[structuredClone(command)],summary,request:null});s.working=structuredClone(snapshot)})}
+ prepare(seal){return this.transaction(async s=>{if(s.conflict||!s.pending.length)return null;const first=s.pending[0];if(!first.request)first.request={operationId:first.operationId,expectedRevision:s.revision,payload:await seal(first.snapshot,s.revision+1),summary:first.summary};return structuredClone(first.request)})}
+ ack(remote){return this.transaction(s=>{if(!s.pending.length)return;const accepted=s.pending.shift();s.revision=remote.revision;s.baseline=remote.snapshot;s.updatedAt=remote.updatedAt;s.conflict=null;s.working=s.pending.length?s.pending.at(-1).snapshot:remote.snapshot;return accepted.operationId})}
+ receive(remote){return this.transaction(s=>{if(remote.revision<=s.revision)return;if(s.pending.length){s.conflict=structuredClone(remote);return}s.revision=remote.revision;s.baseline=remote.snapshot;s.working=remote.snapshot;s.updatedAt=remote.updatedAt})}
+ discard(){return this.transaction(s=>{if(!s.conflict)throw Error('No conflict to review.');s.revision=s.conflict.revision;s.baseline=s.conflict.snapshot;s.working=s.conflict.snapshot;s.updatedAt=s.conflict.updatedAt;s.pending=[];s.conflict=null})}
+ reapply(apply,operationId=crypto.randomUUID()){return this.transaction(async s=>{if(!s.conflict)throw Error('No conflict to review.');let snapshot=structuredClone(s.conflict.snapshot);const commands=s.pending.flatMap(p=>p.commands);for(const command of commands)snapshot=await apply(snapshot,command);const previous=s.conflict;s.revision=previous.revision;s.baseline=previous.snapshot;s.updatedAt=previous.updatedAt;s.working=snapshot;s.pending=[{operationId,snapshot,commands,summary:'Reviewed and reapplied local edits',request:null}];s.conflict=null})}
+}
+

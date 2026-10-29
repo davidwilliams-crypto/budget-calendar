@@ -1,5 +1,18 @@
 /target
 /local-releases
+/debug.log
+/budget-mobile/data
+/budget-mobile/node_modules
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.shared.enc
+shared.enc
+shared-*.enc
+shared-session.lock
+.env
+.env.*
+!.env.example
 
 # Personal budgets, including mixed-case extensions, backups and save sidecars.
 *.[bB][gG][tT]

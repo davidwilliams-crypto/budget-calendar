@@ -1,0 +1,45 @@
+// Held HTTP, WebCrypto and IndexedDB completion regressions use generated fixtures.
+import assert from 'node:assert/strict';
+import {pathToFileURL,fileURLToPath} from 'node:url';
+import {resolve} from 'node:path';
+import {mkdir,readFile} from 'node:fs/promises';
+import {createBudgetServer} from '../server/server.mjs';
+import {generateRecoveryKey,importRecoveryKey,sealSnapshot,openSnapshot} from '../public/crypto.mjs';
+import {loadEngine,householdToday} from '../public/engine.mjs';
+const {chromium}=await import(process.env.PLAYWRIGHT_MODULE_PATH?pathToFileURL(process.env.PLAYWRIGHT_MODULE_PATH).href:'playwright');
+const repository=fileURLToPath(new URL('../../',import.meta.url)),origin='http://127.0.0.1:8796',directory=resolve(repository,`target/client-context-${Date.now()}`);
+await mkdir(directory,{recursive:true});const setup='fixture-context-not-real-token-123456',password='fixture-context-password-12345';
+const service=createBudgetServer({dataDir:directory,publicDir:resolve(repository,'budget-mobile/public'),publicOrigin:origin,development:true,setupToken:setup});await new Promise(resolve=>service.server.listen(8796,'127.0.0.1',resolve));let browser;
+async function request(path,body,token){const response=await fetch(origin+'/api'+path,{method:body?'POST':'GET',headers:{'X-Budget-Client':'native',...(token?{Authorization:`Bearer ${token}`}:{}) ,...(body?{'Content-Type':'application/json'}:{})},body:body?JSON.stringify(body):undefined});const data=await response.json();assert.ok(response.ok,JSON.stringify(data));return data}
+try{
+ const owner=await request('/setup',{setupToken:setup,username:'context-owner',password});const aid=crypto.randomUUID(),bid=crypto.randomUUID(),recoveryA=generateRecoveryKey(),recoveryB=generateRecoveryKey(),keyA=await importRecoveryKey(recoveryA),keyB=await importRecoveryKey(recoveryB),today=householdToday('America/Halifax');
+ const wasm=await readFile(resolve(repository,'budget-mobile/public/budget_engine.wasm')),engine=await loadEngine(`data:application/wasm;base64,${wasm.toString('base64')}`);
+ for(const [id,name,key]of[[aid,'A fixture',keyA],[bid,'B fixture',keyB]]){const snapshot=engine({action:'new',id,name,timeZone:'America/Halifax',today});await request('/budgets',{id,name,payload:await sealSnapshot(snapshot,key,id,1)},owner.token)}
+ const invitation=await request(`/budgets/${bid}/invites`,{recipient:'context-guest'},owner.token),guest=await request('/invites/accept',{code:invitation.code,username:'context-guest',password});
+ browser=await chromium.launch({headless:true});const page=await browser.newPage(),errors=[];page.on('pageerror',error=>errors.push(error.message));await page.goto(origin);await page.locator('[name=username]').fill('context-owner');await page.locator('[name=password]').fill(password);await page.getByRole('button',{name:'Sign in',exact:false}).click();await page.getByLabel('Recovery key',{exact:true}).fill(recoveryA);await page.getByRole('button',{name:'Unlock budget',exact:true}).click();await page.getByRole('heading',{name:'Your day, at a glance.'}).waitFor();
+ await page.evaluate(async({accountId,bid,recoveryB})=>{const {openStorage}=await import('/storage.mjs'),{importRecoveryKey}=await import('/crypto.mjs');const storage=await openStorage();await storage.put(`key:${accountId}:${bid}`,await importRecoveryKey(recoveryB))},{accountId:owner.user.id,bid,recoveryB});
+ async function settings(){await page.getByRole('button',{name:'Settings',exact:true}).click();await page.locator('#budget-picker').waitFor()}
+ async function switchTo(id,name){await page.locator('#budget-picker').selectOption(id);await page.locator('.brand strong',{hasText:name}).waitFor()}
+ for(const mode of ['http','decrypt','storage']){
+  await settings();if(await page.locator('#budget-picker').inputValue()!==aid)await switchTo(aid,'A fixture');
+  let release,held;
+  if(mode==='http'){
+   let reached;held=new Promise(resolve=>{reached=resolve});const wait=new Promise(resolve=>{release=resolve});let once=true;
+   await page.route(origin+`/api/budgets/${aid}`,async route=>{if(once&&route.request().method()==='GET'){once=false;reached();await wait}await route.continue()});
+  }else if(mode==='decrypt'){
+   await page.evaluate(aid=>{const original=crypto.subtle.decrypt.bind(crypto.subtle);window.__originalDecrypt=original;window.__holdReady=false;crypto.subtle.decrypt=async function(algorithm,key,data){if(!window.__holdReady&&new TextDecoder().decode(algorithm.additionalData).includes(aid)){window.__holdKind='decrypt';window.__holdReady=true;await new Promise(resolve=>{window.__releaseHeld=resolve})}return original(algorithm,key,data)}},aid);held=page.waitForFunction(()=>window.__holdReady);release=()=>page.evaluate(()=>window.__releaseHeld());
+  }else{
+   await page.evaluate(cacheKey=>{window.__holdReady=false;const originalPut=IDBObjectStore.prototype.put,complete=Object.getOwnPropertyDescriptor(IDBTransaction.prototype,'oncomplete');IDBObjectStore.prototype.put=function(value,key){this.transaction.__fixtureKey=key;return originalPut.apply(this,arguments)};Object.defineProperty(IDBTransaction.prototype,'oncomplete',{configurable:true,get:complete.get,set(callback){complete.set.call(this,function(event){if(!window.__holdReady&&this.__fixtureKey===cacheKey){window.__holdKind='storage';window.__holdReady=true;window.__releaseHeld=()=>callback.call(this,event)}else callback.call(this,event)})}})},`state:${owner.user.id}:${aid}`);held=page.waitForFunction(()=>window.__holdReady);release=()=>page.evaluate(()=>window.__releaseHeld());
+  }
+  await page.getByRole('button',{name:'Sync now',exact:true}).click();await held;await switchTo(bid,'B fixture');if(mode!=='http')assert.equal(await page.evaluate(()=>window.__holdKind),mode);await release();if(mode==='decrypt')await page.evaluate(()=>{crypto.subtle.decrypt=window.__originalDecrypt});if(mode==='http')await page.unroute(origin+`/api/budgets/${aid}`);await page.waitForTimeout(100);
+  assert.equal(await page.locator('.brand strong').innerText(),'B fixture');await page.getByRole('button',{name:'Today',exact:true}).click();await page.getByRole('button',{name:'Add entry',exact:true}).click();await page.locator('[name=amount]').fill('1');await page.locator('input[name=description]').fill(`B ${mode} fixture`);await page.getByRole('button',{name:'Add entry on this device'}).click();await page.locator('.entry-title',{hasText:`B ${mode} fixture`}).waitFor();await page.waitForFunction(()=>document.querySelector('.status strong')?.textContent==='Synced',{timeout:15000});
+  const a=await request(`/budgets/${aid}`,undefined,owner.token),b=await request(`/budgets/${bid}`,undefined,owner.token),snapshotA=await openSnapshot(a.payload,keyA,aid,a.revision),snapshotB=await openSnapshot(b.payload,keyB,bid,b.revision);assert.equal(snapshotA.payments.length,0);assert.ok(snapshotB.payments.some(p=>p.payment.description===`B ${mode} fixture`));
+ }
+ // The storage-completion hook remains installed for A. Re-arm it, then sign
+ // into a different account while the original account's write promise waits.
+ await settings();await switchTo(aid,'A fixture');await page.evaluate(()=>{window.__holdReady=false});await page.getByRole('button',{name:'Sync now',exact:true}).click();await page.waitForFunction(()=>window.__holdReady);assert.equal(await page.evaluate(()=>window.__holdKind),'storage');
+ await page.getByRole('button',{name:'Sign out',exact:true}).click();await page.locator('[name=username]').fill('context-guest');await page.locator('[name=password]').fill(password);await page.getByRole('button',{name:'Sign in',exact:false}).click();await page.getByLabel('Recovery key',{exact:true}).fill(recoveryB);await page.getByRole('button',{name:'Unlock budget',exact:true}).click();await page.locator('.brand strong',{hasText:'B fixture'}).waitFor();await page.evaluate(()=>window.__releaseHeld());await page.waitForTimeout(100);
+ const cache=await page.evaluate(async()=>{const {openStorage}=await import('/storage.mjs'),storage=await openStorage();return {account:(await storage.get('last-user')).id,selected:await storage.get(`selection:${(await storage.get('last-user')).id}`)}});assert.equal(cache.account,guest.user.id);assert.equal(cache.selected,bid);assert.equal(await page.locator('.brand strong').innerText(),'B fixture');
+ const namespaces=await page.evaluate(async({owner,guest,aid,bid})=>{const {openStorage}=await import('/storage.mjs'),storage=await openStorage();return {ownerA:(await storage.get(`state:${owner}:${aid}`)).working.id,guestB:(await storage.get(`state:${guest}:${bid}`)).working.id,wrong:await storage.get(`state:${guest}:${aid}`)}},{owner:owner.user.id,guest:guest.user.id,aid,bid});assert.equal(namespaces.ownerA,aid);assert.equal(namespaces.guestB,bid);assert.equal(namespaces.wrong,undefined);
+ assert.deepEqual(errors,[]);console.log('PASS: held HTTP/decryption/save cannot contaminate another household; account change during save preserves account cache namespaces; B edits decrypt correctly and A stays unchanged.');
+}finally{await browser?.close();await service.close()}
