@@ -17,3 +17,12 @@ test('WASM client calls Rust for month-boundary recurrence, paid status and stab
 test('household today uses configured zone at midnight and ignores device zone',()=>{
  const instant=new Date('2026-11-01T02:30:00Z');assert.equal(householdToday('America/Halifax',instant),20261031);assert.equal(householdToday('Europe/London',instant),20261101);
 });
+test('shipped WASM snaps last weekday starts and reports forecast totals without disabled payments',async()=>{
+ const wasm=await readFile(new URL('../public/budget_engine.wasm',import.meta.url));
+ const request=await loadEngine(`data:application/wasm;base64,${wasm.toString('base64')}`);
+ const today=20261029,entry=(description,amount,disabled)=>({description,amount,disabled,start_date:20261001,end_date:20261001,frequency:1,freq_type:'L',flags:16});let snapshot=request({action:'new',id:'fixture-household',name:'Fixture household',timeZone:'America/Halifax',today});
+ snapshot=request({action:'apply',snapshot,today,operationId:'fixture-last-001',command:{type:'put_payment',payment:entry('Fixture last Thursday',-100,false)}});
+ snapshot=request({action:'apply',snapshot,today,operationId:'fixture-last-002',command:{type:'put_payment',payment:entry('Fixture switched off',-70,true)}});
+ assert.equal(snapshot.payments[0].payment.start_date,20261029);
+ assert.deepEqual(request({action:'forecast',snapshot,today,from:20261001,to:20261130}).totals,{moneyIn:0,moneyOut:200});
+});

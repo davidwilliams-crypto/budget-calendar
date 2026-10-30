@@ -1,6 +1,8 @@
 //! HTML / Excel report generators (analysis/06-stats-window-and-reports.md §1, §4–§10).
 //! Every generator returns the complete document as a `String`; the caller writes the file and
-//! opens it. Output matches the original byte for byte, quirks included (search `// quirk:`).
+//! opens it. Output matches the original byte for byte, quirks included (search `// quirk:`), except
+//! that a balance correction or starting balance is never part of the income or expense totals: it has
+//! its own "Balance corrections" or "Starting balance" line, and only when the range has one.
 //!
 //! Images: the generators take an [`ImageResolver`] that maps a relative image path
 //! (`icons/note.png`, `images/pig.gif`) to a `data:;base64,...` URI (see [`base64_data_uri`]);
@@ -9,7 +11,7 @@
 use crate::date::{Cal, Field};
 use crate::db::BudgetDb;
 use crate::model::*;
-use crate::numfmt::{format_frac2, group_digits, sdate_dmy, snap_to_cent};
+use crate::numfmt::{format_frac0, format_frac2, group_digits, sdate_dmy, snap_to_cent};
 use crate::stats::{calc_statistics, Row, Stats, INDENT, UNCATEGORIZED_EXPENSES, UNCATEGORIZED_INCOME};
 use std::collections::HashMap;
 
@@ -59,6 +61,8 @@ impl Default for CalendarOptions {
     }
 }
 
+const BALANCE_CORRECTIONS: &str = "Balance corrections";
+const STARTING_BALANCE: &str = "Starting balance";
 const NBSP3: &str = "&nbsp;&nbsp;&nbsp;";
 const NBSP4: &str = "&nbsp;&nbsp;&nbsp;&nbsp;";
 pub const NORMAL_COLORS: [&str; 2] = ["black", "red"];
@@ -87,7 +91,7 @@ fn frac(x: f64, n: usize) -> String {
 /// `amount2html(v, cssClass, colors, decimals)`: `<FONT color=red>-1,234<small>.50</small></font>`.
 pub fn amount2html(v: f64, css_class: Option<&str>, colors: [&str; 2], decimals: bool) -> String {
     let v = if v == 0.0 { 0.0 } else { v }; // -0.0 -> 0.0
-    let num = if decimals { format_frac2(v) } else { frac(v, 0) };
+    let num = if decimals { format_frac2(v) } else { whole(v) };
     // Red exactly when the printed figure shows a minus (0.00 prints without one; whole dollars print -0).
     let color = if num.starts_with('-') { colors[1] } else { colors[0] };
     let open = match css_class { None => ">".to_string(), Some(c) => format!(" class='{c}'>") };
@@ -96,6 +100,13 @@ pub fn amount2html(v: f64, css_class: Option<&str>, colors: [&str; 2], decimals:
         Some(i) => format!("{}<small>{}</small></font>", &s[..i], &s[i..]),
         None => s + "</font>",
     }
+}
+
+/// A whole-dollar figure, rounded as the calendar rounds it; a negative value that rounds to zero
+/// keeps its sign (`-0`), as [`frac`] prints it.
+fn whole(v: f64) -> String {
+    let s = format_frac0(v);
+    if v < 0.0 && s == "0" { "-0".to_string() } else { s }
 }
 
 /// `f2html(v)`: black/red, always two decimals.
@@ -275,8 +286,14 @@ pub fn generate_stats_report(st: &Stats, images: ImageResolver) -> String {
     for r in &st.income { add_rep_row(&mut w, st, &mut shade, &entry_desc(&r.key), r.amount, true, r.amount - r.planned_amount, images); }
     add_rep_row(&mut w, st, &mut shade, "Total Expenses", te, false, te - pte, images);
     for r in &st.expense { add_rep_row(&mut w, st, &mut shade, &entry_desc(&r.key), r.amount, true, r.amount - r.planned_amount, images); }
+    for (desc, amount) in balance_lines(st) { add_rep_row(&mut w, st, &mut shade, desc, amount, false, 0.0, images); }
     w.write("</TABLE></HTML>"); // quirk: no </BODY>
     w.out
+}
+
+/// The lines of `st` that are neither income nor expenses, when it has any.
+fn balance_lines(st: &Stats) -> Vec<(&'static str, f64)> {
+    [(STARTING_BALANCE, st.starting_balance), (BALANCE_CORRECTIONS, st.corrections)].into_iter().filter(|(_, v)| *v != 0.0).collect()
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -327,6 +344,7 @@ pub fn generate_excel_stats_report(st: &Stats) -> String {
         stat_formula('B', r + 1, &st.expense), format_frac2(st.total_expense - st.total_planned_expense)));
     r += 1;
     excel_entries(&mut w, &st.expense, &mut r, den);
+    for (desc, amount) in balance_lines(st) { w.write(&format!("<TR><TD><B>{desc}:</B><TD ALIGN=RIGHT {s}>{}<TD><TD>\n", format_frac2(amount))); }
     w.write("</TABLE></HTML>"); // quirk: no </BODY>
     w.out
 }
@@ -408,6 +426,9 @@ pub fn generate_comparison_report(base: &Stats, other: &Stats, images: ImageReso
     for e in comp_entry_from(&base.income, &other.income) { add_comp_row(&mut w, base, &mut shade, &entry_desc(&e.key), e.v1, true, e.v2, images); }
     add_comp_row(&mut w, base, &mut shade, "Total Expenses", base.total_expense, false, other.total_expense, images);
     for e in comp_entry_from(&base.expense, &other.expense) { add_comp_row(&mut w, base, &mut shade, &entry_desc(&e.key), e.v1, true, e.v2, images); }
+    for (desc, v1, v2) in [(STARTING_BALANCE, base.starting_balance, other.starting_balance), (BALANCE_CORRECTIONS, base.corrections, other.corrections)] {
+        if v1 != 0.0 || v2 != 0.0 { add_comp_row(&mut w, base, &mut shade, desc, v1, false, v2, images); }
+    }
     w.write("</TABLE></HTML>"); // quirk: no </BODY>
     w.out
 }
@@ -548,6 +569,15 @@ pub fn month_by_month_entries(db: &mut BudgetDb, st: &Stats) -> Result<Vec<MbmEn
     if let Some(e) = list.iter().find(|e| e.special && e.description == "Total Expenses") {
         if !amounts_match(st.total_expense, e.total) { return Err(format!("base stats expenses doesn't match! got={:.2}, expected={:.2}", e.total, st.total_expense)); }
     }
+    let starting: Vec<f64> = monthly.iter().map(|s| s.starting_balance).collect();
+    let corrections: Vec<f64> = monthly.iter().map(|s| s.corrections).collect();
+    for (description, amounts) in [(STARTING_BALANCE, starting), (BALANCE_CORRECTIONS, corrections)] {
+        if amounts.iter().all(|a| *a == 0.0) { continue; }
+        let mut e = MbmEntry::new(None, description, true);
+        e.total = amounts.iter().sum();
+        e.amounts = amounts;
+        list.push(e);
+    }
     Ok(list)
 }
 
@@ -615,12 +645,13 @@ pub fn generate_report(db: &mut BudgetDb, start: &Cal, end: &Cal, mode: ReportMo
     let bal = |x: f64| if is_excel { format!("{}{}", if x <= -0.005 { "<FONT COLOR=ff0000>" } else { "" }, fmt(x)) } else { f2html(x) };
     let mut first_data_row = 3usize;
     let mut row = 0usize;
+    let starting_date = db.starting_balance_date();
     let mut m = *start;
     m.set_day_one();
     let mut w = UnicodishWriter::default();
     w.write("<HTML>\n<HEAD>\n<TITLE>Budget Report</TITLE>\n</HEAD>\n<BODY bgcolor=ffffff>\n");
     loop {
-        let (mut income, mut expenses) = (0.0, 0.0);
+        let (mut income, mut expenses, mut corrected_in, mut corrected_out, mut started_in, mut started_out) = (0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
         let mut d = m;
         d.add(Field::Day, -1);
         let mut balance = db.get_day(&d).map_or(0.0, |x| x.closing_balance);
@@ -680,11 +711,13 @@ pub fn generate_report(db: &mut BudgetDb, start: &Cal, end: &Cal, mode: ReportMo
                 balance = day.closing_balance;
                 let formula = format!(" FORMULA=\"=G{}+E{row}+F{row}\"", row - 1);
                 let c = bgcolor(shade);
-                w.write(&format!("<TR {c}><TD ALIGN=CENTER {c}>{}<TD WIDTH=18><TD><TD ALIGN=RIGHT {c}><I>Balance adjustment</I><TD ALIGN=RIGHT {c}{num_attr}><I>{}</I><TD ALIGN=RIGHT {c}{num_attr}><I>{}</I><TD ALIGN=RIGHT {c}{num_attr} {formula}><I>{}</I></TR>\n",
-                    date_cell(show_date), if diff >= 0.0 { num(diff) } else { String::new() }, if diff < 0.0 { num(diff) } else { String::new() }, bal(balance)));
+                w.write(&format!("<TR {c}><TD ALIGN=CENTER {c}>{}<TD WIDTH=18><TD><TD ALIGN=RIGHT {c}><I>{}</I><TD ALIGN=RIGHT {c}{num_attr}><I>{}</I><TD ALIGN=RIGHT {c}{num_attr}><I>{}</I><TD ALIGN=RIGHT {c}{num_attr} {formula}><I>{}</I></TR>\n",
+                    date_cell(show_date), if starting_date == Some(date_int) { STARTING_BALANCE } else { "Balance correction" },
+                    if diff >= 0.0 { num(diff) } else { String::new() }, if diff < 0.0 { num(diff) } else { String::new() }, bal(balance)));
                 row += 1;
                 shade = !shade;
-                if diff < 0.0 { expenses += diff; } else { income += diff; }
+                let (into, out) = if starting_date == Some(date_int) { (&mut started_in, &mut started_out) } else { (&mut corrected_in, &mut corrected_out) };
+                if diff < 0.0 { *out += diff; } else { *into += diff; }
             }
             d.add(Field::Day, 1);
         }
@@ -692,10 +725,17 @@ pub fn generate_report(db: &mut BudgetDb, start: &Cal, end: &Cal, mode: ReportMo
         let bg2 = if !shade { "eeeeee" } else { "ffffff" };
         // The original printed the income total in this cell in HTML mode; the port shows expenses.
         let expenses_cell = if is_excel { fmt(expenses) } else { f2html(expenses) };
-        w.write(&format!("<TR bgcolor={bg1}><TD><TD COLSPAN=3 ALIGN=RIGHT><B>Totals:</B><TD ALIGN=RIGHT {num_attr} FORMULA=\"=@sum(E{first_data_row}..E{})\"><B>{}</B><TD ALIGN=RIGHT {num_attr} FORMULA=\"=@sum(F{first_data_row}..F{})\"><B>{expenses_cell}</B><TD ALIGN=RIGHT {num_attr} FORMULA=\"=E{row}+F{row}\"><B>{}</B></TR>\n<TR bgcolor={bg2}><TD><TD><TD COLSPAN=2 ALIGN=RIGHT><B>Closing balance:</B><TD ALIGN=RIGHT><B></B><TD ALIGN=RIGHT><B></B><TD ALIGN=RIGHT {num_attr} FORMULA=\"=G{}\"><B>{}</B></TR>\n",
-            row - 1, num(income), row - 1, num(income + expenses), row - 1, bal(balance)));
+        // The corrections sit in the amount columns among the payments, but out of their totals.
+        let less = |v: f64| if v == 0.0 { String::new() } else { format!("-({})", fmt(v)) };
+        let subtotal = |label: &str, into: f64, out: f64| if into == 0.0 && out == 0.0 { String::new() } else {
+            format!("<TR bgcolor={bg1}><TD><TD COLSPAN=3 ALIGN=RIGHT><B>{label}:</B><TD ALIGN=RIGHT {num_attr}><B>{}</B><TD ALIGN=RIGHT {num_attr}><B>{}</B><TD ALIGN=RIGHT {num_attr}><B>{}</B></TR>\n",
+                num(into), num(out), num(snap_to_cent(into + out)))
+        };
+        let corrections_row = subtotal(STARTING_BALANCE, started_in, started_out) + &subtotal(BALANCE_CORRECTIONS, corrected_in, corrected_out);
+        w.write(&format!("<TR bgcolor={bg1}><TD><TD COLSPAN=3 ALIGN=RIGHT><B>Totals:</B><TD ALIGN=RIGHT {num_attr} FORMULA=\"=@sum(E{first_data_row}..E{}){}\"><B>{}</B><TD ALIGN=RIGHT {num_attr} FORMULA=\"=@sum(F{first_data_row}..F{}){}\"><B>{expenses_cell}</B><TD ALIGN=RIGHT {num_attr} FORMULA=\"=E{row}+F{row}\"><B>{}</B></TR>\n{corrections_row}<TR bgcolor={bg2}><TD><TD><TD COLSPAN=2 ALIGN=RIGHT><B>Closing balance:</B><TD ALIGN=RIGHT><B></B><TD ALIGN=RIGHT><B></B><TD ALIGN=RIGHT {num_attr} FORMULA=\"=G{}\"><B>{}</B></TR>\n",
+            row - 1, less(corrected_in + started_in), num(income), row - 1, less(corrected_out + started_out), num(income + expenses), row - 1, bal(balance)));
         if !is_excel { w.write("</TABLE>\n<P><BR></P>"); }
-        row += 2;
+        row += 2 + corrections_row.matches("</TR>").count();
         first_data_row = row + 4; // quirk: from the 2nd month on this points at the opening-balance row
         m.add(Field::Month, 1);
         // quirk: the "To" month is excluded (loop continues only while m < end)
@@ -821,10 +861,11 @@ fn html_span_color(pmt: &Payment, date: i32, opts: &CalendarOptions) -> (String,
 /// Months `start..=end` (both are day-1 calendars in the original; the last month prints only when
 /// `end` is one, exactly like `v8.eq(p2)`).
 pub fn generate_monthly_calendar(db: &mut BudgetDb, start: &Cal, end: &Cal, opts: &CalendarOptions, images: ImageResolver) -> String {
-    let fmt = |x: f64| if opts.show_decimals { format_frac2(x) } else { frac(x, 0) };
+    let fmt = |x: f64| if opts.show_decimals { format_frac2(x) } else { whole(x) };
     let first_dow = if opts.first_day_sunday { 0 } else { 1 };
     let last_dow = first_dow + 6;
     let dow = |c: &Cal| { let w = c.day_of_week(); if first_dow != 0 && w == 0 { 7 } else { w } };
+    let starting_date = db.starting_balance_date();
     let mut out = String::from(CALENDAR_HEAD);
     let mut m = *start;
     m.set_day_one();
@@ -838,7 +879,7 @@ pub fn generate_monthly_calendar(db: &mut BudgetDb, start: &Cal, end: &Cal, opts
         while dow(&d) != first_dow { d.add(Field::Day, -1); }
         while dow(&e) != last_dow { e.add(Field::Day, 1); }
         e.add(Field::Day, 1);
-        let (mut expenses, mut income) = (0.0, 0.0); // expenses accumulated as a positive magnitude
+        let (mut expenses, mut income, mut corrections, mut started) = (0.0, 0.0, 0.0, 0.0); // expenses accumulated as a positive magnitude
         while d.lt(&e) {
             if dow(&d) == first_dow { out.push_str("<TR>"); }
             if month != d.month() {
@@ -846,7 +887,7 @@ pub fn generate_monthly_calendar(db: &mut BudgetDb, start: &Cal, end: &Cal, opts
             } else {
                 out.push_str(&format!("<TD class='day' VALIGN=TOP WIDTH=\"14%\">{}<BR>\n", d.day()));
                 let day = db.get_day(&d).cloned().unwrap_or_default();
-                if day.adjustment_diff < 0.0 { expenses -= day.adjustment_diff; } else { income += day.adjustment_diff; }
+                if starting_date == Some(d.get()) { started += day.adjustment_diff; } else { corrections += day.adjustment_diff; }
                 out.push_str("<TABLE BORDER=0 CELLSPACING=1 WIDTH=\"100%\">\n");
                 for t in &day.transactions {
                     let pmt = &db.payments[t.pmt];
@@ -882,7 +923,9 @@ pub fn generate_monthly_calendar(db: &mut BudgetDb, start: &Cal, end: &Cal, opts
             }
             d.add(Field::Day, 1);
         }
-        out.push_str(&format!("</TR>\n</TABLE>\n<P class='bal' ALIGN=CENTER><B>Totals:</B> Income = <B>{}</B>, Expenses = <B>{}</B> ({})</P>\n<BR><BR>", fmt(income), fmt(expenses), fmt(snap_to_cent(income - expenses))));
+        let line = |label: &str, amount: f64| { let amount = snap_to_cent(amount); if amount == 0.0 { String::new() } else { format!(", {label} = <B>{}</B>", fmt(amount)) } };
+        let corrections_text = line(STARTING_BALANCE, started) + &line(BALANCE_CORRECTIONS, corrections);
+        out.push_str(&format!("</TR>\n</TABLE>\n<P class='bal' ALIGN=CENTER><B>Totals:</B> Income = <B>{}</B>, Expenses = <B>{}</B> ({}){corrections_text}</P>\n<BR><BR>", fmt(income), fmt(expenses), fmt(snap_to_cent(income - expenses))));
         m.add(Field::Month, 1);
         if !(m.lt(end) || m == *end) { break; }
     }
@@ -908,6 +951,88 @@ mod tests {
     }
 
     fn no_images(_: &str) -> Option<String> { None }
+
+    /// A rent of 1,000 on the 1st, one checkpoint in each of October and November 2026 and, before
+    /// them, a one-time expense so that neither opens the budget.
+    fn corrected() -> BudgetDb {
+        let mut db = BudgetDb::new(&Cal::from_int(20261001), 12, false);
+        let mut rent = Payment::new(20261001);
+        rent.description = "Rent".into();
+        rent.amount = -1000.0;
+        rent.n_pays = 3;
+        let mut old = Payment::new(20260105);
+        old.description = "Old".into();
+        old.amount = -1.0;
+        db.add(rent);
+        db.add(old);
+        db.rebuild_db(&Cal::from_int(20261001), 12, false);
+        db.update_adjustment(&Cal::from_int(20261015), 4000.0);
+        db.update_adjustment(&Cal::from_int(20261115), 2500.0);
+        db
+    }
+
+    #[test]
+    fn every_report_keeps_balance_corrections_out_of_income_and_expenses() {
+        let mut db = corrected();
+        let (oct, nov) = (Cal::from_int(20261001), Cal::from_int(20261101));
+        let st = calc_statistics(&mut db, &oct, 2, true, None);
+        assert_eq!((st.total_income, st.total_expense, st.corrections), (0.0, -2000.0, 4501.0));
+        for html in [generate_stats_report(&st, &no_images), generate_excel_stats_report(&st)] {
+            assert!(html.contains("Balance corrections"), "{html}");
+            assert!(!html.contains("Unaccounted"), "{html}");
+        }
+        let other = calc_statistics(&mut db, &Cal::from_int(20260101), 2, true, None);
+        assert!(generate_comparison_report(&st, &other, &no_images).contains("Balance corrections"));
+        let entries = month_by_month_entries(&mut db, &st).unwrap();
+        let line = entries.iter().find(|e| e.description == "Balance corrections").expect("its own line");
+        assert_eq!((line.amounts.clone(), line.total), (vec![st.corrections + 500.0, -500.0], st.corrections));
+        assert_eq!(entries.iter().find(|e| e.description == "Total Expenses").unwrap().total, -2000.0);
+        assert_eq!(entries.iter().find(|e| e.description == "Disposable Income").unwrap().total, -2000.0);
+        assert!(generate_month_by_month_report(&mut db, &st, true).unwrap().contains("Balance corrections"));
+        // The detailed list keeps the correction where it happened; the month's totals leave it out.
+        let detailed = generate_report(&mut db, &oct, &nov, ReportMode::Html, &no_images);
+        assert!(detailed.contains("<I>Balance correction</I>") && detailed.contains("<B>Balance corrections:</B>"), "{detailed}");
+        assert!(detailed.contains(&unicodish(&format!("<B>{}</B>", f2html(-1000.0)))), "{detailed}");
+        let excel = generate_report(&mut db, &oct, &nov, ReportMode::Excel, &no_images);
+        assert!(excel.contains(&format!("-({})", format_frac2(st.corrections + 500.0).replace(',', ""))), "{excel}");
+        let calendar = generate_monthly_calendar(&mut db, &oct, &oct, &CalendarOptions::default(), &no_images);
+        assert!(calendar.contains("Income = <B>0</B>, Expenses = <B>1,000</B> (-1,000), Balance corrections = <B>"), "{calendar}");
+    }
+
+    #[test]
+    fn a_starting_balance_is_named_in_the_reports() {
+        let mut db = BudgetDb::new(&Cal::from_int(20261001), 12, false);
+        let mut rent = Payment::new(20261005);
+        rent.description = "Rent".into();
+        rent.amount = -1000.0;
+        db.add(rent);
+        db.update_adjustment(&Cal::from_int(20261005), 4000.0);
+        let oct = Cal::from_int(20261001);
+        let st = calc_statistics(&mut db, &oct, 1, true, None);
+        assert_eq!((st.total_income, st.starting_balance), (0.0, 5000.0));
+        assert!(generate_stats_report(&st, &no_images).contains("Starting balance"));
+        let detailed = generate_report(&mut db, &oct, &Cal::from_int(20261101), ReportMode::Html, &no_images);
+        assert!(detailed.contains("<I>Starting balance</I>"), "{detailed}");
+        assert!(detailed.contains("<B>Starting balance:</B>") && !detailed.contains("Balance corrections"), "{detailed}");
+        let calendar = generate_monthly_calendar(&mut db, &oct, &oct, &CalendarOptions::default(), &no_images);
+        assert!(calendar.contains("Starting balance = <B>5,000</B>") && !calendar.contains("Balance corrections"), "{calendar}");
+        // In a month holding both, each keeps its own line and the spreadsheet rows stay in step.
+        db.update_adjustment(&Cal::from_int(20261020), 3500.0);
+        let detailed = generate_report(&mut db, &oct, &Cal::from_int(20261101), ReportMode::Html, &no_images);
+        assert!(detailed.contains("<B>Starting balance:</B>") && detailed.contains("<B>Balance corrections:</B>"), "{detailed}");
+        let excel = generate_report(&mut db, &oct, &Cal::from_int(20261201), ReportMode::Excel, &no_images);
+        assert!(excel.contains("-(5000.00)") && excel.contains("-(-500.00)"), "{excel}");
+        let calendar = generate_monthly_calendar(&mut db, &oct, &oct, &CalendarOptions::default(), &no_images);
+        assert!(calendar.contains("Starting balance = <B>5,000</B>, Balance corrections = <B>-500</B>"), "{calendar}");
+    }
+
+    #[test]
+    fn a_calendar_balance_of_a_half_dollar_rounds_up() {
+        let mut db = BudgetDb::new(&Cal::from_int(20261001), 12, false);
+        db.update_adjustment(&Cal::from_int(20261005), 5613.5);
+        let calendar = generate_monthly_calendar(&mut db, &Cal::from_int(20261001), &Cal::from_int(20261001), &CalendarOptions::default(), &no_images);
+        assert!(calendar.contains("5,614") && !calendar.contains("5,613"), "{calendar}");
+    }
 
     #[test]
     fn mbm_consistency_check_tolerates_float_noise() {
@@ -1153,13 +1278,13 @@ mod tests {
         for mode in [ReportMode::Html, ReportMode::Excel] {
             let report = generate_report(&mut db, &start, &end, mode, &no_images);
             assert!(report.contains("Groceries"), "the month has its payments");
-            assert!(!report.contains("Balance adjustment"), "{mode:?}");
+            assert!(!report.contains("Balance correction"), "{mode:?}");
         }
         // a real difference still shows
         let day = Cal::from_int(20261022);
         let shown = db.get_day(&day).unwrap().closing_balance;
         db.update_adjustment(&day, shown + 5.0);
-        assert!(generate_report(&mut db, &start, &end, ReportMode::Html, &no_images).contains("Balance adjustment"));
+        assert!(generate_report(&mut db, &start, &end, ReportMode::Html, &no_images).contains("Balance correction"));
     }
 
     #[test]

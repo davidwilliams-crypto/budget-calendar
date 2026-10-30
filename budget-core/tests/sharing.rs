@@ -1,5 +1,5 @@
 use budget_core::sharing::*;
-use budget_core::{BudgetDb, Cal, Payment, END_MODE_INDEFINITE, FLAG_PAID};
+use budget_core::{BudgetDb, Cal, Field, Payment, END_MODE_INDEFINITE, FLAG_PAID};
 use serde_json::{json, Value};
 fn fixture() -> Snapshot {
     let mut db = BudgetDb::new_with_today(&Cal::from_int(20261001), 12, false, 20261029);
@@ -171,4 +171,140 @@ fn tentative_paid_occurrence_is_pinned_with_explicit_clock() {
             .len(),
         0
     );
+}
+
+const TODAY: i32 = 20261029;
+fn empty() -> Snapshot {
+    let v = ask(json!({"action":"new","id":"fixture","name":"Test household","timeZone":"America/Halifax","today":TODAY}));
+    serde_json::from_value(v["result"].clone()).unwrap()
+}
+fn put(s: &Snapshot, command: Value, op: &str) -> Result<Snapshot, String> {
+    apply_command(s, TODAY, &command, op)
+}
+fn entry(freq_type: &str, start: i32) -> Value {
+    json!({"description":"Fixture entry","amount":-10,"start_date":start,"end_date":start,"flags":16,"frequency":1,"freq_type":freq_type})
+}
+fn forecast_of(s: &Snapshot, from: i32, to: i32) -> Value {
+    let v = ask(json!({"action":"forecast","snapshot":s,"today":TODAY,"from":from,"to":to}));
+    assert_eq!(v["ok"], true, "{v}");
+    v["result"].clone()
+}
+fn dates(s: &Snapshot, from: i32, to: i32) -> Vec<i64> {
+    forecast_of(s, from, to)["days"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|d| !d["transactions"].as_array().unwrap().is_empty())
+        .map(|d| d["date"].as_i64().unwrap())
+        .collect()
+}
+/// The desktop editor's `last_same_weekday_of_month`, kept here as the behaviour to agree with.
+fn desktop_snap(date: i32) -> i32 {
+    let mut c = Cal::from_int(date);
+    loop {
+        let mut next = c;
+        next.add(Field::Day, 7);
+        if next.month() != c.month() {
+            return c.get();
+        }
+        c = next;
+    }
+}
+#[test]
+fn new_last_weekday_payment_starts_on_the_last_matching_weekday() {
+    let s = put(&empty(), json!({"type":"put_payment","payment":entry("L",20261001)}), "op-1").unwrap();
+    assert_eq!(s.payments[0].payment.start_date, 20261029);
+    assert_eq!(dates(&s, 20261001, 20261231), [20261029, 20261126, 20261231]);
+}
+#[test]
+fn last_weekday_snap_agrees_with_the_desktop_editor_on_every_day_of_a_leap_year() {
+    let mut day = Cal::from_int(20240101);
+    while day.get() <= 20241231 {
+        let s = put(&empty(), json!({"type":"put_payment","payment":entry("L",day.get())}), "op-1").unwrap();
+        assert_eq!(s.payments[0].payment.start_date, desktop_snap(day.get()), "{}", day.get());
+        day.add(Field::Day, 1);
+    }
+}
+#[test]
+fn saved_last_weekday_start_is_left_alone_until_it_changes() {
+    // A legacy record whose start date sits outside the last week of its month.
+    let mut db = BudgetDb::new_with_today(&Cal::from_int(20261001), 12, false, TODAY);
+    let mut p = Payment::new(20261006);
+    p.description = "Legacy".into();
+    p.freq_type = 'L';
+    p.set_end_mode(END_MODE_INDEFINITE);
+    db.add(p);
+    let s = snapshot_from_db(&db, "fixture", "Test household", "America/Halifax", None).unwrap();
+    let id = s.payments[0].id.clone();
+    let mut payment = serde_json::to_value(&s.payments[0].payment).unwrap();
+    payment["description"] = json!("Renamed");
+    let unchanged = put(&s, json!({"type":"put_payment","id":id,"payment":payment}), "op-1").unwrap();
+    assert_eq!(unchanged.payments[0].payment.start_date, 20261006);
+    payment["start_date"] = json!(20261013);
+    let moved = put(&s, json!({"type":"put_payment","id":id,"payment":payment}), "op-2").unwrap();
+    assert_eq!(moved.payments[0].payment.start_date, 20261027);
+}
+#[test]
+fn changing_a_series_to_last_weekday_snaps_its_unchanged_start() {
+    let s = put(&empty(), json!({"type":"put_payment","payment":entry("m",20261001)}), "op-1").unwrap();
+    let id = s.payments[0].id.clone();
+    let mut payment = serde_json::to_value(&s.payments[0].payment).unwrap();
+    payment["freq_type"] = json!("L");
+    let s = put(&s, json!({"type":"put_payment","id":id,"payment":payment}), "op-2").unwrap();
+    assert_eq!(s.payments[0].payment.start_date, 20261029);
+}
+#[test]
+fn last_weekday_snap_applies_to_a_this_and_future_edit() {
+    let s = put(&empty(), json!({"type":"put_payment","payment":entry("m",20260105)}), "op-1").unwrap();
+    let id = s.payments[0].id.clone();
+    let mut payment = serde_json::to_value(&s.payments[0].payment).unwrap();
+    payment["freq_type"] = json!("L");
+    payment["start_date"] = json!(20261105);
+    let s = put(&s, json!({"type":"put_payment","id":id,"payment":payment,"from":20261105}), "op-2").unwrap();
+    assert_eq!(s.payments[1].payment.start_date, 20261126);
+    assert_eq!(dates(&s, 20261001, 20261231), [20261005, 20261126, 20261231]);
+}
+#[test]
+fn single_payment_keeps_its_date_even_with_the_last_weekday_type() {
+    let mut payment = entry("L", 20261001);
+    payment["flags"] = json!(48);
+    payment["n_pays"] = json!(1);
+    let s = put(&empty(), json!({"type":"put_payment","payment":payment}), "op-1").unwrap();
+    assert_eq!(s.payments[0].payment.start_date, 20261001);
+    assert_eq!(dates(&s, 20261001, 20261231), [20261001]);
+}
+#[test]
+fn nth_weekday_start_already_names_its_week_and_stays_put() {
+    // The second Tuesday, as on desktop, which has no snap for this type.
+    let s = put(&empty(), json!({"type":"put_payment","payment":entry("W",20261013)}), "op-1").unwrap();
+    assert_eq!(s.payments[0].payment.start_date, 20261013);
+    assert_eq!(dates(&s, 20261001, 20270131), [20261013, 20261110, 20261208, 20270112]);
+}
+#[test]
+fn last_weekday_snap_never_repairs_a_bad_date_or_passes_the_end_date() {
+    let bad = put(&empty(), json!({"type":"put_payment","payment":entry("L",20260230)}), "op-1");
+    assert!(bad.is_err());
+    let mut payment = entry("L", 20261001);
+    payment["flags"] = json!(32);
+    payment["end_date"] = json!(20261015);
+    let ended = put(&empty(), json!({"type":"put_payment","payment":payment}), "op-1");
+    assert_eq!(ended.unwrap_err(), "Payment ends before it starts.");
+}
+#[test]
+fn forecast_totals_leave_out_disabled_payments_and_balance_changes() {
+    let mut s = empty();
+    for (i, (amount, disabled)) in [(500.0, false), (-100.1, false), (-0.2, false), (-70.0, true), (900.0, true)].iter().enumerate() {
+        let mut payment = entry("m", 20261105);
+        payment["description"] = json!(format!("Entry {i}"));
+        payment["amount"] = json!(amount);
+        payment["disabled"] = json!(disabled);
+        s = put(&s, json!({"type":"put_payment","payment":payment}), &format!("op-{i}")).unwrap();
+    }
+    s = put(&s, json!({"type":"balance","date":20261110,"amount":12345}), "checkpoint").unwrap();
+    let month = forecast_of(&s, 20261101, 20261130);
+    assert_eq!(month["totals"], json!({"moneyIn":500.0,"moneyOut":100.3}));
+    assert!(month["lowPoint"].is_object() && month["days"].is_array());
+    assert_eq!(forecast_of(&s, 20261105, 20261105)["totals"], json!({"moneyIn":500.0,"moneyOut":100.3}));
+    assert_eq!(forecast_of(&s, 20261106, 20261204)["totals"], json!({"moneyIn":0.0,"moneyOut":0.0}));
+    assert_eq!(forecast_of(&s, 20261101, 20261231)["totals"], json!({"moneyIn":1000.0,"moneyOut":200.6}));
 }

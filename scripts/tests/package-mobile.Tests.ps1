@@ -18,18 +18,35 @@ function Assert-Fails([scriptblock]$Action, [string]$Pattern) {
     Assert-True ($null -ne $caught -and $caught -match $Pattern) "Expected '$Pattern', got '$caught'"
 }
 Write-Fixture 'scripts/package-mobile.ps1' ([IO.File]::ReadAllText((Join-Path $root 'scripts/package-mobile.ps1')))
+Write-Fixture 'scripts/stamp-mobile-worker.ps1' ([IO.File]::ReadAllText((Join-Path $root 'scripts/stamp-mobile-worker.ps1')))
+Write-Fixture 'scripts/stamp-mobile-engine.ps1' ([IO.File]::ReadAllText((Join-Path $root 'scripts/stamp-mobile-engine.ps1')))
+foreach ($name in @('Cargo.toml', 'Cargo.lock', 'budget-core/Cargo.toml', 'budget-engine/Cargo.toml', 'budget-core/src/lib.rs', 'budget-engine/src/lib.rs')) { Write-Fixture $name "generated fixture $name" }
 Write-Fixture 'budget-gui/Cargo.toml' "[package]`nname = `"budget-gui`"`nversion = `"0.8.0`"`n"
 $runtime = @('package.json', 'README.md', 'ENGINE-CONTRACT.md', 'SERVER-CONTRACT.md', 'server/DEPLOYMENT.md', 'Dockerfile', '.dockerignore',
     'public/index.html', 'public/app.mjs', 'public/sw.js', 'public/manifest.webmanifest', 'public/styles.css',
     'public/icon-192.png', 'public/icon-512.png', 'server/start.mjs', 'server/server.mjs')
 foreach ($name in $runtime) { Write-Fixture "budget-mobile/$name" "generated fixture $name" }
 [IO.File]::WriteAllBytes((Join-Path $fixture 'budget-mobile/public/budget_engine.wasm'), [byte[]](0,97,115,109,1,0,0,0))
+$worker = "const CACHE='budget-household-0';`nconst SHELL=['./','./index.html','./app.mjs','./styles.css','./manifest.webmanifest','./icon-192.png','./icon-512.png','./budget_engine.wasm'];`n"
+Write-Fixture 'budget-mobile/public/sw.js' $worker
 foreach ($name in @('public/household.bgt', 'public/cached-budget.json', 'public/database.sqlite', 'public/.env',
     'public/data/private.mjs', 'public/private/recovery.mjs', 'public/node_modules/library.mjs',
     'server/data/private.mjs', 'server/.env', 'server/credentials.json', 'data/budget.sqlite', 'node_modules/package.json')) {
     Write-Fixture "budget-mobile/$name" 'GENERATED PRIVATE TEST DATA - EXCLUDE'
 }
 $script = Join-Path $fixture 'scripts/package-mobile.ps1'
+$stamp = Join-Path $fixture 'scripts/stamp-mobile-worker.ps1'
+$engineStamp = Join-Path $fixture 'scripts/stamp-mobile-engine.ps1'
+Assert-Fails { & $script } 'build-mobile'
+& $engineStamp | Out-Null
+Assert-Fails { & $script } 'stamp-mobile-worker'
+Assert-True (-not (Test-Path -LiteralPath (Join-Path $fixture 'target/mobile-release-v0.8.0'))) 'A stale service worker published a package.'
+Write-Fixture 'budget-core/src/lib.rs' 'changed calculation'
+& $stamp -PublicDirectory (Join-Path $fixture 'budget-mobile/public') | Out-Null
+Assert-Fails { & $script } 'does not match the current Rust sources'
+Assert-True (-not (Test-Path -LiteralPath (Join-Path $fixture 'target/mobile-release-v0.8.0'))) 'A stale engine published a package.'
+Write-Fixture 'budget-core/src/lib.rs' 'generated fixture budget-core/src/lib.rs'
+& $stamp -PublicDirectory (Join-Path $fixture 'budget-mobile/public') | Out-Null
 & $script | Out-Null
 $output = Join-Path $fixture 'target/mobile-release-v0.8.0'
 $archive = Join-Path $output 'budget-mobile-v0.8.0.zip'
@@ -53,6 +70,7 @@ $before = (Get-Item -LiteralPath $archive).LastWriteTimeUtc.Ticks
 & $script | Out-Null
 Assert-True ((Get-Item -LiteralPath $archive).LastWriteTimeUtc.Ticks -eq $before) 'Repeated package rewrote the archive.'
 Write-Fixture 'budget-mobile/public/app.mjs' 'changed source'
+& $stamp -PublicDirectory (Join-Path $fixture 'budget-mobile/public') | Out-Null
 Assert-Fails { & $script } 'Version collision'
 Assert-True ((Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant() -ceq $manifest.sha256) 'Collision changed existing archive.'
 Assert-Fails { & $script -OutputDirectory '../outside' } 'inside this repository'
@@ -65,5 +83,5 @@ $ignore = [IO.File]::ReadAllText((Join-Path $root 'budget-mobile/.dockerignore')
 Assert-True ($docker -notmatch '(?m)^COPY\s+\.\s' -and $docker -notmatch '(?m)^RUN.*npm (install|ci)' ) 'Docker must copy explicit runtime files with no external install.'
 Assert-True ($docker -match 'BUDGET_DATA_DIR=/data' -and $docker -match 'USER node') 'Docker must use a private persistent path and non-root user.'
 Assert-True ($ignore -match '(?m)^\*\*\s*$' -and $ignore -notmatch '!public/\*\.json') 'Docker context must deny all by default and exclude private JSON.'
-Write-Host "8 mobile package checks passed. Generated fixtures retained at $fixture"
+Write-Host "11 mobile package checks passed. Generated fixtures retained at $fixture"
 

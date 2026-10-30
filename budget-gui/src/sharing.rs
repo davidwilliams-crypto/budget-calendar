@@ -8,6 +8,8 @@ use std::sync::mpsc::{self, Receiver};
 mod panel;
 
 const POLL_INTERVAL: Duration = Duration::from_secs(5);
+/// Discarded copies kept per household. The oldest goes first, which also bounds their size.
+const DISCARDED_KEPT: usize = 5;
 
 pub(crate) struct SharedUi {
     pub document: Option<SharedDocument>,
@@ -32,7 +34,29 @@ pub(crate) struct SharedUi {
     deferred: Option<Remote>,
     staged: Option<SharedDocument>,
     preview: Option<panel::ConflictPreview>,
+    /// "Use current shared version" was clicked: how many changes the confirmation names.
+    confirm_discard: Option<usize>,
+    /// This household's discarded copies, newest first, read once per household.
+    discarded: Vec<Discarded>,
+    discarded_for: Option<String>,
+    recover: Option<usize>,
 }
+
+/// What "Use current shared version" replaced, in the protected cache. Keeping the version it
+/// started from allows the same reapply that Keep mine does, later and on any shared version.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct DiscardedWork {
+    id: String,
+    discarded_at: String,
+    changes: usize,
+    baseline: budget_core::sharing::Snapshot,
+    local: budget_core::sharing::Snapshot,
+}
+
+/// A discarded copy as the dialog lists it.
+struct Discarded { path: PathBuf, discarded_at: String, changes: usize }
+
+fn changes_text(count: usize) -> String { format!("{count} unsynced change{}", if count == 1 { "" } else { "s" }) }
 
 enum Event {
     SignedIn(Result<(Connection, Vec<Value>), String>),
@@ -88,6 +112,7 @@ impl Default for SharedUi {
         cache: home_dir().join(".budget-calendar/shared.enc"), cache_lock: None, server: String::new(), username: String::new(), password: String::new(),
         connection: None, budgets: vec![], key: String::new(), name: "Household".into(), zone: "America/Halifax".into(),
         saved_key: false, creating: false, job: None, last_poll: Instant::now(), deferred: None, staged: None, preview: None,
+        confirm_discard: None, discarded: vec![], discarded_for: None, recover: None,
     } }
 }
 impl SharedUi {
@@ -121,6 +146,7 @@ impl SharedUi {
     }
     pub fn disconnect(&mut self) {
         self.document = None; self.job = None; self.deferred = None; self.staged = None; self.preview = None; self.open = false;
+        self.confirm_discard = None; self.discarded.clear(); self.discarded_for = None; self.recover = None;
     }
     pub fn status(&self, dirty: bool) -> Option<String> {
         let d = self.document.as_ref()?;
@@ -154,6 +180,41 @@ impl SharedUi {
         client::save_device(&self.cache, document)
     }
     fn creation_path(&self) -> PathBuf { self.cache.with_file_name("shared-creation.enc") }
+    /// One file per discard, oldest first: a damaged copy cannot take the others with it.
+    fn discarded_files(&self, id: &str) -> Vec<PathBuf> {
+        let prefix = format!("shared-discarded-{id}-");
+        let Some(entries) = self.cache.parent().and_then(|dir| std::fs::read_dir(dir).ok()) else { return vec![] };
+        let mut files: Vec<_> = entries.flatten().map(|entry| entry.path())
+            .filter(|path| path.file_name().is_some_and(|name| name.to_string_lossy().starts_with(&prefix))).collect();
+        files.sort();
+        files
+    }
+    /// Stores a protected copy of this device's changes before they are replaced.
+    fn keep_discarded(&mut self, document: &SharedDocument) -> Result<PathBuf, String> {
+        self.ensure_cache_lock()?;
+        let id = &document.working.id;
+        let now = chrono::Local::now();
+        let work = DiscardedWork { id: id.clone(), discarded_at: now.format("%Y-%m-%d %H:%M").to_string(), changes: document.pending.len(),
+            baseline: document.baseline.clone(), local: document.working.clone() };
+        let path = self.cache.with_file_name(format!("shared-discarded-{id}-{:020}-{}.enc", now.timestamp_millis(), uuid::Uuid::new_v4()));
+        client::save_protected(&path, &work)?;
+        let files = self.discarded_files(id);
+        for old in &files[..files.len().saturating_sub(DISCARDED_KEPT)] { let _ = std::fs::remove_file(old); }
+        Ok(path)
+    }
+    /// Reads the open household's discarded copies once, not on every repaint.
+    fn load_discarded(&mut self) {
+        let Some(id) = self.document.as_ref().map(|d| d.working.id.clone()) else { return };
+        if self.discarded_for.as_deref() == Some(id.as_str()) { return; }
+        self.discarded.clear();
+        for path in self.discarded_files(&id).into_iter().rev() {
+            match client::load_protected::<DiscardedWork>(&path) {
+                Ok(work) if work.id == id => self.discarded.push(Discarded { path, discarded_at: work.discarded_at, changes: work.changes }),
+                _ => self.error = Some("A copy of discarded changes could not be read. It was left unchanged.".into()),
+            }
+        }
+        self.discarded_for = Some(id);
+    }
     fn persist_creation(&mut self, candidate: &CreationCandidate) -> Result<(), String> {
         self.ensure_cache_lock()?;
         let mut candidate = candidate.clone();
@@ -408,6 +469,7 @@ impl App {
     }
     pub(super) fn shared_panel(&mut self, ctx: &egui::Context) {
         if !self.sharing.open { return; }
+        self.sharing.load_discarded();
         let command = self.shared_panel_contents(ctx);
         match command {
             Some("copy-key") => {
@@ -476,16 +538,80 @@ impl App {
             }
             Some("sync") => self.sharing.last_poll = Instant::now() - Duration::from_secs(5),
             Some("export") => { self.export_shared_copy(); }
-            Some(choice @ ("mine" | "theirs")) => {
-                if self.has_draft() || self.dirty { self.sharing.error = Some("Finish and save your current editor before resolving the shared conflict.".into()); return; }
-                if let Some(mut doc) = self.sharing.document.clone() {
-                    match doc.resolve(choice == "mine").and_then(|_| self.sharing.persist(&doc)) {
-                        Ok(()) => { self.sharing.document = Some(doc); match self.refresh_shared_db() { Ok(()) => { self.sharing.error = None; self.sharing.open = false; }, Err(e) => self.sharing.error = Some(e) } }
-                        Err(e) => self.sharing.error = Some(e),
-                    }
-                }
-            }
+            Some(choice @ ("mine" | "theirs")) => self.resolve_shared(choice == "mine"),
+            Some("discard") => self.discard_shared(),
+            Some("keep-discard") => self.sharing.confirm_discard = None,
+            Some("recover") => if let Some(index) = self.sharing.recover.take() { self.recover_discarded(index); },
             _ => {}
+        }
+    }
+    /// An edit the closed queue refused is still in the budget. Queue it, so it counts as one of
+    /// this device's changes and the failed save that flagged it cannot block the resolution.
+    fn queue_stranded_edit(&mut self) -> Result<(), String> {
+        if !self.dirty { return Ok(()); }
+        let Some(mut doc) = self.sharing.document.clone() else { return Ok(()) };
+        let db = self.db.as_ref().ok_or("There is no budget to save.")?;
+        let snapshot = snapshot_from_db_with_operation(db, &doc.working.id, &doc.working.name, &doc.working.time_zone,
+            Some(&doc.working), &uuid::Uuid::new_v4().to_string())?;
+        doc.capture_unresolved(snapshot)?;
+        self.sharing.persist(&doc)?;
+        self.sharing.document = Some(doc);
+        self.sharing.preview = None;
+        if self.banner.as_ref().is_some_and(|banner| self.dialogs.save_error.as_deref() == Some(banner.text.as_str())) { self.banner = None; }
+        self.dirty = false; self.dialogs.save_error = None; self.title_dirty = true;
+        Ok(())
+    }
+    fn resolve_shared(&mut self, keep_local: bool) {
+        if self.has_draft() { self.sharing.error = Some("Finish your open editor before resolving the shared conflict.".into()); return; }
+        if let Err(e) = self.queue_stranded_edit() { self.sharing.error = Some(e); return; }
+        let Some(doc) = self.sharing.document.clone() else { return };
+        // Replacing this device's changes asks first; the discard itself keeps a copy.
+        if !keep_local && !doc.pending.is_empty() { self.sharing.confirm_discard = Some(doc.pending.len()); return; }
+        if let Err(e) = self.apply_resolution(doc, keep_local) { self.sharing.error = Some(e); }
+    }
+    fn apply_resolution(&mut self, mut doc: SharedDocument, keep_local: bool) -> Result<(), String> {
+        doc.resolve(keep_local).and_then(|_| self.sharing.persist(&doc))?;
+        self.sharing.document = Some(doc);
+        self.sharing.confirm_discard = None;
+        self.refresh_shared_db()?;
+        self.sharing.error = None; self.sharing.open = false;
+        Ok(())
+    }
+    fn discard_shared(&mut self) {
+        self.sharing.confirm_discard = None;
+        if self.has_draft() || self.dirty { self.sharing.error = Some("Finish your open editor before resolving the shared conflict.".into()); return; }
+        let Some(doc) = self.sharing.document.clone() else { return };
+        // Nothing is replaced until its copy is on disk.
+        let copy = match self.sharing.keep_discarded(&doc) { Ok(copy) => copy, Err(e) => { self.sharing.error = Some(e); return; } };
+        match self.apply_resolution(doc, false) {
+            Ok(()) => self.notify("Using the current shared version. A copy of your discarded changes is kept under Shared budget."),
+            Err(e) => {
+                if self.sharing.document.as_ref().is_some_and(|d| d.conflict.is_some()) { let _ = std::fs::remove_file(copy); }
+                self.sharing.error = Some(e);
+            }
+        }
+        self.sharing.discarded_for = None;
+    }
+    /// Reapplies a discarded copy to the current shared version, as new queued changes.
+    fn recover_discarded(&mut self, index: usize) {
+        let result = (|| {
+            if self.has_draft() || self.dirty { return Err("Finish your open editor before getting these changes back.".to_string()); }
+            let mut doc = self.sharing.document.clone().ok_or("No shared budget is open.")?;
+            if doc.conflict.is_some() { return Err("Resolve the conflict before getting these changes back.".into()); }
+            let path = self.sharing.discarded.get(index).ok_or("That copy is no longer available.")?.path.clone();
+            let work: DiscardedWork = client::load_protected(&path)?;
+            if work.id != doc.working.id { return Err("That copy belongs to another household.".into()); }
+            doc.capture(client::merge_snapshots(&work.baseline, &work.local, &doc.working, true)?)?;
+            self.sharing.persist(&doc)?;
+            self.sharing.document = Some(doc);
+            // The changes are durable in the queue, so the copy has done its job.
+            let _ = std::fs::remove_file(path);
+            self.refresh_shared_db()
+        })();
+        self.sharing.discarded_for = None;
+        match result {
+            Ok(()) => { self.sharing.error = None; self.notify("Your changes are back and queued for household sync."); }
+            Err(e) => self.sharing.error = Some(e),
         }
     }
 }
@@ -845,6 +971,104 @@ mod tests {
         let doc = app.sharing.document.as_ref().unwrap();
         assert_eq!(doc.working.notes, "My offline change"); assert_eq!(doc.pending.len(), 1); assert!(doc.conflict.is_some());
         assert!(!app.shared_editable()); assert!(app.sharing.open);
+    }
+    /// Two devices edited, so the household waits for a choice. Returns the other device's notes.
+    fn conflicted(app: &mut App) -> String {
+        app.db.as_mut().unwrap().notes = "My offline change".into(); app.changed();
+        let doc = app.sharing.document.as_ref().unwrap();
+        let mut newer = doc.baseline.clone(); newer.notes = "Other device change".into();
+        let receipt = remote(&newer, &doc.recovery_key, 2); let id = doc.working.id.clone();
+        deliver(app, Event::Sync { id, operation: None, result: Ok(receipt) });
+        assert!(app.sharing.document.as_ref().unwrap().conflict.is_some());
+        app.sharing.open = false;
+        newer.notes
+    }
+    #[test]
+    fn ctrl_s_during_a_conflict_leaves_it_resolvable() {
+        let (mut app, _dir) = setup();
+        let theirs = conflicted(&mut app);
+        assert!(app.save(), "nothing new needs saving, so Ctrl+S has nothing to refuse");
+        assert!(!app.dirty); assert!(app.banner.is_none());
+        app.resolve_shared(false);
+        app.discard_shared();
+        let doc = app.sharing.document.as_ref().unwrap();
+        assert!(doc.conflict.is_none(), "{:?}", app.sharing.error);
+        assert_eq!(app.db.as_ref().unwrap().notes, theirs);
+    }
+    #[test]
+    fn an_edit_stranded_by_a_conflict_is_kept_and_does_not_block_resolving_it() {
+        let (mut app, _dir) = setup();
+        conflicted(&mut app);
+        // An editor that was already open can apply after the conflict arrived.
+        app.db.as_mut().unwrap().adjustments.set_note(20261029, Some("Applied during the conflict"));
+        app.changed();
+        assert!(app.dirty, "the queue is closed, so this edit is not saved yet");
+        app.resolve_shared(true);
+        let doc = app.sharing.document.as_ref().unwrap();
+        assert!(doc.conflict.is_none(), "{:?}", app.sharing.error);
+        assert_eq!(doc.working.adjustments.get_note(20261029).as_deref(), Some("Applied during the conflict"));
+        assert_eq!(doc.working.notes, "My offline change");
+        assert!(!app.dirty);
+        assert_eq!(client::load_device(&app.sharing.cache).unwrap().working.adjustments.get_note(20261029).as_deref(), Some("Applied during the conflict"));
+    }
+    #[test]
+    fn using_the_shared_version_asks_first_keeps_a_protected_copy_and_can_be_undone() {
+        let (mut app, dir) = setup();
+        let theirs = conflicted(&mut app);
+        app.resolve_shared(false);
+        let doc = app.sharing.document.as_ref().unwrap();
+        assert_eq!(app.sharing.confirm_discard, Some(1));
+        assert!(doc.conflict.is_some() && doc.pending.len() == 1, "nothing changes until the user confirms");
+        assert_eq!(app.db.as_ref().unwrap().notes, "My offline change");
+
+        app.discard_shared();
+        let doc = app.sharing.document.as_ref().unwrap();
+        assert!(doc.conflict.is_none() && doc.pending.is_empty());
+        assert_eq!(app.db.as_ref().unwrap().notes, theirs);
+        let id = doc.working.id.clone();
+        let files = app.sharing.discarded_files(&id);
+        assert_eq!(files.len(), 1);
+        assert!(files[0].starts_with(&dir), "the copy sits with the protected cache");
+        assert!(!String::from_utf8_lossy(&std::fs::read(&files[0]).unwrap()).contains("My offline change"));
+
+        // A later session finds it.
+        app.sharing.discarded_for = None;
+        app.sharing.load_discarded();
+        assert_eq!(app.sharing.discarded.len(), 1);
+        assert_eq!(app.sharing.discarded[0].changes, 1);
+
+        // The household moved on meanwhile: that unrelated change stays.
+        app.db.as_mut().unwrap().adjustments.set_note(20261029, Some("Newer shared note")); app.changed();
+        app.recover_discarded(0);
+        assert!(app.sharing.error.is_none(), "{:?}", app.sharing.error);
+        let doc = app.sharing.document.as_ref().unwrap();
+        assert_eq!(doc.working.notes, "My offline change");
+        assert_eq!(doc.working.adjustments.get_note(20261029).as_deref(), Some("Newer shared note"));
+        assert_eq!(app.db.as_ref().unwrap().notes, "My offline change");
+        assert!(!doc.pending.is_empty() && !app.dirty);
+        assert_eq!(client::load_device(&app.sharing.cache).unwrap().working.notes, "My offline change");
+        assert!(app.sharing.discarded_files(&id).is_empty(), "a recovered copy is not offered twice");
+    }
+    #[test]
+    fn a_copy_that_cannot_be_written_leaves_the_conflict_and_the_changes_alone() {
+        let (mut app, dir) = setup();
+        conflicted(&mut app);
+        app.resolve_shared(false);
+        let blocker = dir.join("not-a-directory"); std::fs::write(&blocker, b"fixture").unwrap();
+        let cache = std::mem::replace(&mut app.sharing.cache, blocker.join("shared.enc"));
+        app.discard_shared();
+        app.sharing.cache = cache;
+        let doc = app.sharing.document.as_ref().unwrap();
+        assert!(app.sharing.error.is_some());
+        assert!(doc.conflict.is_some()); assert_eq!(doc.pending.len(), 1);
+        assert_eq!(doc.working.notes, "My offline change");
+    }
+    #[test]
+    fn only_the_newest_discarded_copies_are_kept() {
+        let (mut app, _dir) = setup();
+        let doc = app.sharing.document.clone().unwrap();
+        for _ in 0..DISCARDED_KEPT + 2 { app.sharing.keep_discarded(&doc).unwrap(); std::thread::sleep(Duration::from_millis(2)); }
+        assert_eq!(app.sharing.discarded_files(&doc.working.id).len(), DISCARDED_KEPT);
     }
     #[test]
     fn credential_refresh_retains_queue_and_persists_new_session_only_for_same_account() {

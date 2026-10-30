@@ -25,13 +25,11 @@ fn non_finite(x: f64) -> Option<String> {
     else { None }
 }
 
-/// Balance as the calendar and report show it: exact with decimals, else nudged away from zero by
-/// the original's `0.05f` and truncated toward zero.
-pub fn balance_display(v: f64, exact: bool) -> f64 {
-    if exact { return v; }
-    let nudge = 0.05f32 as f64;
-    if v > 0.0 { ((v + nudge) as i64) as f64 } else { ((v - nudge) as i64) as f64 }
-}
+/// Balance as the calendar and report show it: exact with decimals, else the nearest whole dollar.
+/// The original nudged by `0.05f` and truncated, which showed 5,613.50 as 5,613 and even 5,613.94 as
+/// 5,613: a balance read up to 95 cents low, against amounts that were rounded. A half goes away from
+/// zero, as in [`format_frac0`].
+pub fn balance_display(v: f64, exact: bool) -> f64 { if exact { v } else { v.round() } }
 
 /// Rounding dust: what is left when cent amounts are added in one order and taken away in another
 /// (a sum of 0.38 + 9.56 - 9.94 is 1.8e-15, not 0). Dust grows with the size of the amounts involved
@@ -62,11 +60,12 @@ pub fn format_frac2(x: f64) -> String {
     format!("{}{}.{frac}", if neg { "-" } else { "" }, group_digits(int_part))
 }
 
-/// `numFormatFrac0.format(x)`: grouping on, no decimals, round half-even (`-1,235`).
-/// A value that rounds to zero prints as `0`.
+/// Grouping on, no decimals, a half going away from zero (`-1,235`). A value that rounds to zero
+/// prints as `0`. The original's `numFormatFrac0` rounded a half to even, so -62.50 showed as -62
+/// beside -145.50 as -146.
 pub fn format_frac0(x: f64) -> String {
     if let Some(s) = non_finite(x) { return s; }
-    let s = format!("{:.0}", x.abs());
+    let s = format!("{:.0}", x.abs().round());
     let neg = x < 0.0 && s != "0";
     format!("{}{}", if neg { "-" } else { "" }, group_digits(&s))
 }
@@ -136,7 +135,7 @@ mod tests {
         assert_eq!(to_double("abc"), 0.0);
         assert_eq!(to_double("+$-100"), -100.0);
         assert_eq!(format_frac0(1234.99), "1,235");
-        assert_eq!(format_frac0(0.5), "0");
+        assert_eq!(format_frac0(0.4), "0");
         assert_eq!(format_frac0(1.5), "2");
         assert_eq!(format_frac0(-0.4), "0");
         assert_eq!(format_frac0(-1234567.6), "-1,234,568");
@@ -147,6 +146,21 @@ mod tests {
         assert_eq!(format_frac0(f64::NAN), "NaN");
         assert_eq!(parse_prefix("1E3x"), Some((1000.0, 3)));
         assert_eq!(parse_prefix(".5"), Some((0.5, 2)));
+    }
+
+    #[test]
+    fn whole_dollars_never_drop_a_half_dollar() {
+        // 5,613.50 used to show as 5,613: balances were cut, not rounded.
+        assert_eq!(format_frac0(balance_display(5613.5, false)), "5,614");
+        assert_eq!(format_frac0(balance_display(5613.94, false)), "5,614");
+        assert_eq!(format_frac0(balance_display(5613.49, false)), "5,613");
+        assert_eq!(format_frac0(balance_display(-5613.5, false)), "-5,614");
+        assert_eq!(format_frac0(balance_display(-0.4, false)), "0");
+        assert_eq!(balance_display(5613.5, true), 5613.5);
+        // Amounts round the same way, so -62.50 and -145.50 do not go opposite ways.
+        assert_eq!(format_frac0(-62.5), "-63");
+        assert_eq!(format_frac0(-145.5), "-146");
+        assert_eq!(format_frac0(0.5), "1");
     }
 
     #[test]

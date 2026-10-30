@@ -18,7 +18,7 @@ pub struct Amount {
     pub key: String,
     pub amount: f64,
     pub planned_amount: f64,
-    /// Payment index for leaf rows; `None` for categories and `(Unaccounted)`.
+    /// Payment index for leaf rows; `None` for categories.
     pub pmt: Option<usize>,
     /// Insertion-ordered sub rows (category → payments).
     pub sub_amounts: Vec<Amount>,
@@ -60,6 +60,11 @@ pub struct Stats {
     pub total_expense: f64,
     pub total_planned_income: f64,
     pub total_planned_expense: f64,
+    /// What balance checkpoints changed in the range, net. Not a transaction: it counts in neither
+    /// total, and has its own "Balance corrections" line in the summary and the reports.
+    pub corrections: f64,
+    /// The amount the budget started with, when its opening checkpoint is in the range.
+    pub starting_balance: f64,
     /// Sum of the magnitudes of every amount added: the rounding dust of any sum or difference of
     /// them is bounded by a few ulps of this.
     pub abs_sum: f64,
@@ -158,6 +163,7 @@ pub fn calc_statistics(db: &mut BudgetDb, cal: &Cal, n_months: i32, full: bool, 
 /// `calcStatisticsExact(start, end, full)` + `calculate_stats_range`.
 pub fn calc_statistics_exact(db: &mut BudgetDb, start: &Cal, end: &Cal, full: bool, filter: Option<&Filter>) -> Stats {
     let mut st = Stats { start: *start, end: *end, full_stats: full, ..Default::default() };
+    let opening_date = db.starting_balance_date();
     st.top_mut(UNCATEGORIZED_INCOME);
     st.top_mut(UNCATEGORIZED_EXPENSES);
 
@@ -195,7 +201,9 @@ pub fn calc_statistics_exact(db: &mut BudgetDb, start: &Cal, end: &Cal, full: bo
                 st.add_stat_info(cat.as_deref(), &desc, amount, Some((pi, amt)), false);
             }
             // A balance adjustment is not a transaction: a search that narrows the statistics leaves it out.
-            if adj != 0.0 && filter.is_none_or(|f| f.is_empty()) { st.add_stat_info(None, UNACCOUNTED, adj, None, false); }
+            if adj != 0.0 && filter.is_none_or(|f| f.is_empty()) {
+                if opening_date == Some(date) { st.starting_balance += adj; } else { st.corrections = snap_to_cent(st.corrections + adj); }
+            }
         }
         c.add(Field::Day, 1);
     }
@@ -362,7 +370,7 @@ mod tests {
     }
 
     #[test]
-    fn a_search_leaves_unaccounted_out_of_the_statistics() {
+    fn a_search_leaves_balance_corrections_out_of_the_statistics() {
         // The Oct 15 balance adjustment is not a transaction, so a search that narrows the list
         // drops it instead of adding it to the matches.
         let mut db = db_of(vec![scheduled("Rent", Some("Housing"), -1000.0, 20261001, 1)]);
@@ -370,12 +378,69 @@ mod tests {
         let (start, end) = (Cal::from_int(20261001), Cal::from_int(20261031));
         let f = Filter::new("cat:zzz", 20261027).unwrap();
         let st = calc_statistics_exact(&mut db, &start, &end, true, Some(&f));
-        assert!(st.income.iter().chain(st.expense.iter()).all(|r| !r.key.contains(UNACCOUNTED)), "{:?}", st.expense);
-        assert_eq!(st.total_expense, 0.0);
-        // without a search the adjustment is shown and counted
+        assert_eq!((st.total_expense, st.corrections), (0.0, 0.0));
+        // without a search it is shown on its own, and is still not spending
         let st = calc_statistics_exact(&mut db, &start, &end, true, None);
-        assert!(st.expense.iter().any(|r| r.key == "   (Unaccounted)"));
-        assert_eq!(st.total_expense, -3020.0);
+        assert!(st.income.iter().chain(st.expense.iter()).all(|r| !r.key.contains(UNACCOUNTED)), "{:?}", st.expense);
+        assert_eq!((st.total_expense, st.corrections), (-1000.0, -2020.0));
+    }
+
+    #[test]
+    fn a_correction_is_neither_money_in_nor_money_out() {
+        // Rent of 1,000 on the 1st of each month, reconciled up in October and down in November.
+        let mut db = db_of(vec![scheduled("Rent", None, -1000.0, 20260901, 3)]);
+        db.update_adjustment(&Cal::from_int(20261015), 500.0);
+        db.update_adjustment(&Cal::from_int(20261115), -700.0);
+        for (full, month, correction) in [(true, 20261001, 2500.0), (false, 20261001, 2500.0), (true, 20261101, -200.0)] {
+            let st = calc_statistics(&mut db, &Cal::from_int(month), 1, full, None);
+            assert_eq!((st.total_income, st.total_expense, st.corrections, st.starting_balance), (0.0, -1000.0, correction, 0.0), "{month}");
+            assert_eq!(st.net(), -1000.0, "disposable income is what was earned and spent");
+            assert_rows_reconcile(&st);
+        }
+        let st = calc_statistics(&mut db, &Cal::from_int(20261001), 2, true, None);
+        assert_eq!(st.corrections, 2300.0, "corrections net over a range");
+    }
+
+    #[test]
+    fn the_first_checkpoint_with_no_earlier_history_is_a_starting_balance_not_income() {
+        // Nothing happens before the 5th: the bank balance that day is what the household started with.
+        let mut db = db_of(vec![scheduled("Salary", None, 3000.0, 20261015, 1), scheduled("Rent", None, -1000.0, 20261005, 1)]);
+        db.update_adjustment(&Cal::from_int(20261005), 5000.0);
+        let oct = Cal::from_int(20261001);
+        let st = calc_statistics(&mut db, &oct, 1, true, None);
+        assert_eq!((st.total_income, st.total_expense, st.corrections, st.starting_balance), (3000.0, -1000.0, 0.0, 6000.0));
+        assert_eq!(st.net(), 2000.0);
+        // A later checkpoint corrects it.
+        db.update_adjustment(&Cal::from_int(20261020), 6500.0);
+        let st = calc_statistics(&mut db, &oct, 1, true, None);
+        assert_eq!((st.corrections, st.starting_balance), (-1500.0, 6000.0));
+        // A payment before it means the balance had a history: this is a correction after all.
+        db.add(scheduled("Coffee", None, -5.0, 20261002, 1));
+        let st = calc_statistics(&mut db, &oct, 1, true, None);
+        assert_eq!(st.starting_balance, 0.0);
+        assert_eq!(st.corrections, 4505.0);
+        // A disabled payment leaves no history.
+        let i = db.payments.len() - 1;
+        db.payments[i].disabled = true;
+        db.update_payment(i);
+        assert_eq!(calc_statistics(&mut db, &oct, 1, true, None).starting_balance, 6000.0);
+    }
+
+    #[test]
+    fn the_starting_balance_is_the_same_in_any_window() {
+        let build = |unlimited: bool, view: i32| {
+            let mut db = db_of(vec![scheduled("Rent", None, -1000.0, 20260610, 60)]);
+            db.adjustments.set_custom_amount(20260605, 4000.0);
+            db.adjustments.set_custom_amount(20260805, 3500.0);
+            db.rebuild_db(&Cal::from_int(view), 12, unlimited);
+            db
+        };
+        let june = Cal::from_int(20260601);
+        for mut db in [build(true, 20261001), build(false, 20260601)] {
+            let st = calc_statistics(&mut db, &june, 1, true, None);
+            assert_eq!((st.total_income, st.starting_balance, st.corrections), (0.0, 4000.0, 0.0));
+        }
+        assert_eq!(build(false, 20261201).starting_balance_date(), Some(20260605));
     }
 
     #[test]
@@ -447,6 +512,75 @@ mod tests {
         assert!(st.income.is_empty(), "{:?}", st.income);
     }
 
+    /// A household budget: a pay and a rent since January 2025, reconciled twice. `loan` adds a loan
+    /// that stretches the loaded window back past the older checkpoint.
+    fn reconciled(loan: bool, centre: i32, unlimited: bool) -> BudgetDb {
+        let every_month = |desc: &str, amount: f64, start: i32| {
+            let mut p = scheduled(desc, None, amount, start, 1);
+            p.set_end_mode(crate::model::END_MODE_INDEFINITE);
+            p
+        };
+        let mut payments = vec![every_month("Salary", 3000.0, 20250115), every_month("Rent", -1200.0, 20250101)];
+        if loan {
+            let mut car = every_month("Car", -400.0, 20260105);
+            car.set_end_mode(crate::model::END_MODE_LOAN_PAID);
+            car.loan_amount = 8000.0;
+            payments.push(car);
+        }
+        let mut db = db_of(payments);
+        db.adjustments.set_custom_amount(20250601, 9000.0);
+        db.adjustments.set_custom_amount(20260620, 2500.0);
+        db.rebuild_db(&Cal::from_int(centre), 12, unlimited);
+        db
+    }
+
+    /// Moves one month at a time as the arrows do: the window is rebuilt only for a month it cannot show.
+    fn page_to(db: &mut BudgetDb, from: i32, to: i32) {
+        let (mut month, step) = (Cal::from_int(from), if to < from { -1 } else { 1 });
+        while month.get() != to {
+            month.add(Field::Month, step);
+            if !db.is_month_available(&month) { db.rebuild_db(&month, 12, false); }
+        }
+    }
+
+    /// Opening balance, closing balance, money in and money out of a month.
+    fn figures(db: &mut BudgetDb, month: i32) -> (f64, f64, f64, f64) {
+        let first = Cal::from_int(month);
+        let mut last = first;
+        last.set_day_last();
+        let (opening, closing) = (db.get_day(&first).unwrap().opening_balance, db.get_day(&last).unwrap().closing_balance);
+        let st = calc_statistics(db, &first, 1, true, None);
+        (opening, closing, st.total_income, st.total_expense)
+    }
+
+    #[test]
+    fn a_months_figures_do_not_depend_on_the_way_it_was_reached() {
+        for loan in [false, true] {
+            let mut complete = reconciled(loan, 20261001, true);
+            for centre in [20261001, 20270301, 20280601, 20250701] {
+                let mut month = Cal::from_int(20250301);
+                while month.get() <= 20270301 {
+                    let mut db = reconciled(loan, centre, false);
+                    page_to(&mut db, centre, month.get());
+                    assert_eq!(figures(&mut db, month.get()), figures(&mut complete, month.get()), "loan {loan}, from {centre} to {}", month.get());
+                    month.add(Field::Month, 1);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn the_month_of_the_window_start_is_not_shown_built_from_zero() {
+        // Viewing October, the window starts on 1 June because of the 20 June checkpoint.
+        let mut db = reconciled(false, 20261001, false);
+        assert_eq!(db.start_date.get(), 20260601);
+        assert!(!db.is_month_available(&Cal::from_int(20260601)), "June's balances before the 20th are built from zero");
+        assert!(db.is_month_available(&Cal::from_int(20260701)));
+        assert!(db.is_month_available(&Cal::from_int(20261001)));
+        page_to(&mut db, 20261001, 20260601);
+        assert!(db.get_day(&Cal::from_int(20260601)).unwrap().opening_balance > 9000.0, "June opens with what May closed on");
+    }
+
     #[test]
     fn filter_and_unaccounted() {
         let mut db = sample();
@@ -454,9 +588,10 @@ mod tests {
         let st = calc_statistics(&mut db, &Cal::from_int(20211201), 1, true, Some(&f));
         assert_eq!(st.total_expense, -600.0);
         assert_eq!(st.total_income, 0.0);
-        // a balance adjustment inside the range shows up as (Unaccounted)
+        // a balance adjustment inside the range is a correction, not a row of its own
         db.update_adjustment(&Cal::from_int(20211215), 0.0);
         let st = calc_statistics(&mut db, &Cal::from_int(20211201), 1, true, None);
-        assert!(st.income.iter().chain(st.expense.iter()).any(|r| r.key == "   (Unaccounted)"));
+        assert!(st.income.iter().chain(st.expense.iter()).all(|r| !r.key.contains(UNACCOUNTED)));
+        assert_ne!(st.corrections, 0.0);
     }
 }

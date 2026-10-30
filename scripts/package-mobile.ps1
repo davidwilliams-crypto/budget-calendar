@@ -60,6 +60,10 @@ foreach ($required in @('public/index.html', 'public/app.mjs', 'public/manifest.
 }
 $wasm = [IO.File]::ReadAllBytes($files['public/budget_engine.wasm'])
 if ($wasm.Length -lt 8 -or [BitConverter]::ToString($wasm[0..7]) -cne '00-61-73-6D-01-00-00-00') { throw 'WebAssembly engine is missing or invalid; run scripts/build-mobile.ps1.' }
+# A package with an engine older than the Rust sources would calculate differently from Windows.
+& (Join-Path $PSScriptRoot 'stamp-mobile-engine.ps1') -WasmPath $files['public/budget_engine.wasm'] -Check | Out-Null
+# A package with a stale cache name would never reach phones, so it is refused here.
+& (Join-Path $PSScriptRoot 'stamp-mobile-worker.ps1') -PublicDirectory (Join-Path $root 'budget-mobile/public') -Check | Out-Null
 $hashes = [ordered]@{}
 foreach ($entry in $files.GetEnumerator()) { $hashes[$entry.Key] = Get-Sha256 $entry.Value }
 $identity = [ordered]@{ app = 'Budget Calendar'; version = $version; node = '>=24.19.0 <25'; files = $hashes }

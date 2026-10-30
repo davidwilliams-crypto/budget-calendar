@@ -1,6 +1,7 @@
 //! Versioned, clock-independent sharing boundary. No files, network or system clock.
 //! Native password exports use OS randomness; raw WASM exports require fresh host entropy.
-use crate::{bgt, commands, date::is_calendar_date, BudgetDb, Cal, Field, Payment};
+use crate::numfmt::snap_to_cent;
+use crate::{bgt, commands, date::is_calendar_date, BudgetDb, Cal, Field, Payment, END_MODE_N_PAYS};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::BTreeSet;
@@ -351,6 +352,7 @@ fn forecast(s: &Snapshot, today: i32, from: i32, to: i32) -> Result<Value, Strin
     let mut date = a;
     let mut days = Vec::new();
     let mut low = (from, f64::INFINITY);
+    let (mut money_in, mut money_out) = (0.0, 0.0);
     loop {
         let d = db
             .get_day(&date)
@@ -358,6 +360,14 @@ fn forecast(s: &Snapshot, today: i32, from: i32, to: i32) -> Result<Value, Strin
             .clone();
         if d.closing_balance < low.1 {
             low = (date.get(), d.closing_balance)
+        }
+        // Balance checkpoints are not transactions, and a disabled payment never moves the balance.
+        for t in d.transactions.iter().filter(|t| !db.payments[t.pmt].disabled) {
+            if t.amount < 0.0 {
+                money_out = snap_to_cent(money_out - t.amount)
+            } else {
+                money_in = snap_to_cent(money_in + t.amount)
+            }
         }
         let transactions:Vec<Value>=d.transactions.iter().map(|t|{
             let p=&db.payments[t.pmt];let id=&s.payments.iter().find(|r|r.payment.id==p.id).unwrap().id;
@@ -369,7 +379,20 @@ fn forecast(s: &Snapshot, today: i32, from: i32, to: i32) -> Result<Value, Strin
         }
         date.add(Field::Day, 1);
     }
-    Ok(json!({"days":days,"lowPoint":{"date":low.0,"balance":low.1}}))
+    Ok(json!({"days":days,"lowPoint":{"date":low.0,"balance":low.1},"totals":{"moneyIn":money_in,"moneyOut":money_out}}))
+}
+
+/// The desktop editor's rule. The schedule emits the start date itself as the first "last weekday"
+/// payment, so a start outside the last week of its month is moved to the last matching weekday,
+/// unless it is the unchanged start of an existing last-weekday payment. A single payment keeps its
+/// date. An nth-weekday start already names its week, so that type has nothing to move. A date that
+/// is not on the calendar is left for validation to refuse.
+fn snap_last_weekday(p: &mut Payment, original: Option<&Payment>) {
+    let single = p.end_mode() == END_MODE_N_PAYS && p.n_pays == 1;
+    let unchanged = original.is_some_and(|o| o.freq_type == 'L' && o.start_date == p.start_date);
+    if p.freq_type == 'L' && !single && !unchanged && is_calendar_date(p.start_date) {
+        p.start_date = Cal::from_int(p.start_date).add(Field::LastWeekday, 0).get();
+    }
 }
 
 pub fn apply_command(
@@ -390,12 +413,14 @@ pub fn apply_command(
     let mut name = s.name.clone();
     match kind {
         "put_payment" => {
-            let p: Payment = serde_json::from_value(required(c, "payment")?.clone())
+            let mut p: Payment = serde_json::from_value(required(c, "payment")?.clone())
                 .map_err(|e| format!("Invalid payment: {e}"))?;
             let id = match c.get("id") {
                 None | Some(Value::Null) => None,
                 Some(_) => Some(record(s, c)?),
             };
+            let original = id.and_then(|id| s.payments.iter().find(|r| r.payment.id == id));
+            snap_last_weekday(&mut p, original.map(|r| &r.payment));
             commands::apply_payment(&mut db, p, id, optional_date(c, "from")?)?;
         }
         "transaction" => {

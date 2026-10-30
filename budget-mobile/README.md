@@ -10,9 +10,11 @@ From the repository root in PowerShell:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-mobile.ps1
-node --test budget-mobile/tests/*.test.mjs
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/release-gate.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/package-mobile.ps1
 ```
+
+`scripts/release-gate.ps1` runs every test in this folder along with the Windows, parity and release-script tests. For a quick check during work, `node --test budget-mobile/tests/*.test.mjs` runs only the unit tests. `build-mobile.ps1` records a hash of the Rust sources inside `budget_engine.wasm`; the gate and the package script refuse an engine whose record does not match the current sources.
 
 Cargo uses the configured offline cache unless `build-mobile.ps1 -Online` is explicitly selected. The package script reads the application version from `budget-gui/Cargo.toml` and writes `target/mobile-release-vVERSION/budget-mobile-vVERSION.zip` plus `release.json`. The ZIP contains runtime assets, the service, deployment documentation, Docker files and `app-version.json` with version and input SHA256 hashes. The external manifest also records the ZIP SHA256. Identical repeated packaging is safe; changed content at an existing version is refused. The source archive shipped alongside the Windows executable separately preserves Rust source and tests.
 

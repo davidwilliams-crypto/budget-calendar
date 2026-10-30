@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  release-gate:
+    runs-on: windows-2025
+    timeout-minutes: 120
+    env:
+      # rust-toolchain.toml still names a GNU toolchain that releases do not use; this overrides it.
+      RUSTUP_TOOLCHAIN: 1.99.1-x86_64-pc-windows-msvc
+      BUDGET_CHROME: C:\Program Files\Google\Chrome\Application\chrome.exe
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.19.0
+      - name: Install the Rust toolchain
+        shell: powershell
+        run: |
+          rustup toolchain install $env:RUSTUP_TOOLCHAIN --profile minimal --no-self-update
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          rustc --version
+          cargo --version
+      - name: Fetch locked Rust dependencies
+        shell: powershell
+        run: cargo fetch --locked
+      # The browser tests drive the Chrome already on the runner; this only adds the Playwright library.
+      - name: Install Playwright
+        shell: powershell
+        run: npm install --no-save --no-package-lock --prefix target/ci-tools playwright@1.58.2
+      - name: Run the release gate
+        shell: powershell
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/release-gate.ps1
+      - name: Keep gate logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-gate-logs
+          path: target/release-gate/
+          if-no-files-found: ignore

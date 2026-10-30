@@ -6,6 +6,9 @@
 //! (else `.xlsx`). The original also wrote HTML for those and ran its `.xls` program on it (06 §1.12).
 //! The files this run wrote are deleted when the app exits, as the original's were.
 //!
+//! A report is built from a full-history copy of the budget, never from the months the calendar has
+//! loaded: those start at a recent balance check, so their first days would be built from zero.
+//!
 //! The dialog state lives in egui memory rather than in `App`, so the main window only needs the
 //! menu call, the dialog call and a keyboard guard.
 
@@ -246,8 +249,28 @@ fn span(a: &Cal, b: &Cal) -> String {
     if n <= 1 { month_name(a) } else { format!("{} to {} ({n} months)", month_name(a), month_name(b)) }
 }
 
-/// The months the open budget has a schedule for (the original's `minDate`..`maxDate`).
-pub fn months_available(db: &BudgetDb) -> (Cal, Cal) { (first_of(&db.start_date), first_of(&db.end_date)) }
+/// The months a report can cover: every month with anything in it, and all the calendar has loaded.
+pub fn months_available(db: &BudgetDb) -> (Cal, Cal) {
+    let (mut min, mut max) = (first_of(&db.start_date), first_of(&db.end_date));
+    if let Some((first, last)) = db.data_span() {
+        let (first, last) = (first_of(&Cal::from_int(first)), first_of(&Cal::from_int(last)));
+        if first.ym() < min.ym() { min = first; }
+        if last.ym() > max.ym() { max = last; }
+    }
+    (min, max)
+}
+
+/// A copy of `db` holding every month from the start of its history through the requested range; the
+/// open budget and the calendar's window stay as they are.
+fn full_history(db: &BudgetDb, req: &Request) -> BudgetDb {
+    let other = if req.kind == ReportKind::Comparative { req.other } else { req.from };
+    let other_end = shift(other, Cal::months_diff(&req.from, &req.to));
+    let first = if other.ym() < req.from.ym() { other } else { req.from };
+    let last = if other_end.ym() > req.to.ym() { other_end } else { req.to };
+    let mut copy = db.clone();
+    copy.rebuild_db(&first, Cal::months_diff(&first, &last) + 1, true);
+    copy
+}
 
 /// The original's range rules (06 §3.5, §6, §7, §11), with a reason a person can act on.
 pub fn validate(req: &Request, min: Cal, max: Cal) -> Result<(), String> {
@@ -255,7 +278,7 @@ pub fn validate(req: &Request, min: Cal, max: Cal) -> Result<(), String> {
         return Err(format!("From ({}) is after To ({}). Choose a From month on or before the To month.", month_name(&req.from), month_name(&req.to)));
     }
     if req.from.ym() < min.ym() || req.to.ym() > max.ym() {
-        return Err(format!("Choose months from {} to {}; this budget has no schedule outside that period.", month_name(&min), month_name(&max)));
+        return Err(format!("Choose months from {} to {}.", month_name(&min), month_name(&max)));
     }
     if req.kind == ReportKind::MonthByMonth && req.from == req.to {
         return Err("A Month-by-Month report needs at least two months. Choose a later To month.".into());
@@ -351,7 +374,8 @@ fn calendar_options(cfg: &BudgetConfig) -> CalendarOptions {
 /// Unpaid & paid runs from the 1st of From to the last day of To, and every other report includes
 /// the To month. The original's Monthly Detailed / Excel reports left the To month out unless it
 /// equalled From (06 §8); here the generator is given the month after To, so they include it too.
-pub fn generate(db: &mut BudgetDb, cfg: &BudgetConfig, req: &Request) -> Result<String, String> {
+pub fn generate(db: &BudgetDb, cfg: &BudgetConfig, req: &Request) -> Result<String, String> {
+    let db = &mut full_history(db, req);
     let images = |path: &str| report_image(path, cfg);
     let n = Cal::months_diff(&req.from, &req.to) + 1;
     let stats = |db: &mut BudgetDb, start: &Cal| calc_statistics(db, start, n, true, None);
@@ -403,11 +427,11 @@ fn write_report(dir: &Path, html: &str) -> std::io::Result<PathBuf> {
 }
 
 /// Generates, writes and opens one report: `Ok` is a confirmation, `Err` a message for the banner.
-pub fn run(db: &mut BudgetDb, cfg: &BudgetConfig, req: &Request, shell: &dyn Shell) -> Result<String, String> {
+pub fn run(db: &BudgetDb, cfg: &BudgetConfig, req: &Request, shell: &dyn Shell) -> Result<String, String> {
     run_named(db, cfg, req, req.kind.title(), shell)
 }
 
-fn run_named(db: &mut BudgetDb, cfg: &BudgetConfig, req: &Request, name: &str, shell: &dyn Shell) -> Result<String, String> {
+fn run_named(db: &BudgetDb, cfg: &BudgetConfig, req: &Request, name: &str, shell: &dyn Shell) -> Result<String, String> {
     // A generator fault must not close the app and lose unsaved edits.
     let html = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| generate(db, cfg, req)))
         .unwrap_or_else(|_| Err("an internal error stopped the report.".into()))
@@ -423,7 +447,7 @@ fn run_named(db: &mut BudgetDb, cfg: &BudgetConfig, req: &Request, name: &str, s
     })
 }
 
-fn print_this_month(db: &mut BudgetDb, cfg: &BudgetConfig, cur: &Cal, shell: &dyn Shell) -> Result<String, String> {
+fn print_this_month(db: &BudgetDb, cfg: &BudgetConfig, cur: &Cal, shell: &dyn Shell) -> Result<String, String> {
     let month = first_of(cur);
     run_named(db, cfg, &Request { kind: ReportKind::MonthlyCalendar, from: month, to: month, other: month }, PRINT_THIS_MONTH, shell)
 }
@@ -625,7 +649,7 @@ fn shortcut(ui: &mut egui::Ui, text: &str, t: &Tokens) -> bool {
         .on_hover_cursor(egui::CursorIcon::PointingHand).clicked()
 }
 
-/// Month and year choosers under one caption; months the budget has no schedule for are disabled.
+/// Month and year choosers under one caption; months outside the available range are disabled.
 /// Returns whether the value changed.
 fn month_field(ui: &mut egui::Ui, t: &Tokens, label: &str, id: &str, value: &mut Cal, min: Cal, max: Cal) -> bool {
     let before = *value;
@@ -791,6 +815,61 @@ mod tests {
         assert_eq!(shell.opened.borrow().iter().filter(|(_, v)| *v == Viewer::Spreadsheet).count(), 2);
     }
 
+    /// Reconciled every month since 2024, as a regular reconciler does, viewing October 2026.
+    fn reconciled() -> BudgetDb {
+        let cur = month(20261001);
+        let mut db = BudgetDb::new(&cur, 12, false);
+        db.add(payment("Salary", Some("Work"), 3000.0, 20240115, 'm'));
+        db.add(payment("Rent", Some("Home"), -1000.0, 20240101, 'm'));
+        let mut date = month(20240120);
+        let mut balance = 100.0;
+        while date.get() < 20261001 {
+            db.adjustments.set_custom_amount(date.get(), balance);
+            balance += 2100.0;
+            date.add(Field::Month, 1);
+        }
+        db.rebuild_db(&cur, 12, false);
+        db
+    }
+
+    #[test]
+    fn reports_offer_every_month_with_data_and_build_them_from_all_history() {
+        let cfg = BudgetConfig::default();
+        let mut db = reconciled();
+        assert_eq!(db.start_date.get(), 20260701, "the calendar loads only a few months");
+        let (min, max) = months_available(&db);
+        assert_eq!((min.get(), max.get()), (20240101, 20271201));
+        assert_eq!(validate(&req(ReportKind::MonthlyDetailed, 20250301, 20250301, 0), min, max), Ok(()));
+        let html = generate(&db, &cfg, &req(ReportKind::MonthlyDetailed, 20250301, 20250301, 0)).unwrap();
+        // March 2025 opens on the 20 February checkpoint, not on 0.
+        let opening = report::unicodish(&report::f2html(db.adjustments.opt.iter().find(|o| o.date == 20250220).unwrap().amount));
+        assert!(html.contains(&opening) && html.contains("<I>Balance correction</I>"), "{html}");
+        // The first loaded month prints the same whichever window the calendar holds.
+        let print = |db: &BudgetDb| generate(db, &cfg, &req(ReportKind::MonthlyCalendar, 20260701, 20260701, 0)).unwrap();
+        let from_window = print(&db);
+        db.rebuild_db(&month(20260101), 24, true);
+        assert_eq!(from_window, print(&db));
+    }
+
+    #[test]
+    fn a_report_leaves_the_calendars_window_alone_and_a_loan_does_not_change_the_range() {
+        let cfg = BudgetConfig::default();
+        let mut db = reconciled();
+        let window = (db.start_date, db.end_date, db.update_count);
+        generate(&db, &cfg, &req(ReportKind::Print, 20240101, 20240101, 0)).unwrap();
+        assert_eq!(window, (db.start_date, db.end_date, db.update_count));
+        let (min, max) = months_available(&db);
+        let mut loan = payment("Car", Some("Auto"), -300.0, 20250601, 'm');
+        loan.set_end_mode(budget_core::END_MODE_LOAN_PAID);
+        loan.loan_amount = 9000.0;
+        db.add(loan);
+        db.rebuild_db(&month(20261001), 12, false);
+        assert_eq!(months_available(&db), (min, max));
+        // A single dated payment years ahead is a month with data.
+        db.add(payment("Far", None, -5.0, 20300310, 'y'));
+        assert_eq!(months_available(&db).1.get(), 20300301);
+    }
+
     #[test]
     fn report_pictures_are_embedded_so_the_temp_file_stands_alone() {
         let cfg = BudgetConfig::default();
@@ -827,6 +906,7 @@ mod tests {
         }
         let early = validate(&req(ReportKind::Print, 20260301, 20260601, 0), min, max).unwrap_err();
         assert!(early.contains("April 2026 to December 2027"), "{early}");
+        assert!(!early.contains("no schedule"), "the months before are not missing: {early}");
         let single = validate(&req(ReportKind::MonthByMonth, 20260601, 20260601, 0), min, max).unwrap_err();
         assert!(single.contains("at least two months"), "{single}");
         assert_eq!(validate(&req(ReportKind::MonthByMonth, 20260501, 20260601, 0), min, max), Ok(()));

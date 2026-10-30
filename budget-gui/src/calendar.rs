@@ -790,7 +790,7 @@ mod tests {
         }).collect();
         MonthView { key: Default::default(), cells, shown: payments * weeks * 7,
             total: payments * weeks * 7, brief: Vec::new(), below_min: false, shares_of_expenses: false, filtered: false,
-            quick: QuickStats { opening: 0.0, closing: 0.0, min: 0.0, max: 0.0, avg: 0.0, income: 0.0, expenses: 0.0 } }
+            quick: QuickStats { opening: 0.0, closing: 0.0, min: 0.0, max: 0.0, avg: 0.0, income: 0.0, expenses: 0.0, corrections: 0.0, starting_balance: 0.0 } }
     }
 
     fn context() -> (egui::Context, Tokens) {

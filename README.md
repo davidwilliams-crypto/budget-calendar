@@ -7,16 +7,15 @@ Budget Calendar provides a Windows desktop budget calendar and an Android instal
 Use the Rust toolchain pinned by `rust-toolchain.toml` and the available offline Cargo cache:
 
 ```powershell
-cargo test --workspace --offline
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-mobile.ps1
-rustc --edition=2021 --test budget-gui/build.rs -o target/version-build-tests.exe
-target/version-build-tests.exe
-powershell -NoProfile -ExecutionPolicy Bypass -File scripts/tests/archive-release.Tests.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/release-gate.ps1
 cargo build -p budget-gui --release --offline
 target/release/budget-gui.exe --version
 target/release/budget-gui.exe --version-json
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/archive-release.ps1
 ```
+
+`scripts/release-gate.ps1` is the one test command: it runs the workspace, build-script, parity, mobile unit, browser, three-client integration and release-script tests, and checks that the shipped phone engine matches its Rust sources. Any failure fails it, and so does a skipped step unless `-AllowSkip` is passed. Browser steps need Playwright and Chromium; set `PLAYWRIGHT_MODULE_PATH` and `BUDGET_CHROME` if they are not found. Logs go to `target/release-gate/`. `.github/workflows/ci.yml` runs the same gate on Windows for pushes and pull requests.
 
 Build mobile assets before the final Windows build: its build identity includes the shared Rust engine, mobile assets, service, documentation and release scripts. The archive script checks its exact build-generated inventory against the source. Follow [AGENTS.md](AGENTS.md) for version, changelog, test and archive requirements. Existing versions are immutable. Keep any running application and unsaved draft open while building a new executable.
 

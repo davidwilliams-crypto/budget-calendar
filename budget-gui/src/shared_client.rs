@@ -119,8 +119,15 @@ pub fn household_today(time_zone:&str)->Result<i32,String>{use chrono::Datelike;
 impl SharedDocument {
     pub fn open(mut connection:Connection,recovery_key:String,remote:Remote)->Result<Self,String>{connection.server=normalize_server(&connection.server)?;let snapshot=unlock(&remote,&recovery_key)?;Ok(Self{connection,recovery_key,baseline:snapshot.clone(),working:snapshot,revision:remote.revision,pending:vec![],conflict:None,role:remote.role,last_sync:remote.updated_at})}
     pub fn capture(&mut self,snapshot:Snapshot)->Result<(),String>{
+        if snapshot==self.working{return Ok(())}
         if self.conflict.is_some(){return Err("Review the conflicting shared version before editing.".into())}
-        if snapshot==self.working{return Ok(())}budget_core::sharing::validate_snapshot(&snapshot)?;
+        self.queue(snapshot)
+    }
+    /// Queue an edit that reached the budget while a conflict was waiting, so resolving the
+    /// conflict handles it with the rest of this device's changes instead of being blocked by it.
+    pub fn capture_unresolved(&mut self,snapshot:Snapshot)->Result<(),String>{if snapshot==self.working{return Ok(())}self.queue(snapshot)}
+    fn queue(&mut self,snapshot:Snapshot)->Result<(),String>{
+        budget_core::sharing::validate_snapshot(&snapshot)?;
         if snapshot.id!=self.working.id{return Err("Cannot replace a shared budget with another budget.".into())}
         encode_snapshot(&snapshot)?;
         self.pending.push(Pending{operation_id:uuid::Uuid::new_v4().to_string(),snapshot:snapshot.clone(),request:None});self.working=snapshot;Ok(())
@@ -365,6 +372,21 @@ pub fn load_protected<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T, 
         assert_eq!(document.revision, 1); assert_eq!(document.conflict.as_ref().unwrap().revision, 2);
     }
     #[test]fn remote_update_cannot_replace_pending_work(){let s=fixture();let key=generate_recovery_key();let mut d=SharedDocument::open(connection(),key.clone(),remote(&s,&key,1)).unwrap();let mut mine=s.clone();mine.notes="mine".into();d.capture(mine.clone()).unwrap();let mut theirs=s.clone();theirs.name="Theirs".into();assert!(!d.receive(remote(&theirs,&key,2)).unwrap());assert_eq!(d.working,mine);d.resolve(true).unwrap();assert_eq!(d.working.notes,"mine");assert_eq!(d.working.name,"Theirs");assert_eq!(d.pending.len(),1);}
+    #[test]
+    fn a_conflict_refuses_new_edits_but_not_a_save_with_nothing_new() {
+        let s = fixture(); let key = generate_recovery_key();
+        let mut document = SharedDocument::open(connection(), key.clone(), remote(&s, &key, 1)).unwrap();
+        let mut mine = s.clone(); mine.notes = "mine".into(); document.capture(mine.clone()).unwrap();
+        let mut theirs = s.clone(); theirs.name = "Theirs".into(); document.receive(remote(&theirs, &key, 2)).unwrap();
+        document.capture(mine.clone()).unwrap();
+        assert_eq!(document.pending.len(), 1);
+        let mut later = mine; later.notes = "later".into();
+        assert!(document.capture(later.clone()).is_err());
+        assert_eq!(document.pending.len(), 1);
+        document.capture_unresolved(later.clone()).unwrap();
+        assert_eq!((document.pending.len(), &document.working), (2, &later));
+        assert!(document.conflict.is_some() && document.prepare().unwrap().is_none(), "nothing is sent until the conflict is resolved");
+    }
     #[test]fn same_field_conflict_requires_review(){let s=fixture();let mut a=s.clone();a.notes="a".into();let mut b=s.clone();b.notes="b".into();assert!(merge_snapshots(&s,&a,&b,false).is_err());assert_eq!(merge_snapshots(&s,&a,&b,true).unwrap().notes,"a");}
     #[test]
     fn keeping_local_day_note_preserves_remote_day_balances_and_notes() {

@@ -47,6 +47,7 @@ impl ConflictPreview {
 impl App {
     pub(super) fn shared_panel_contents(&mut self, ctx: &egui::Context) -> Option<&'static str> {
         let mut command = None;
+        let mut recover = None;
         let busy = self.sharing.job.is_some();
         if let Some(doc) = &self.sharing.document {
             if let Some(remote) = &doc.conflict {
@@ -127,10 +128,30 @@ impl App {
                                 }
                                 ui.label("Keep mine reapplies only records and settings changed on this device to the current shared version.");
                                 if ui.button("Export local backup…").clicked() { command = Some("export"); }
-                                ui.horizontal_wrapped(|ui| {
-                                    if ui.button("Keep mine (reapply my changes)").clicked() { command = Some("mine"); }
-                                    if ui.button("Use current shared version").clicked() { command = Some("theirs"); }
-                                });
+                                if let Some(count) = self.sharing.confirm_discard {
+                                    let changes = changes_text(count);
+                                    ui.label(egui::RichText::new(format!("Discard {changes}?")).text_style(ts(SEMI)));
+                                    ui.label("The current shared version will replace what is on this device. A protected copy stays on this device, and you can get your changes back here.");
+                                    ui.horizontal_wrapped(|ui| {
+                                        if theme::danger_button(ui, format!("Discard {changes}"), &t).clicked() { command = Some("discard"); }
+                                        if theme::secondary_button(ui, "Keep my changes", &t).clicked() { command = Some("keep-discard"); }
+                                    });
+                                } else {
+                                    ui.horizontal_wrapped(|ui| {
+                                        if ui.button("Keep mine (reapply my changes)").clicked() { command = Some("mine"); }
+                                        if ui.button("Use current shared version").clicked() { command = Some("theirs"); }
+                                    });
+                                }
+                            }
+                            if !self.sharing.discarded.is_empty() {
+                                ui.separator(); ui.heading("Changes you discarded");
+                                for (index, copy) in self.sharing.discarded.iter().enumerate() {
+                                    ui.label(format!("{}, discarded {}", changes_text(copy.changes), copy.discarded_at));
+                                    let back = ui.add_enabled(doc.conflict.is_none(), Button::new("Get these changes back"))
+                                        .on_hover_text("Adds them to the current shared version as new changes.")
+                                        .on_disabled_hover_text("Resolve the conflict first.");
+                                    if back.clicked() { command = Some("recover"); recover = Some(index); }
+                                }
                             }
                         }
 
@@ -191,6 +212,7 @@ impl App {
                     self.sharing.open = false;
                 }
             });
+        self.sharing.recover = recover;
         command
     }
 }
@@ -368,6 +390,49 @@ mod tests {
             assert!(app.sharing.open);
             drop(app); std::fs::remove_dir_all(dir).unwrap();
         }
+    }
+
+    /// A real click on whatever button paints `label`, scrolling to it first.
+    fn press(ctx: &egui::Context, app: &mut App, size: Vec2, label: &str) {
+        let output = scroll_to(ctx, app, size, label);
+        let pos = visible_text(&output, label).unwrap().center();
+        click(ctx, app, size, pos);
+    }
+
+    #[test]
+    fn using_the_shared_version_names_the_count_and_can_be_cancelled_or_undone() {
+        let (mut app, dir) = fixture();
+        let doc = app.sharing.document.as_mut().unwrap();
+        let mut theirs = doc.working.clone(); theirs.notes = "Other device fixture".into();
+        for note in ["First queued fixture", "Second queued fixture"] {
+            let mut mine = doc.working.clone(); mine.notes = note.into(); doc.capture(mine).unwrap();
+        }
+        doc.conflict = Some(Remote { id: theirs.id.clone(), name: theirs.name.clone(), revision: 2,
+            payload: client::seal(&theirs, &doc.recovery_key, 2).unwrap(), updated_at: "fixture-2".into(),
+            role: "owner".into(), summary: "Fixture conflict".into() });
+        let ctx = context(&app); let size = Vec2::new(900.0, 700.0);
+        press(&ctx, &mut app, size, "Use current shared version");
+        let output = settled(&ctx, &mut app, size, 1.0);
+        assert!(visible_text(&output, "Discard 2 unsynced changes?").is_some());
+        assert_eq!(app.sharing.document.as_ref().unwrap().pending.len(), 2, "the first click only asks");
+
+        press(&ctx, &mut app, size, "Keep my changes");
+        let output = settled(&ctx, &mut app, size, 1.0);
+        assert!(visible_text(&output, "Discard 2 unsynced changes?").is_none());
+        assert_eq!(app.sharing.document.as_ref().unwrap().pending.len(), 2);
+
+        press(&ctx, &mut app, size, "Use current shared version");
+        press(&ctx, &mut app, size, "Discard 2 unsynced changes");
+        let doc = app.sharing.document.as_ref().unwrap();
+        assert!(doc.conflict.is_none() && doc.pending.is_empty(), "{:?}", app.sharing.error);
+        assert_eq!(doc.working.notes, "Other device fixture");
+
+        app.sharing.open = true;
+        press(&ctx, &mut app, size, "Get these changes back");
+        let doc = app.sharing.document.as_ref().unwrap();
+        assert_eq!(doc.working.notes, "Second queued fixture", "{:?}", app.sharing.error);
+        assert_eq!(doc.pending.len(), 1);
+        drop(app); std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]

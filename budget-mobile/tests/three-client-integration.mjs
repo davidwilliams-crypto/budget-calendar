@@ -3,16 +3,18 @@
 import assert from 'node:assert/strict';
 import {mkdir,writeFile} from 'node:fs/promises';
 import {readFileSync} from 'node:fs';
-import {createRequire} from 'node:module';
-import {spawn} from 'node:child_process';
+import {spawn,spawnSync} from 'node:child_process';
 import {resolve} from 'node:path';
+import {pathToFileURL} from 'node:url';
 import {createServer} from 'node:net';
 import {createBudgetServer} from '../server/server.mjs';
 import {generateRecoveryKey,importRecoveryKey,sealSnapshot,openSnapshot} from '../public/crypto.mjs';
 import {readBackup} from '../public/backup.mjs';
 import {householdToday} from '../public/engine.mjs';
-const require=createRequire(import.meta.url);
-const {chromium}=require(process.env.BUDGET_PLAYWRIGHT||'playwright');
+// The Windows client is one of the three clients. It always runs; a missing Cargo stops the test rather than dropping the step.
+const cargo=process.env.BUDGET_CARGO||'cargo';
+if(spawnSync(cargo,['--version'],{windowsHide:true}).status!==0)throw Error(`The Windows client step cannot run because Cargo was not found (${cargo}). Set BUDGET_CARGO to cargo.exe.`);
+const {chromium}=await import(process.env.PLAYWRIGHT_MODULE_PATH?pathToFileURL(process.env.PLAYWRIGHT_MODULE_PATH).href:'playwright');
 const root=resolve(import.meta.dirname,'../..'),directory=resolve(root,'target',`three-client-${Date.now()}`);
 await mkdir(directory,{recursive:true});
 const port=await new Promise(resolvePort=>{const s=createServer();s.listen(0,'127.0.0.1',()=>{const p=s.address().port;s.close(()=>resolvePort(p))})});
@@ -44,14 +46,14 @@ try{
   await pa.getByRole('button',{name:'Reapply my edits to current household',exact:true}).click();await pa.waitForFunction(()=>document.querySelector('.status strong')?.textContent==='Synced');
   const current=await request(`/budgets/${id}`,undefined,owner.token);snapshot=await openSnapshot(current.payload,key,id,current.revision);
   assert.deepEqual(snapshot.payments.map(p=>p.payment.description).sort(),['Offline A groceries','Online B pay']);results.push('conflict preserves both users and reviewed reapply retains unrelated edits');
-  if(process.env.BUDGET_CARGO){
-    const env={...process.env,BUDGET_TEST_ORIGIN:origin,BUDGET_TEST_ID:id,BUDGET_TEST_KEY:recovery};
-    await new Promise((done,reject)=>{const child=spawn(process.env.BUDGET_CARGO,['test','-p','budget-gui','shared_client::tests::native_service_interoperation','--offline','--','--ignored','--exact'],{cwd:root,env,windowsHide:true,stdio:['ignore','pipe','pipe']});let out='';child.stdout.on('data',d=>out+=d);child.stderr.on('data',d=>out+=d);child.on('error',reject);child.on('close',async code=>{await writeFile(resolve(directory,'native-test.log'),out);code===0?done():reject(Error('Native integration failed; see generated native-test.log'))})});
-    const native=await request(`/budgets/${id}`,undefined,owner.token);assert.equal((await openSnapshot(native.payload,key,id,native.revision)).notes,'Windows fixture edit');results.push('Windows native client decrypts phone edits and commits a readable revision, exact retry deduplicated');
-    // Wait for the editor's actual durable revision, not an earlier "Synced" label,
-    // before making the independent backup/restore trial. Stale edits intentionally conflict.
-    await pb.waitForFunction(async({account,id,revision})=>{const {openStorage}=await import('/storage.mjs');return (await (await openStorage()).get(`state:${account}:${id}`))?.revision===revision},{account:wife.user.id,id,revision:native.revision},{timeout:15000});
-  }
+  const env={...process.env,BUDGET_TEST_ORIGIN:origin,BUDGET_TEST_ID:id,BUDGET_TEST_KEY:recovery};
+  await new Promise((done,reject)=>{const child=spawn(cargo,['test','-p','budget-gui','shared_client::tests::native_service_interoperation','--offline','--','--ignored','--exact'],{cwd:root,env,windowsHide:true,stdio:['ignore','pipe','pipe']});let out='';child.stdout.on('data',d=>out+=d);child.stderr.on('data',d=>out+=d);child.on('error',reject);child.on('close',async code=>{await writeFile(resolve(directory,'native-test.log'),out);code===0?done():reject(Error('Native integration failed; see generated native-test.log'))})});
+  const native=await request(`/budgets/${id}`,undefined,owner.token);assert.equal((await openSnapshot(native.payload,key,id,native.revision)).notes,'Windows fixture edit');results.push('Windows native client decrypts phone edits and commits a readable revision, exact retry deduplicated');
+  // Wait for the editor's actual durable revision, not an earlier "Synced" label,
+  // before making the independent backup/restore trial. Stale edits intentionally conflict.
+  // Polled from here: waitForFunction treats the promise of an async predicate as already true, so it would not wait at all.
+  const editorRevision=()=>pb.evaluate(async({account,id})=>{const {openStorage}=await import('/storage.mjs');return (await (await openStorage()).get(`state:${account}:${id}`))?.revision},{account:wife.user.id,id});
+  const waitUntil=Date.now()+45000;while(await editorRevision()!==native.revision){assert.ok(Date.now()<waitUntil,`phone B never reached revision ${native.revision}`);await pb.waitForTimeout(100)}
   await pb.getByRole('button',{name:'Settings',exact:true}).click();const downloadPromise=pb.waitForEvent('download');await pb.getByRole('button',{name:'Export encrypted backup',exact:true}).click();const download=await downloadPromise;await download.saveAs(resolve(directory,'encrypted-backup.json'));const saved=JSON.parse(readFileSync(resolve(directory,'encrypted-backup.json'),'utf8'));const backed=await readBackup(saved,key,id);assert.equal(backed.snapshot.id,id);results.push('downloaded encrypted backup decrypts with household key');
   await pb.getByRole('button',{name:'Today',exact:true}).click();await add(pb,'Temporary after backup',5);await pb.waitForFunction(()=>document.querySelector('.status strong')?.textContent==='Synced');
   const beforeRestore=await request(`/budgets/${id}`,undefined,owner.token);assert.ok((await openSnapshot(beforeRestore.payload,key,id,beforeRestore.revision)).payments.some(p=>p.payment.description==='Temporary after backup'));

@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.9.0] - 2026-10-30
+
+Fixes from the full product review: figures you can trust, work you cannot lose.
+
+- **Undo everywhere:** Windows adds Undo and Redo (Ctrl+Z, Ctrl+Y, Ctrl+Shift+Z) and an Edit menu that names the action. On the phone, every save offers Undo for about 8 seconds, and Activity lists your recent edits. An undo on a shared budget is a new change that syncs, and it leaves a partner's newer change alone.
+- **Crash recovery on Windows:** a protected copy of unsaved work is kept within about 5 seconds of an edit or when the window loses focus. After a crash, the budget offers to restore that work as unsaved changes; your file is not touched until you save. Password-protected budgets stay protected, and a damaged one still offers its copy. A crash also leaves a short log with no financial data.
+- **Restore previous version:** File > Restore previous version lists a budget's backups with date, time and size, and opens one as unsaved changes. Quick saves can no longer erase the last good version: the first backup of each of the last 30 days is kept alongside the newest ones.
+- **Damaged files:** an empty file is refused plainly. A file that may have been cut short, or an older file with no end marker, is held back until you restore an earlier version, open it anyway or cancel.
+- **Correct figures on Windows:** paging to an early month no longer shows balances built from zero, and a month's figures no longer depend on how you reached it. Balance corrections and a starting balance no longer count as money in or out; they have their own lines in the summary and reports. Reports offer every month with data, built from your full history. The summary panel appears from 1280 wide.
+- **Whole-dollar rounding:** whole-dollar figures round to the nearest dollar, half away from zero. 5,613.50 now shows 5,614; it used to show 5,613, and balances could read up to 95 cents low.
+- **Safe phone edits:** editing a repeating entry no longer moves its schedule, changes its amount or marks every date paid unless you change those things. Moving a date shows what changes before saving, and warns if earlier payments will come off the schedule. Repeat options say what they do, such as "Last Friday of the month". Disabled payments are left out of totals and Coming up, and appear muted on the calendar.
+- **Phone balances:** Set balance shows the existing figure, saving it unchanged does nothing, removing it needs a confirmed step, and days with a set balance are marked.
+- **Phone updates and offline:** a calm "Update ready" prompt appears when a new version arrives, and never over an open form or unsent changes. Offline now shows an amber status with the number of changes waiting and the last sync, not "Failed to fetch".
+- **Shared budget safety:** "Use current shared version" asks first, says how many unsynced changes will be discarded, and keeps a protected copy you can get back. Ctrl+S during a conflict no longer stops you resolving it. Closing a dialog opened from a keyboard-focused menu no longer crashes the app when an accessibility tool is active.
+- **Release checks:** `scripts/release-gate.ps1` runs every test in one command and fails on any failed or skipped step. Phone packages are refused if the calculation engine is older than its source. A CI workflow is included but has not run yet.
+
 ## [0.8.4] - 2026-10-29
 
 - **Steady shared-budget screen:** the dialog fits compact and high-DPI windows, keeps its Close button visible and uses a stable status line so background connection checks do not move controls. Account forms and long content scroll within the dialog; errors appear once.

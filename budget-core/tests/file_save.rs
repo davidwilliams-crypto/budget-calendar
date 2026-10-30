@@ -1,4 +1,5 @@
-//! File saving preserves the current document and the newest `bgt::MAX_BACKUPS` backups.
+//! File saving preserves the current document, the newest `bgt::MAX_BACKUPS` backups and the first
+//! backup of each of the last `bgt::BACKUP_DAYS` days.
 
 use budget_core::config::BudgetConfig;
 use budget_core::{bgt, BudgetDb, Cal};
@@ -137,8 +138,9 @@ fn backups_made_through_another_spelling_share_one_numbering_and_cap() {
     // the log lists the backups, but is not one of them
     let backups: Vec<String> = dir.entries().into_iter().filter(|e| e.to_lowercase().contains(".bgt.bak") && !e.to_lowercase().ends_with(".baklog")).collect();
     assert_eq!(backups.len(), bgt::MAX_BACKUPS, "{backups:?}");
-    // v3..v12 survive whichever spelling made them; v0..v2 (the oldest) were pruned.
-    for index in 3..=12 {
+    // v0 (the first of today) and v4..v12 survive whichever spelling made them; v1..v3 were pruned.
+    assert_eq!(fs::read(dir.file("home.bgt.bak")).unwrap(), b"v0");
+    for index in 4..=12 {
         assert_eq!(fs::read(dir.file(&format!("home.bgt.bak.{index}"))).unwrap(), format!("v{index}").as_bytes());
     }
     assert_eq!(fs::read(dir.file("home.bgt")).unwrap(), b"v13");
@@ -158,18 +160,79 @@ fn only_the_newest_backups_are_kept_and_numbering_continues() {
         bgt::save_file(&path, &format!("v{n}")).unwrap();
     }
 
-    // Twelve saves made backups .bak (v0) .. .bak.11 (v11); the two oldest were pruned.
-    assert!(!dir.file("budget.bgt.bak").exists());
+    // Twelve saves made backups .bak (v0) .. .bak.11 (v11); the first of today stays and the two
+    // oldest after it were pruned.
+    assert_eq!(fs::read(dir.file("budget.bgt.bak")).unwrap(), b"v0");
     assert!(!dir.file("budget.bgt.bak.1").exists());
-    for index in 2..=11 {
+    assert!(!dir.file("budget.bgt.bak.2").exists());
+    for index in 3..=11 {
         assert_eq!(fs::read(dir.file(&format!("budget.bgt.bak.{index}"))).unwrap(), format!("v{index}").as_bytes());
     }
     bgt::save_file(&path, "v13").unwrap();
     assert_eq!(fs::read(dir.file("budget.bgt.bak.12")).unwrap(), b"v12", "a gap left by pruning is not reused");
-    assert!(!dir.file("budget.bgt.bak.2").exists());
+    assert!(!dir.file("budget.bgt.bak.3").exists());
     for other in ["budget.bgt.bak.old", "budget.bgt.bak.1a", "other.bgt.bak", "budget.bgt.backup"] {
         assert_eq!(fs::read(dir.file(other)).unwrap(), b"keep");
     }
+}
+
+/// Twelve quick saves in a row: the version from before them is the one worth having.
+#[test]
+fn quick_saves_never_erase_the_version_from_before_them() {
+    let dir = TestDir::new();
+    let path = dir.file("budget.bgt");
+    fs::write(&path, b"last good version").unwrap();
+
+    for n in 1..=bgt::MAX_BACKUPS + 2 {
+        bgt::save_file(&path, &format!("v{n}")).unwrap();
+    }
+
+    assert_eq!(fs::read(dir.file("budget.bgt.bak")).unwrap(), b"last good version");
+    assert_eq!(fs::read_to_string(dir.file("budget.bgt.baklog")).unwrap().lines().count(), bgt::MAX_BACKUPS);
+}
+
+/// Backups dated one to five days ago, each the first of its day, outlast any number of saves today;
+/// a second backup from one of those days goes under the count limit.
+#[test]
+fn the_first_backup_of_each_recent_day_outlasts_the_count_limit() {
+    use std::time::{Duration, SystemTime};
+    let dir = TestDir::new();
+    let path = dir.file("budget.bgt");
+    fs::write(&path, b"v0").unwrap();
+    bgt::save_file(&path, "day five").unwrap();
+    bgt::save_file(&path, "day five again").unwrap();
+    for day in ["day four", "day three", "day two", "day one"] { bgt::save_file(&path, day).unwrap(); }
+    // .bak v0 and .bak.1 are five days old; .bak.2 .. .bak.5 are four to one days old.
+    let days_ago = |n: u64| SystemTime::now() - Duration::from_secs(n * 86_400);
+    let age = [("budget.bgt.bak", 5), ("budget.bgt.bak.1", 5), ("budget.bgt.bak.2", 4), ("budget.bgt.bak.3", 3), ("budget.bgt.bak.4", 2), ("budget.bgt.bak.5", 1)];
+    for (name, days) in age {
+        fs::File::options().write(true).open(dir.file(name)).unwrap().set_modified(days_ago(days)).unwrap();
+    }
+
+    for n in 1..=bgt::MAX_BACKUPS * 2 { bgt::save_file(&path, &format!("today {n}")).unwrap(); }
+
+    for name in ["budget.bgt.bak", "budget.bgt.bak.2", "budget.bgt.bak.3", "budget.bgt.bak.4", "budget.bgt.bak.5"] {
+        assert!(dir.file(name).exists(), "{name}");
+    }
+    assert!(!dir.file("budget.bgt.bak.1").exists(), "a second backup of one day is not protected");
+    let log = fs::read_to_string(dir.file("budget.bgt.baklog")).unwrap();
+    assert_eq!(log.lines().count(), bgt::MAX_BACKUPS);
+}
+
+/// Older than the protected days, the count limit alone applies: the app's folder does not grow forever.
+#[test]
+fn a_backup_older_than_the_protected_days_goes_under_the_count_limit() {
+    use std::time::{Duration, SystemTime};
+    let dir = TestDir::new();
+    let path = dir.file("budget.bgt");
+    fs::write(&path, b"v0").unwrap();
+    bgt::save_file(&path, "v1").unwrap();
+    let old = SystemTime::now() - Duration::from_secs((bgt::BACKUP_DAYS as u64 + 2) * 86_400);
+    fs::File::options().write(true).open(dir.file("budget.bgt.bak")).unwrap().set_modified(old).unwrap();
+
+    for n in 2..=bgt::MAX_BACKUPS + 1 { bgt::save_file(&path, &format!("v{n}")).unwrap(); }
+
+    assert!(!dir.file("budget.bgt.bak").exists());
 }
 
 #[test]
@@ -235,10 +298,12 @@ fn a_backup_made_by_hand_is_never_pruned() {
     }
 
     assert_eq!(fs::read(dir.file("home.bgt.bak")).unwrap(), b"my own copy");
-    // the app's own backups are .bak.1 .. .bak.12 (v0 .. v11); the newest ten are kept
-    assert!(!dir.file("home.bgt.bak.1").exists());
+    // the app's own backups are .bak.1 .. .bak.12 (v0 .. v11); the first of today and the newest
+    // nine are kept
+    assert_eq!(fs::read(dir.file("home.bgt.bak.1")).unwrap(), b"v0");
     assert!(!dir.file("home.bgt.bak.2").exists());
-    for index in 3..=12 {
+    assert!(!dir.file("home.bgt.bak.3").exists());
+    for index in 4..=12 {
         assert_eq!(fs::read(dir.file(&format!("home.bgt.bak.{index}"))).unwrap(), format!("v{}", index - 1).as_bytes());
     }
     for other in ["home.bgt.bak.old", "home.bgt.bak.1a", "home.bgt.backup", "other.bgt.bak"] {
@@ -257,7 +322,7 @@ fn the_backup_log_names_exactly_the_backups_this_app_kept() {
     }
 
     let log = fs::read_to_string(dir.file("budget.bgt.baklog")).unwrap();
-    let want: Vec<String> = (2..=11).map(|index| format!("budget.bgt.bak.{index}")).collect();
+    let want: Vec<String> = std::iter::once("budget.bgt.bak".to_string()).chain((3..=11).map(|index| format!("budget.bgt.bak.{index}"))).collect();
     assert_eq!(log.lines().collect::<Vec<_>>(), want);
     assert_eq!(log.lines().count(), bgt::MAX_BACKUPS);
 }
@@ -305,7 +370,8 @@ fn pruning_never_removes_a_directory_named_like_a_backup() {
     }
 
     assert!(dir.file("budget.bgt.bak").is_dir());
-    assert!(!dir.file("budget.bgt.bak.1").exists());
+    assert_eq!(fs::read(dir.file("budget.bgt.bak.1")).unwrap(), b"v0", "the first of today");
+    assert!(!dir.file("budget.bgt.bak.2").exists());
     assert_eq!(fs::read(dir.file("budget.bgt.bak.11")).unwrap(), b"v10");
 }
 

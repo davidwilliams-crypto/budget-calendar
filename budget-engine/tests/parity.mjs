@@ -101,3 +101,21 @@ test('independent offline additions retain distinct IDs after reviewed reapply t
   assert.notEqual(reviewed.payments[0].payment.id,reviewed.payments[1].payment.id);
   assert.equal(same({action:'validate',snapshot:reviewed}).ok,true);
 });
+test('native/raw WASM parity: last weekday starts snap as on desktop, nth weekday and single payments stay',()=>{
+  const add=(payment,op)=>apply(start(),{type:'put_payment',payment:{description:'Fixture',amount:-10,start_date:20261001,end_date:20261001,flags:16,frequency:1,...payment}},op);
+  const shown=(snapshot,to)=>same({action:'forecast',snapshot,today,from:20261001,to}).result.days.filter(d=>d.transactions.length).map(d=>d.date);
+  const last=add({freq_type:'L'},'last-new');assert.equal(last.payments[0].payment.start_date,20261029);assert.deepEqual(shown(last,20261231),[20261029,20261126,20261231]);
+  const edited=apply(last,{type:'put_payment',id:last.payments[0].id,payment:{...last.payments[0].payment,start_date:20261105}},'last-move');assert.equal(edited.payments[0].payment.start_date,20261126);
+  const kept=apply(last,{type:'put_payment',id:last.payments[0].id,payment:{...last.payments[0].payment,description:'Renamed'}},'last-rename');assert.equal(kept.payments[0].payment.start_date,20261029);
+  const nth=add({freq_type:'W',start_date:20261013,end_date:20261013},'nth-new');assert.equal(nth.payments[0].payment.start_date,20261013);assert.deepEqual(shown(nth,20261231),[20261013,20261110,20261208]);
+  const single=add({freq_type:'L',flags:48,n_pays:1},'single-new');assert.equal(single.payments[0].payment.start_date,20261001);assert.deepEqual(shown(single,20261231),[20261001]);
+});
+test('native/raw WASM parity: forecast totals leave out disabled payments and balance changes',()=>{
+  let snapshot=start();
+  for(const [i,[amount,disabled]] of [[500,false],[-100.1,false],[-0.2,false],[-70,true],[900,true]].entries()) snapshot=apply(snapshot,{type:'put_payment',payment:{description:`Entry ${i}`,amount,disabled,start_date:20261105,end_date:20261105,flags:16,frequency:1,freq_type:'m'}},`totals-${i}`);
+  snapshot=apply(snapshot,{type:'balance',date:20261110,amount:12345},'totals-checkpoint');
+  const totals=(from,to)=>{const r=same({action:'forecast',snapshot,today,from,to});assert.equal(r.ok,true,r.error);return r.result.totals;};
+  assert.deepEqual(totals(20261101,20261130),{moneyIn:500,moneyOut:100.3});
+  assert.deepEqual(totals(20261106,20261204),{moneyIn:0,moneyOut:0});
+  assert.deepEqual(totals(20261101,20261231),{moneyIn:1000,moneyOut:200.6});
+});

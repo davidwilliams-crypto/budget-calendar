@@ -29,6 +29,10 @@ pub struct Loaded {
     pub notes: String,
     pub version: String,
     pub log: String,
+    /// The file has data but no END-OF-DATA line. The app writes one on every save, so this file may
+    /// have been cut short; files from older programs can lack it too, which is why this is reported
+    /// rather than refused here. The caller must not open such a file silently.
+    pub missing_end_marker: bool,
 }
 
 /// `str2unicodish` + legacy pass: `,` `\n` `\r` and every char >= 128 become `&#xhhhh;`.
@@ -288,6 +292,8 @@ fn load_with(text: &str, today: i32, password: Option<&str>, legacy_key: bool) -
     let mut line_no = 0;
     let mut next_id = 1;
     let mut mode = Mode::Plain;
+    let mut has_data = false;
+    let mut ended = false;
     for raw_line in logical_lines(text) {
         line_no += 1;
         if line_no == 1 {
@@ -314,6 +320,7 @@ fn load_with(text: &str, today: i32, password: Option<&str>, legacy_key: bool) -
         };
         if line.is_empty() || line.starts_with('#') {
             if let Some(rest) = line.strip_prefix(EOD_PREFIX) {
+                ended = true;
                 match rest.find(EOD_TRAILER).and_then(|i| rest[..i].parse::<i32>().ok()) {
                     Some(n) if n == line_no => break,
                     Some(n) => {
@@ -332,6 +339,7 @@ fn load_with(text: &str, today: i32, password: Option<&str>, legacy_key: bool) -
         }
         let toks = tokens(line);
         let Some(&first) = toks.first() else { continue };
+        has_data = true;
         let res = match first {
             ":" => parse_options(&mut adjustments, &toks[1..]).map_err(in_field("opts")),
             "=" => { if let Some(t) = toks.get(1) { r.notes = decode_description(t); } Ok(()) }
@@ -353,6 +361,12 @@ fn load_with(text: &str, today: i32, password: Option<&str>, legacy_key: bool) -
         r.log.push_str("failed");
         return Err(Box::new(r));
     }
+    // A budget always has its header lines, even with no payments: nothing at all is a damaged file.
+    if !has_data && !ended {
+        r.log = "This file is empty, so it holds no budget.".into();
+        return Err(Box::new(r));
+    }
+    r.missing_end_marker = !ended;
     r.log.push_str(&format!("done.\n{} entries loaded.\n", r.payments.len()));
     Ok(r)
 }
@@ -551,6 +565,30 @@ pub fn save_file(path: &Path, content: &str) -> Result<(), String> {
 
 /// Backups kept beside a budget; older ones are removed after a successful save.
 pub const MAX_BACKUPS: usize = 10;
+/// For this many calendar days back, today included, the first backup of each day is kept beyond
+/// `MAX_BACKUPS`. That backup is the budget as it stood before that day's saves, so a burst of quick
+/// saves cannot push out the last good version.
+pub const BACKUP_DAYS: usize = 30;
+
+/// One backup of a budget, for listing.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Backup {
+    pub path: std::path::PathBuf,
+    /// When the backup was written: the moment a save replaced that version.
+    pub modified: Option<std::time::SystemTime>,
+    pub size: u64,
+}
+
+/// The backups beside `path`, newest first. Only regular files are listed, whoever made them, and
+/// listing changes nothing.
+pub fn list_backups(path: &Path) -> Vec<Backup> {
+    let mut found: Vec<(u64, Backup)> = existing_backups(path).into_iter().filter_map(|(index, path)| {
+        let meta = std::fs::symlink_metadata(&path).ok().filter(|m| m.is_file())?;
+        Some((index, Backup { path, modified: meta.modified().ok(), size: meta.len() }))
+    }).collect();
+    found.sort_by(|(a_index, a), (b_index, b)| (b.modified, b_index).cmp(&(a.modified, a_index)));
+    found.into_iter().map(|(_, backup)| backup).collect()
+}
 
 /// `(index, path)` of every `.bak` (index 0) and `.bak.N` entry beside `path`, oldest first.
 /// Entries of any kind count, and so does a file the app did not make: a new backup never takes
@@ -618,18 +656,65 @@ fn is_regular_file(path: &Path) -> bool {
     std::fs::symlink_metadata(path).is_ok_and(|m| m.is_file())
 }
 
-/// Log `backup`, a file name just created beside `path`, then delete the oldest logged backups that
-/// go beyond `MAX_BACKUPS`. Only names in the log are removed, and only while they are regular files.
-/// Failures are ignored: the save itself succeeded, and a backup that cannot be removed stays logged
-/// for the next save.
+/// Seconds the local clock is ahead of UTC, now. Without a local clock, days are UTC days.
+fn local_offset_seconds() -> i64 {
+    #[cfg(windows)]
+    {
+        #[repr(C)]
+        struct SystemTime { y: u16, m: u16, dow: u16, d: u16, h: u16, mi: u16, s: u16, ms: u16 }
+        extern "system" {
+            fn GetLocalTime(t: *mut SystemTime);
+            fn GetSystemTime(t: *mut SystemTime);
+        }
+        let mut local = SystemTime { y: 0, m: 0, dow: 0, d: 0, h: 0, mi: 0, s: 0, ms: 0 };
+        let mut utc = SystemTime { y: 0, m: 0, dow: 0, d: 0, h: 0, mi: 0, s: 0, ms: 0 };
+        unsafe { GetSystemTime(&mut utc); GetLocalTime(&mut local); }
+        let minutes = |t: &SystemTime| t.h as i64 * 60 + t.mi as i64;
+        // The two clocks differ by less than a day, so a different date is one day either way.
+        let day = (local.y, local.m, local.d).cmp(&(utc.y, utc.m, utc.d)) as i64;
+        (minutes(&local) - minutes(&utc) + day * 1440) * 60
+    }
+    #[cfg(not(windows))]
+    { 0 }
+}
+
+/// The local calendar day of `time`, as a count of days since 1970.
+fn local_day(time: std::time::SystemTime, offset: i64) -> Option<i64> {
+    let seconds = time.duration_since(std::time::UNIX_EPOCH).ok()?.as_secs();
+    Some((i64::try_from(seconds).ok()? + offset).div_euclid(86_400))
+}
+
+/// Which of the logged backups to remove, by position. `days` holds each backup's calendar day,
+/// oldest backup first. The oldest go until `MAX_BACKUPS` remain, except the first backup of each
+/// of the last `BACKUP_DAYS` days, which stays and counts towards the limit.
+fn backups_to_prune(days: &[Option<i64>], today: i64) -> Vec<usize> {
+    let excess = days.len().saturating_sub(MAX_BACKUPS);
+    let mut first_of_day = std::collections::HashSet::new();
+    let mut prune = Vec::new();
+    for (i, day) in days.iter().enumerate() {
+        let recent = day.is_some_and(|day| today - day < BACKUP_DAYS as i64);
+        if recent && first_of_day.insert(*day) { continue; }
+        if prune.len() < excess { prune.push(i); }
+    }
+    prune
+}
+
+/// Log `backup`, a file name just created beside `path`, then delete what `backups_to_prune` picks.
+/// Only names in the log are removed, and only while they are regular files. Failures are ignored:
+/// the save itself succeeded, and a backup that cannot be removed stays logged for the next save.
 fn record_backup(path: &Path, backup: &str) {
     let Some(mut names) = logged_backups(path) else { return };
     names.retain(|name| !same_name(name, backup) && is_regular_file(&path.with_file_name(name)));
     names.push(backup.to_string());
-    let excess = names.len().saturating_sub(MAX_BACKUPS);
+    let offset = local_offset_seconds();
+    let days: Vec<Option<i64>> = names.iter().map(|name| {
+        std::fs::metadata(path.with_file_name(name)).and_then(|m| m.modified()).ok().and_then(|time| local_day(time, offset))
+    }).collect();
+    // No usable clock: nothing can be told about the days, so the save prunes nothing this time.
+    let prune = local_day(std::time::SystemTime::now(), offset).map_or_else(Vec::new, |today| backups_to_prune(&days, today));
     let mut kept = Vec::with_capacity(names.len());
     for (i, name) in names.into_iter().enumerate() {
-        if i < excess {
+        if prune.contains(&i) {
             match std::fs::remove_file(path.with_file_name(&name)) {
                 Ok(()) => continue,
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
@@ -706,6 +791,24 @@ mod tests {
         let saved = save_str(&l.payments, &adj, "", None).unwrap();
         assert!(saved.contains("00010101:5.0"), "{saved}");
         assert!(load_str(&saved, 20260101, None).is_ok());
+    }
+
+    #[test]
+    fn local_day_follows_the_offset_and_the_first_of_each_recent_day_is_kept() {
+        use std::time::{Duration, UNIX_EPOCH};
+        let noon = UNIX_EPOCH + Duration::from_secs(100 * 86_400 + 43_200);
+        assert_eq!(local_day(noon, 0), Some(100));
+        assert_eq!(local_day(noon, 13 * 3600), Some(101));
+        assert_eq!(local_day(noon, -13 * 3600), Some(99));
+        // Twelve backups: three on day 90, nine today. Day 90's first and today's first stay.
+        let days: Vec<Option<i64>> = [90, 90, 90].into_iter().chain([100; 9]).map(Some).collect();
+        assert_eq!(backups_to_prune(&days, 100), [1, 2]);
+        // Unknown or long-gone days have no protection.
+        let days: Vec<Option<i64>> = [None, Some(100 - BACKUP_DAYS as i64)].into_iter().chain([Some(100); 10]).collect();
+        assert_eq!(backups_to_prune(&days, 100), [0, 1]);
+        // Protected backups can leave more than the limit: nothing unprotected is left to remove.
+        let days: Vec<Option<i64>> = (0..15).map(|back| Some(100 - back)).rev().collect();
+        assert!(backups_to_prune(&days, 100).is_empty());
     }
 
     #[test]

@@ -58,7 +58,7 @@ impl BudgetDay {
     pub fn unadjusted_balance(&self) -> f64 {
         if self.closing_balance_adjusted { self.closing_balance - self.adjustment_diff } else { self.closing_balance }
     }
-    /// Display rounding of the original: truncate toward zero after nudging by `0.05f`.
+    /// The closing balance as shown: exact, or to the nearest whole dollar.
     pub fn closing_balance_display(&self, exact: bool) -> f64 {
         crate::numfmt::balance_display(self.closing_balance, exact)
     }
@@ -74,6 +74,17 @@ fn sort_transactions(day: &mut BudgetDay, disabled: impl Fn(usize) -> bool) {
         });
     }
     day.sorted = true;
+}
+
+/// A stored date as `Cal::from_int` reads it: a stored 3000 or 202701 is a year or a month there, not
+/// a day in the distant past.
+fn norm(v: i32) -> i32 { Cal::from_int(v).get() }
+
+/// Where a payment's first occurrence is actually placed: EARLY_PAY moves a weekend start to the prior Friday.
+fn placed_start(p: &Payment) -> i32 {
+    let start = Cal::from_int(p.start_date);
+    let shown = p.shown_date(&start);
+    if p.is_early_pay() && shown != start { shown.get() } else { start.get() }
 }
 
 #[derive(Clone, Debug, Default)]
@@ -171,8 +182,30 @@ impl BudgetDb {
     }
     pub(crate) fn cal_index_int(&self, v: i32) -> Option<usize> { self.cal_index(&Cal::from_int(v)) }
 
+    /// Whether the window can show month `c` truthfully. A month it holds but whose balances lean on
+    /// history outside the window is not available: it must be rebuilt around, not shown from zero.
     pub fn is_month_available(&self, c: &Cal) -> bool {
-        self.start_date.ym() <= c.ym() && c.ym() <= self.end_date.ym()
+        self.complete_from().ym() <= c.ym() && c.ym() <= self.end_date.ym()
+    }
+
+    /// The first month of the window that does not depend on what lies before it. Balances start from
+    /// zero at the window start, so with history before the window every day up to the first checkpoint
+    /// inside it is built from nothing, and that checkpoint would book the whole balance as a correction.
+    /// (A loan can stretch the window back past that checkpoint, so this may be many months in.)
+    fn complete_from(&self) -> Cal {
+        let first = self.start_date_int;
+        let before = self.adjustments.opt.iter().any(|a| norm(a.date) < first)
+            || self.payments.iter().any(|p| placed_start(p) < first || p.opt.iter().any(|o| !o.deleted && norm(o.date) < first));
+        let checkpoint = self.adjustments.opt.iter().map(|a| norm(a.date)).filter(|d| *d >= first).min();
+        match checkpoint {
+            Some(date) if before => {
+                let mut month = Cal::from_int(date);
+                month.set_day_one();
+                month.add(Field::Month, 1);
+                month
+            }
+            _ => self.start_date,
+        }
     }
 
     /// `rebuildDB(cal, futureMonths, unlimitedHistory)`.
@@ -205,15 +238,6 @@ impl BudgetDb {
     /// every year with unlimited history, widened to cover a loan running across the start;
     /// through December of the year `future_months` after `cal`.
     pub fn window(&self, cal: &Cal, future_months: i32, unlimited_history: bool) -> (Cal, Cal) {
-        // Dates are compared as `Cal::from_int` reads them: a stored 3000 or 202701 is a year or a month
-        // there, not a day in the distant past, and must not pull the window start past its end.
-        let norm = |v: i32| Cal::from_int(v).get();
-        // Where the first occurrence is actually placed: EARLY_PAY moves a weekend start to the prior Friday.
-        let placed_start = |p: &Payment| -> i32 {
-            let start = Cal::from_int(p.start_date);
-            let shown = p.shown_date(&start);
-            if p.is_early_pay() && shown != start { shown.get() } else { start.get() }
-        };
         let mut base = *cal;
         base.add(Field::Month, -2);
         let b = base.get();
@@ -377,6 +401,25 @@ impl BudgetDb {
     pub fn get_adjustment(&self, i: usize) -> &PaymentOption { &self.adjustments.opt[i] }
     pub fn latest_adjustment_date(&self) -> i32 {
         self.adjustments.opt.iter().filter(|o| o.date / 10000 != 9999).map(|o| o.date).max().unwrap_or(-1)
+    }
+    /// The checkpoint that opens the budget: the earliest one, when no enabled payment has anything
+    /// before it. It says what the household started with, so it is neither income nor a correction.
+    /// Read from the stored dates, so the answer does not depend on the loaded window.
+    pub fn starting_balance_date(&self) -> Option<i32> {
+        let first = self.adjustments.opt.iter().filter(|o| o.date / 10000 != 9999).map(|o| norm(o.date)).min()?;
+        let earlier = self.payments.iter().filter(|p| !p.disabled)
+            .any(|p| placed_start(p) < first || p.opt.iter().any(|o| !o.deleted && norm(o.date) < first));
+        (!earlier).then_some(first)
+    }
+    /// The first and last dates that hold anything: payments, dated changes and checkpoints.
+    pub fn data_span(&self) -> Option<(i32, i32)> {
+        let dated = self.adjustments.opt.iter().map(|o| norm(o.date))
+            .chain(self.payments.iter().flat_map(|p| {
+                let end = (p.end_mode() == END_MODE_DATE).then(|| norm(p.end_date));
+                [placed_start(p)].into_iter().chain(end).chain(p.opt.iter().filter(|o| !o.deleted).map(|o| norm(o.date)))
+            }))
+            .filter(|d| d / 10000 != 9999);
+        dated.fold(None, |span, d| Some(span.map_or((d, d), |(lo, hi): (i32, i32)| (lo.min(d), hi.max(d)))))
     }
     pub fn oldest_adjustment_date(&self) -> i32 {
         let mut m = self.today;

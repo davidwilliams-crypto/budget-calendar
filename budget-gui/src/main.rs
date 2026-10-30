@@ -14,8 +14,10 @@ mod file_probe;
 mod names;
 mod payment_list;
 mod refresh;
+mod recovery;
 mod reports;
 mod theme;
+mod undo;
 mod view;
 mod version;
 mod shared_client;
@@ -40,6 +42,8 @@ use file_probe::{FileProbes, FileStatus, TaskState};
 use names::{MONTHS, MONTHS_LONG};
 
 const SUMMARY_W: f32 = 292.0;
+/// From this window width the summary panel fits beside a calendar that stays readable.
+const SUMMARY_MIN_WINDOW: f32 = 1280.0;
 
 /// The same artwork supplies the native window and the in-app brand mark.
 fn app_icon() -> egui::IconData {
@@ -99,17 +103,21 @@ struct Toast { text: String, error: bool, until: Instant }
 /// A persistent error. A load failure carries a title naming the file, the full
 /// diagnostic log under "Details" and an "Open another…" recovery action.
 #[derive(Clone, Debug, PartialEq)]
-struct Banner { title: Option<String>, text: String, details: Option<String>, offer_open: bool }
+struct Banner {
+    title: Option<String>, text: String, details: Option<String>, offer_open: bool,
+    /// The budget whose backups a "Restore previous version" button lists.
+    offer_restore: Option<PathBuf>,
+}
 
 impl Banner {
-    fn plain(text: impl Into<String>) -> Banner { Banner { title: None, text: text.into(), details: None, offer_open: false } }
+    fn plain(text: impl Into<String>) -> Banner { Banner { title: None, text: text.into(), details: None, offer_open: false, offer_restore: None } }
     fn load_failure(path: &Path, log: &str) -> Banner {
         let details = log.trim();
         let text = load_error_summary(log);
         Banner {
             title: Some(format!("Couldn't open {}", file_name(path))),
             details: (details.lines().count() > 1 || details != text).then(|| details.to_string()).filter(|d| !d.is_empty()),
-            text, offer_open: true,
+            text, offer_open: true, offer_restore: None,
         }
     }
 }
@@ -120,6 +128,9 @@ impl Banner {
 /// the first line) is used; `(N):` becomes `Line N:`, Java exception prefixes and the
 /// lone trailing `failed` are dropped.
 fn load_error_summary(log: &str) -> String {
+    if log.contains("mismatched number of read lines") || log.contains("misformed end-of-data line") {
+        return "Part of this budget file is missing, so it may have been damaged.".into();
+    }
     let lines: Vec<&str> = log.lines().map(str::trim).filter(|l| !l.is_empty() && *l != "failed").collect();
     let exc = lines.iter().position(|l| l.starts_with("Exception:"));
     let head = match exc { Some(i) if i > 0 => lines[i - 1], _ => lines.first().copied().unwrap_or("") };
@@ -153,7 +164,7 @@ fn load_error_summary(log: &str) -> String {
 }
 
 #[derive(Clone)]
-enum PendingAction { Open(PathBuf), Close, New(PathBuf), CloseBudget, Shared(Box<shared_client::SharedDocument>) }
+enum PendingAction { Open(PathBuf), Close, New(PathBuf), CloseBudget, Shared(Box<shared_client::SharedDocument>), Restore { budget: PathBuf, backup: PathBuf } }
 
 /// Adds `.bgt` unless the name already ends with it (any case). Only the end of the name counts:
 /// `Household 2026.10` becomes `Household 2026.10.bgt`.
@@ -175,14 +186,62 @@ struct PasswordPrompt {
     error: String,
     /// One authentication/build attempt. Polling and cancellation never block the UI.
     attempt: Option<Opening>,
+    /// `path` is a backup being restored as a draft of this budget.
+    restore_to: Option<PathBuf>,
+    /// A failed attempt found backups to offer in place of this file.
+    has_backup: bool,
+}
+
+/// Whether a budget that parsed can be trusted to be whole.
+#[derive(Clone, Copy, PartialEq)]
+enum Completeness {
+    Complete,
+    /// No end-of-data mark: it may have been cut short (see `bgt::Loaded::missing_end_marker`).
+    MaybeCutShort { has_backup: bool },
 }
 
 /// What reading a budget found.
 enum Loaded {
-    Budget(Box<BudgetDb>, Vec<u8>),
-    /// Encrypted and no password given: the bytes wait for the password prompt.
-    Locked(Vec<u8>),
-    Failed(String),
+    Budget(Box<BudgetDb>, Vec<u8>, Completeness),
+    /// A backup built as a draft of `budget`. `current` is what the budget file holds now.
+    Restored { db: Box<BudgetDb>, budget: PathBuf, current: Option<Vec<u8>>, complete: bool },
+    /// Encrypted and no password given: the bytes wait for the password prompt, with the budget
+    /// they are a draft of when they come from a backup.
+    Locked(Vec<u8>, Option<PathBuf>),
+    /// The loader's log, and whether the budget has backups to offer.
+    Failed(String, bool),
+}
+
+/// A budget that parsed but may be cut short. It is held here, unopened, until the user decides.
+struct IncompleteBudget { path: PathBuf, password: Option<String>, db: Box<BudgetDb>, bytes: Vec<u8>, quiet: bool, has_backup: bool }
+
+/// File > Restore previous version.
+struct RestoreDialog {
+    budget: PathBuf,
+    /// The listing, read off the window thread (a share may stall).
+    listing: Option<file_probe::Task<Vec<bgt::Backup>>>,
+    backups: Vec<bgt::Backup>,
+}
+
+/// The password prompt's line. A recovery copy has a file name nobody has seen, so its budget is named.
+fn encrypted_line(path: &Path, restore_to: Option<&Path>) -> String {
+    match restore_to.filter(|_| recovery::is_copy(path)) {
+        Some(budget) => format!("Unsaved work for {} is encrypted.", file_name(budget)),
+        None => format!("{} is encrypted.", file_name(path)),
+    }
+}
+
+/// `2026-10-30 14:05:09`, local time. Seconds tell apart quick saves.
+fn backup_time(backup: &bgt::Backup) -> String {
+    backup.modified.map_or_else(|| "Unknown date".to_string(), |time| chrono::DateTime::<chrono::Local>::from(time).format("%Y-%m-%d %H:%M:%S").to_string())
+}
+
+fn file_size(bytes: u64) -> String {
+    match bytes {
+        0..=1023 => format!("{bytes} bytes"),
+        1024..=1_048_575 => format!("{:.1} KB", bytes as f64 / 1024.0),
+        _ => format!("{:.1} MB", bytes as f64 / 1_048_576.0),
+    }
 }
 
 /// What building a budget depends on besides the file.
@@ -192,14 +251,17 @@ struct LoadSettings { today: i32, month: i32, future_months: i32, unlimited_hist
 /// Reads `path` (unless its bytes are given) and builds the budget. A background open runs this on
 /// a worker thread, so a budget on an unreachable share never freezes the window.
 fn load_budget(read: &file_probe::Reader, path: &Path, bytes: Option<Vec<u8>>, password: Option<&str>, s: LoadSettings) -> Loaded {
+    let has_backup = || !bgt::list_backups(path).is_empty();
     let bytes = match bytes.map_or_else(|| read(path), Ok) {
         Ok(bytes) => bytes,
-        Err(e) => return Loaded::Failed(e.to_string()),
+        Err(e) => return Loaded::Failed(e.to_string(), has_backup()),
     };
     let text = bgt::latin1_decode(&bytes);
-    if password.is_none() && bgt::is_encrypted_text(&text) { return Loaded::Locked(bytes); }
+    if password.is_none() && bgt::is_encrypted_text(&text) { return Loaded::Locked(bytes, None); }
     let cur = Cal::from_int(s.month);
+    let mut cut_short = false;
     let built = bgt::load_str(&text, s.today, password).map_err(|l| l.log).and_then(|loaded| {
+        cut_short = loaded.missing_end_marker;
         // A malformed file must surface as an error banner, never take the whole app down.
         std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let mut db = BudgetDb::from_loaded(loaded, &cur, s.future_months, s.unlimited_history);
@@ -209,8 +271,26 @@ fn load_budget(read: &file_probe::Reader, path: &Path, bytes: Option<Vec<u8>>, p
         })).map_err(|_| "This budget file could not be built: it contains values the schedule engine cannot handle.".to_string())
     });
     match built {
-        Ok(mut db) => { db.file_name = Some(path.display().to_string()); Loaded::Budget(Box::new(db), bytes) }
-        Err(log) => Loaded::Failed(log),
+        Ok(mut db) => {
+            db.file_name = Some(path.display().to_string());
+            let completeness = if cut_short { Completeness::MaybeCutShort { has_backup: has_backup() } } else { Completeness::Complete };
+            Loaded::Budget(Box::new(db), bytes, completeness)
+        }
+        Err(log) => Loaded::Failed(log, has_backup()),
+    }
+}
+
+/// Builds the backup `backup` as a draft of `budget`, whose file is only read, never written.
+fn load_backup(read: &file_probe::Reader, budget: &Path, backup: &Path, bytes: Option<Vec<u8>>, password: Option<&str>, s: LoadSettings) -> Loaded {
+    let current = match read(budget) {
+        Ok(current) => Some(current),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+        Err(e) => return Loaded::Failed(format!("The budget file is unavailable: {e}"), false),
+    };
+    match load_budget(read, backup, bytes, password, s) {
+        Loaded::Budget(db, _, completeness) => Loaded::Restored { db, budget: budget.to_path_buf(), current, complete: completeness == Completeness::Complete },
+        Loaded::Locked(bytes, _) => Loaded::Locked(bytes, Some(budget.to_path_buf())),
+        failed => failed,
     }
 }
 
@@ -226,6 +306,10 @@ struct Opening {
     task: file_probe::Task<Loaded>,
     /// The finished read, kept while an unsaved-changes prompt is showing.
     loaded: Option<Loaded>,
+    /// `path` is a backup being restored as a draft of this budget.
+    restore_to: Option<PathBuf>,
+    /// The offer being answered, when `path` is a recovery copy: it comes back if the open cannot finish.
+    offer: Option<recovery::Offer>,
 }
 
 /// The unsaved-changes prompt's answers.
@@ -269,6 +353,11 @@ struct Dialogs {
     save_error: Option<String>,
     /// An encrypted budget waiting for its password.
     password: Option<PasswordPrompt>,
+    /// A budget that may be cut short, waiting for the user's decision.
+    incomplete: Option<IncompleteBudget>,
+    restore: Option<RestoreDialog>,
+    /// Unsaved work kept from a crash, waiting for Restore or Discard.
+    recovery: Option<recovery::Offer>,
     about: bool,
     legend: bool,
     shortcuts: bool,
@@ -278,7 +367,7 @@ impl Dialogs {
     /// The kinds of the open dialogs.
     fn open(&self) -> impl Iterator<Item = DialogKind> {
         // `save_error` is the text of the unsaved-changes prompt, not a dialog of its own.
-        let Dialogs { payment_editor, transaction_editor, balance_editor, day, confirm_delete, pending, password, about, legend, shortcuts, save_error: _ } = self;
+        let Dialogs { payment_editor, transaction_editor, balance_editor, day, confirm_delete, pending, password, incomplete, restore, recovery, about, legend, shortcuts, save_error: _ } = self;
         [
             (payment_editor.is_some(), DialogKind::Draft),
             (transaction_editor.is_some(), DialogKind::Draft),
@@ -287,6 +376,9 @@ impl Dialogs {
             (confirm_delete.is_some(), DialogKind::Other),
             (pending.is_some(), DialogKind::Other),
             (password.is_some(), DialogKind::Other),
+            (incomplete.is_some(), DialogKind::Other),
+            (restore.is_some(), DialogKind::Other),
+            (recovery.is_some(), DialogKind::Other),
             (*about, DialogKind::Other),
             (*legend, DialogKind::Other),
             (*shortcuts, DialogKind::Shortcuts),
@@ -326,6 +418,10 @@ struct App {
     edits: u64,
     /// The control that had keyboard focus when a dialog opened; it gets focus back on close.
     focus_return: Option<egui::Id>,
+    /// Keeps a recovery copy of unsaved edits.
+    journal: recovery::Journal,
+    /// The steps Undo and Redo walk through.
+    undo: undo::History,
     db: Option<BudgetDb>,
     file: Option<PathBuf>,
     password: Option<String>,
@@ -396,6 +492,7 @@ impl App {
             sharing: sharing::SharedUi::default(),
             date_watch: if cli.today.is_some() { DateWatch::fixed() } else { DateWatch::system() },
             files: FileProbes::default(), auto_open: None, opening: None, edits: 0, focus_return: None,
+            journal: recovery::Journal::new(recovery::app_dir().join("recovery")), undo: undo::History::default(),
             cfg, rc_path, db: None, file: None, password: None, cur, today: cli.today.unwrap_or_else(|| Cal::today().get()),
             saved_bytes: None, dirty: false, dialogs: Dialogs::default(), drag_month_hover: None,
             show_payments: false, payment_list: payment_list::PaymentList::default(), allow_close: false,
@@ -403,21 +500,25 @@ impl App {
             toast: None, banner: None,
             screenshot: cli.screenshot, frames: 0, dark: cli.dark, show_summary: true, focus_filter: false, title_dirty: true, brand_texture: None, t,
         };
+        if app.screenshot.is_none() { app.journal.register(); }
         if let Some(m) = cli.month { app.cur = Cal::from_int(m); app.cur.set_day_one(); }
         if let Some(f) = cli.filter { app.filter_text = f; app.set_filter(); }
         if let Some(f) = cli.file {
             // A file named on the command line never falls back to the last-used budget.
             let p = resolve_path(Path::new(f.trim()));
-            if p.is_file() { app.load(&p, None); app.toast = None; }
-            else { app.banner = Some(Banner { text: format!("No file was found at {}.", p.display()), details: None, ..Banner::load_failure(&p, "") }); }
+            if p.is_file() { app.load_at_start(&p); }
+            else {
+                app.banner = Some(Banner { text: format!("No file was found at {}.", p.display()), details: None, ..Banner::load_failure(&p, "") });
+                app.offer_recovery(&p, None);
+            }
         } else if let Some(f) = app.cfg.last_file_name.clone() {
             // The last budget may sit on an unreachable share, whose check blocks for ~20 s: look for
             // it off the UI thread and open it when it turns up (see `finish_auto_open`).
             let p = resolve_path(Path::new(f.trim()));
             match app.files.wait(&p, Duration::from_millis(250)) {
-                FileStatus::Present(_) => { app.load(&p, None); app.toast = None; }
+                FileStatus::Present(_) => app.load_at_start(&p),
                 FileStatus::Checking => app.auto_open = Some(p),
-                FileStatus::Missing => {}
+                FileStatus::Missing => app.offer_recovery(&p, None),
             }
         }
         app
@@ -434,7 +535,7 @@ impl App {
                 self.auto_open = None;
                 if self.db.is_none() { self.start_opening(&path, None, None, true); }
             }
-            FileStatus::Missing => self.auto_open = None,
+            FileStatus::Missing => { self.auto_open = None; self.offer_recovery(&path, None); }
         }
     }
 
@@ -481,7 +582,9 @@ impl App {
     /// A brief warning that needs no dismissing (unlike the persistent error banner).
     fn warn(&mut self, text: impl Into<String>) { self.toast = Some(Toast { text: text.into(), error: true, until: Instant::now() + Duration::from_secs(5) }); }
     fn fail(&mut self, text: impl Into<String>) { self.banner = Some(Banner::plain(text)); }
-    fn fail_load(&mut self, path: &Path, log: &str) { self.banner = Some(Banner::load_failure(path, log)); }
+    fn fail_load(&mut self, path: &Path, log: &str, has_backup: bool) {
+        self.banner = Some(Banner { offer_restore: has_backup.then(|| path.to_path_buf()), ..Banner::load_failure(path, log) });
+    }
 
     fn open(&mut self, path: &Path) {
         // An explicit open replaces any pending automatic open of the last budget.
@@ -549,6 +652,7 @@ impl App {
     /// Drops the open budget and its editors; the window shows the empty state. The closed budget is
     /// not reopened at the next start.
     fn close_budget(&mut self) {
+        self.journal.clear();
         self.sharing.disconnect();
         // A close requested while another budget is still being read wins over that open.
         self.opening = None;
@@ -558,6 +662,7 @@ impl App {
         self.password = None;
         self.saved_bytes = None;
         self.dirty = false;
+        self.undo = undo::History::default();
         self.month = None;
         self.view = None;
         self.haystacks = None;
@@ -582,6 +687,29 @@ impl App {
         if let Some(p) = rfd::FileDialog::new().add_filter("Budget", &["bgt"]).pick_file() { self.open(&p); }
     }
 
+    /// File > Restore previous version: lists the backups of `budget`. Nothing is read or changed
+    /// until one is picked.
+    fn open_restore(&mut self, budget: &Path) {
+        let owned = budget.to_path_buf();
+        let listing = self.files.spawn(move |_| bgt::list_backups(&owned));
+        self.dialogs.restore = Some(RestoreDialog { budget: budget.to_path_buf(), listing: Some(listing), backups: Vec::new() });
+    }
+
+    /// Opens `backup` as a draft of `budget`, once any unsaved changes were dealt with.
+    fn restore_backup(&mut self, budget: PathBuf, backup: PathBuf) {
+        self.auto_open = None;
+        if self.dirty || self.has_draft() {
+            self.dialogs.pending = Some(PendingAction::Restore { budget, backup });
+            return;
+        }
+        self.restore_unchecked(budget, &backup);
+    }
+
+    /// The backup is read and built in the background, like any open.
+    fn restore_unchecked(&mut self, budget: PathBuf, backup: &Path) {
+        self.opening = Some(self.opening_job(backup, None, None, false, Some(budget)));
+    }
+
     fn load_settings(&self) -> LoadSettings {
         LoadSettings { today: self.today, month: self.cur.get(), future_months: self.cfg.future_n_months, unlimited_history: self.cfg.unlimited_history }
     }
@@ -597,14 +725,17 @@ impl App {
                 return;
             }
         }
-        self.opening = Some(self.opening_job(path, bytes, password, quiet));
+        self.opening = Some(self.opening_job(path, bytes, password, quiet, None));
     }
 
-    fn opening_job(&self, path: &Path, bytes: Option<Vec<u8>>, password: Option<String>, quiet: bool) -> Opening {
+    fn opening_job(&self, path: &Path, bytes: Option<Vec<u8>>, password: Option<String>, quiet: bool, restore_to: Option<PathBuf>) -> Opening {
         let settings = self.load_settings();
-        let (job_path, job_password) = (path.to_path_buf(), password.clone());
-        let task = self.files.spawn(move |read| load_budget(read, &job_path, bytes, job_password.as_deref(), settings));
-        Opening { path: path.to_path_buf(), password, edits: self.edits, quiet, settings, task, loaded: None }
+        let (job_path, job_password, job_budget) = (path.to_path_buf(), password.clone(), restore_to.clone());
+        let task = self.files.spawn(move |read| match job_budget {
+            Some(budget) => load_backup(read, &budget, &job_path, bytes, job_password.as_deref(), settings),
+            None => load_budget(read, &job_path, bytes, job_password.as_deref(), settings),
+        });
+        Opening { path: path.to_path_buf(), password, edits: self.edits, quiet, settings, task, loaded: None, restore_to, offer: None }
     }
 
     /// Takes a finished background open. Edits made while the file was read, or an editor opened
@@ -617,18 +748,23 @@ impl App {
             opening.loaded = match opening.task.poll() {
                 TaskState::Running => return,
                 TaskState::Done(loaded) => Some(loaded),
-                TaskState::Lost => Some(Loaded::Failed("The budget could not be read.".into())),
+                TaskState::Lost => Some(Loaded::Failed("The budget could not be read.".into(), false)),
             };
         }
         if self.dialogs.pending.is_some() { return; }
-        let Some(Opening { path, password, edits, quiet, settings, loaded, .. }) = self.opening.take() else { return };
+        let Some(Opening { path, password, edits, quiet, settings, loaded, restore_to, offer, .. }) = self.opening.take() else { return };
         let Some(mut loaded) = loaded else { return };
         if edits != self.edits || self.has_draft() {
-            self.dialogs.pending = Some(PendingAction::Open(path));
+            // A recovery copy is never reopened by name: the prompt could lead to removing it unread.
+            if offer.is_some() { self.dialogs.recovery = offer; return; }
+            self.dialogs.pending = Some(match restore_to {
+                Some(budget) => PendingAction::Restore { budget, backup: path },
+                None => PendingAction::Open(path),
+            });
             return;
         }
         // Built around the month and date of the click: follow any change since, as a load now would.
-        if let Loaded::Budget(db, _) = &mut loaded {
+        if let Loaded::Budget(db, ..) | Loaded::Restored { db, .. } = &mut loaded {
             if settings != self.load_settings() {
                 db.today = self.today;
                 db.rebuild_db(&self.cur, self.cfg.future_n_months, self.cfg.unlimited_history);
@@ -645,36 +781,148 @@ impl App {
         self.apply_loaded(path, password.map(str::to_string), loaded, false);
     }
 
+    /// At startup: no "Opened" notice, but a warning about the budget stays.
+    fn load_at_start(&mut self, path: &Path) {
+        self.load(path, None);
+        self.toast = self.toast.take().filter(|toast| toast.error);
+    }
+
     fn apply_loaded(&mut self, path: &Path, password: Option<String>, loaded: Loaded, quiet: bool) {
         match loaded {
-            Loaded::Budget(db, bytes) => {
-                self.sharing.disconnect();
-                self.db = Some(*db);
-                self.generation += 1;
-                self.file = Some(path.to_path_buf());
-                self.password = password;
-                self.saved_bytes = Some(bytes);
+            // Never opened silently: it stays out of the window, and out of reach of Save, until the user decides.
+            Loaded::Budget(db, bytes, Completeness::MaybeCutShort { has_backup }) => {
+                // A save cut short by the crash is the file a recovery copy is most useful for.
+                self.offer_recovery(path, None);
+                self.dialogs.incomplete = Some(IncompleteBudget { path: path.to_path_buf(), password, db, bytes, quiet, has_backup });
+            }
+            Loaded::Budget(db, bytes, Completeness::Complete) => {
+                let current = recovery::fingerprint(&bytes);
+                self.adopt(*db, path, password, Some(bytes));
                 self.dirty = false;
-                self.dialogs.payment_editor = None;
-                self.dialogs.transaction_editor = None;
-                self.dialogs.balance_editor = None;
-                // A pending confirmation names a payment of the replaced budget by id.
-                self.dialogs.confirm_delete = None;
-                self.drag_month_hover = None;
-                self.payment_list.selected = None;
-                self.dialogs.day = None;
-                self.remember_file(path);
-                self.view = None;
-                self.banner = None;
-                self.dialogs.save_error = None;
-                self.title_dirty = true;
                 if !quiet { self.notify(format!("Opened {}", file_name(path))); }
+                self.offer_recovery(path, Some(current));
             }
-            Loaded::Locked(bytes) => {
-                self.dialogs.password = Some(PasswordPrompt { path: path.to_path_buf(), bytes, typed: String::new(), error: String::new(), attempt: None });
+            Loaded::Restored { mut db, budget, current, complete } => {
+                // The same budget is open: its conflict check and its password stay as they are, so
+                // saving an older version does not change who can open the file.
+                let same = self.file.as_deref().is_some_and(|f| same_file(f, &budget));
+                let baseline = if same { self.saved_bytes.clone().or_else(|| current.clone()) } else { current.clone() };
+                let password = self.password.clone().filter(|_| same).or(password);
+                let encrypted_now = current.is_some_and(|bytes| bgt::is_encrypted_text(&bgt::latin1_decode(&bytes)));
+                let unprotected = encrypted_now && password.is_none();
+                db.file_name = Some(budget.display().to_string());
+                self.adopt(*db, &budget, password, baseline);
+                self.dirty = true;
+                self.edits += 1;
+                // This draft writes to the same place as a copy nobody has answered for yet.
+                if !recovery::is_copy(path) { self.offer_recovery(&budget, None); }
+                self.journal_edit();
+                if recovery::is_copy(path) { self.notify("Unsaved work restored. Your file is unchanged until you save."); }
+                else if unprotected { self.warn("This earlier version has no password. Saving it would store your budget without one."); }
+                else if !complete { self.warn("This earlier version may be incomplete too. Check it before you save."); }
+                else { self.notify("Earlier version loaded. Your file is unchanged until you save."); }
             }
-            Loaded::Failed(log) => self.fail_load(path, &log),
+            Loaded::Locked(bytes, restore_to) => {
+                self.dialogs.password = Some(PasswordPrompt { path: path.to_path_buf(), bytes, typed: String::new(), error: String::new(), attempt: None, restore_to, has_backup: false });
+            }
+            Loaded::Failed(log, has_backup) => { self.fail_load(path, &log, has_backup); self.offer_recovery(path, None); }
         }
+    }
+
+    /// Offers a recovery copy kept for `path`, whose file has the fingerprint `current`.
+    fn offer_recovery(&mut self, path: &Path, current: Option<u64>) {
+        if self.screenshot.is_some() { return; }
+        match recovery::find(self.journal.dir(), path, current) {
+            recovery::Found::Nothing => {}
+            recovery::Found::Offer(offer) => self.dialogs.recovery = Some(offer),
+            recovery::Found::Unreadable => self.warn("A recovery copy of this budget could not be read."),
+        }
+    }
+
+    /// Restore loads the copy like an earlier version, as an unsaved draft of the budget.
+    /// Discard removes it. Either way the budget file stays as it is.
+    fn answer_recovery(&mut self, restore: bool) {
+        let Some(offer) = self.dialogs.recovery.take() else { return };
+        if restore {
+            self.dialogs.incomplete = None;
+            let password = self.password.clone().filter(|_| self.file.as_deref().is_some_and(|f| same_file(f, &offer.budget)));
+            let mut job = self.opening_job(&offer.file, Some(offer.bytes.clone()), password, false, Some(offer.budget.clone()));
+            job.offer = Some(offer);
+            self.opening = Some(job);
+        } else {
+            self.journal.remove(&offer.budget);
+            // A draft already on screen, from a backup, now has the copy to itself.
+            if self.dirty { self.journal_edit(); }
+        }
+    }
+
+    /// A recovery copy is being read. The window waits: an edit now would queue a copy over it.
+    fn restoring_copy(&self) -> bool { self.opening.as_ref().is_some_and(|opening| recovery::is_copy(&opening.path)) }
+
+    /// `budget` has a recovery copy the user has not seen through yet, so nothing may replace it.
+    fn copy_is_waiting(&self, budget: &Path) -> bool {
+        self.dialogs.recovery.as_ref().is_some_and(|offer| offer.budget == budget)
+            || self.opening.as_ref().is_some_and(|opening| recovery::is_copy(&opening.path) && opening.restore_to.as_deref() == Some(budget))
+            || self.dialogs.password.as_ref().is_some_and(|prompt| recovery::is_copy(&prompt.path) && prompt.restore_to.as_deref() == Some(budget))
+    }
+
+    /// The edits of `budget` are safe or given up on, so its copy goes, unless it holds other work.
+    fn forget_copy(&mut self, budget: &Path) {
+        if self.copy_is_waiting(budget) { self.journal.clear(); } else { self.journal.remove(budget); }
+    }
+
+    fn restoring_prompt(&mut self, ctx: &egui::Context) {
+        egui::Modal::new(egui::Id::new("restoring")).frame(self.t.card().inner_margin(24)).show(ctx, |ui| {
+            ui.set_width(320.0);
+            ui.horizontal(|ui| { ui.spinner(); ui.label("Restoring your unsaved work…"); });
+        });
+    }
+
+    fn recovery_prompt(&mut self, ctx: &egui::Context) {
+        let Some(offer) = &self.dialogs.recovery else { return };
+        let t = self.t.clone();
+        let mut choice = None;
+        egui::Modal::new(egui::Id::new("recovery")).frame(t.card().inner_margin(24)).show(ctx, |ui| {
+            ui.set_width(480.0);
+            ui.heading("Unsaved work found");
+            ui.add_space(SP2);
+            ui.label(RichText::new(file_name(&offer.budget)).text_style(ts(SEMI)));
+            ui.add(egui::Label::new(RichText::new("Budget Calendar stopped before this work was saved, and kept a copy on this device. Restoring opens it as unsaved changes. Your file stays as it is until you save.").color(t.text_muted)).wrap());
+            if offer.file_changed {
+                ui.add_space(SP2);
+                ui.add(egui::Label::new(RichText::new("The budget file has changed since this copy was started. Check both before you save.").color(t.negative)).wrap());
+            }
+            ui.add_space(SP4);
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                if theme::primary_button(ui, format!("Restore unsaved work from {}", offer.written), &t).clicked() { choice = Some(true); }
+                if theme::secondary_button(ui, "Discard", &t).clicked() { choice = Some(false); }
+            });
+        });
+        if let Some(restore) = choice { self.answer_recovery(restore); }
+    }
+
+    /// Makes `db` the open budget at `path`, replacing the one in the window.
+    fn adopt(&mut self, db: BudgetDb, path: &Path, password: Option<String>, baseline: Option<Vec<u8>>) {
+        self.journal.clear();
+        self.sharing.disconnect();
+        self.db = Some(db);
+        self.generation += 1;
+        self.file = Some(path.to_path_buf());
+        self.password = password;
+        self.saved_bytes = baseline;
+        self.dialogs.payment_editor = None;
+        self.dialogs.transaction_editor = None;
+        self.dialogs.balance_editor = None;
+        // A pending confirmation names a payment of the replaced budget by id.
+        self.dialogs.confirm_delete = None;
+        self.drag_month_hover = None;
+        self.payment_list.selected = None;
+        self.dialogs.day = None;
+        self.remember_file(path);
+        self.view = None;
+        self.banner = None;
+        self.dialogs.save_error = None;
+        self.title_dirty = true;
     }
 
     fn save(&mut self) -> bool {
@@ -733,10 +981,13 @@ impl App {
         let Some(db) = &self.db else { return false };
         match document::save_checked(db, path, self.password.as_deref(), expected) {
             Ok(bytes) => {
-                self.file = Some(path.to_path_buf());
+                // Save as leaves the edits safe under the new name, so neither name needs a copy.
+                if let Some(previous) = self.file.replace(path.to_path_buf()) { self.forget_copy(&previous); }
+                self.forget_copy(path);
                 if let Some(db) = &mut self.db { db.file_name = Some(path.display().to_string()); }
                 self.saved_bytes = Some(bytes);
                 self.dirty = false;
+                self.undo.mark_saved();
                 // The edits just saved must not make a background open that is pending ask again.
                 if let Some(opening) = &mut self.opening { opening.edits = self.edits; }
                 self.title_dirty = true;
@@ -830,7 +1081,7 @@ impl App {
         ui.spacing_mut().item_spacing.y = SP1;
         // Room for the file name: what is left after the brand, the status pill and the right-hand actions.
         // The "Unsaved changes" pill is 61 px wider than "Saved".
-        let name_w = (ui.available_width() - 880.0 - if self.dirty { 62.0 } else { 0.0 }).clamp(0.0, 300.0);
+        let name_w = (ui.available_width() - 925.0 - if self.dirty { 62.0 } else { 0.0 }).clamp(0.0, 300.0);
         let brand = self.brand_texture.get_or_insert_with(|| {
             let icon = app_icon();
             ui.ctx().load_texture("budget-calendar-brand",
@@ -887,6 +1138,11 @@ impl App {
                     if ui.button("New budget…").clicked() { ui.close_menu(); self.new_budget_dialog(); }
                     if ui.button("Shared budget…").clicked() { ui.close_menu(); self.sharing.open = true; }
                     if ui.add_enabled(self.db.is_some(), menu_btn(if self.sharing.document.is_some() { "Export copy…" } else { "Save as…" }, "")).clicked() { ui.close_menu(); self.save_as(); }
+                    let restorable = self.file.clone().filter(|_| self.sharing.document.is_none());
+                    if ui.add_enabled(restorable.is_some(), egui::Button::new("Restore previous version…")).clicked() {
+                        ui.close_menu();
+                        if let Some(path) = &restorable { self.open_restore(path); }
+                    }
                     if ui.add_enabled(self.db.is_some(), egui::Button::new("Close budget")).clicked() { ui.close_menu(); self.request_close_budget(); }
                     ui.separator();
                     for recent in self.cfg.recent_file.clone() {
@@ -894,6 +1150,16 @@ impl App {
                     }
                     ui.separator();
                     if ui.button("Close app").clicked() { ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close); }
+                });
+                ui.menu_button("Edit", |ui| {
+                    ui.set_min_width(210.0);
+                    for (back, shortcut) in [(true, "Ctrl+Z"), (false, "Ctrl+Y")] {
+                        let (text, blocked) = self.history_item(back);
+                        if ui.add_enabled(blocked.is_none(), menu_btn(&text, shortcut)).on_disabled_hover_text(blocked.unwrap_or_default()).clicked() {
+                            ui.close_menu();
+                            self.step_history(back);
+                        }
+                    }
                 });
                 ui.menu_button("View", |ui| {
                     let mut dark = self.dark;
@@ -917,7 +1183,7 @@ impl App {
 
     fn toolbar(&mut self, ui: &mut egui::Ui) {
         let t = self.t.clone();
-        let compact = ui.available_width() < 1000.0;
+        let compact = ui.available_width() < 960.0;
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = SP2;
             Frame::new().fill(t.bg).corner_radius(8).inner_margin(3).show(ui, |ui| {
@@ -1041,7 +1307,7 @@ impl App {
     fn stats(&self, ui: &mut egui::Ui, v: &MonthView) -> Option<calendar::Action> {
         let t = &self.t;
         let q = &v.quick;
-        let compact = ui.available_width() < 1000.0;
+        let compact = ui.available_width() < 960.0;
         let mut action = None;
         let tiles = [
             (if compact { "Opening" } else { "Opening balance" }, q.opening, t.text),
@@ -1111,9 +1377,10 @@ impl App {
                 // With cents hidden the calendar shows whole dollars; say so where the tile's cents are explained.
                 let precision = if self.cfg.show_decimals_in_cv { String::new() } else { "\nCalendar shows whole dollars; View > Show cents".to_string() };
                 tile.on_hover_text(format!("{label}: {}\nNet change: {}\nLowest balance: {}\nAverage balance: {}\nHighest balance: {}{precision}",
-                    money(*value, true), money(q.income + q.expenses, true), money(q.min, true), money(q.avg, true), money(q.max, true)));
+                    money(*value, true), money(q.closing - q.opening, true), money(q.min, true), money(q.avg, true), money(q.max, true)));
             }
         });
+        if let Some(note) = q.corrections_note() { ui.label(RichText::new(note).text_style(ts(CAPTION)).color(t.text_muted)); }
         action
     }
 
@@ -1174,7 +1441,7 @@ impl App {
                     if let Some(d) = row.diff { p.text(egui::pos2(x, cy), Align2::RIGHT_CENTER, money(d, false), fid.clone(), theme::legible(sign_colour(&t, d, false), ground)); }
                     x -= dw;
                 }
-                p.text(egui::pos2(x, cy), Align2::RIGHT_CENTER, view::share_cell(row.pct, is_net), fid.clone(), t.text_muted);
+                if !row.outside { p.text(egui::pos2(x, cy), Align2::RIGHT_CENTER, view::share_cell(row.pct, is_net), fid.clone(), t.text_muted); }
                 x -= pw;
                 let ar = p.text(egui::pos2(x, cy), Align2::RIGHT_CENTER, money(row.amount, false), fid.clone(), theme::legible(sign_colour(&t, row.amount, false), ground));
                 x -= aw.max(ar.width() + 8.0);
@@ -1186,7 +1453,7 @@ impl App {
                 let gh = g.size().y;
                 p.galley(egui::pos2(rect.min.x, cy - gh / 2.0), g, desc_col);
                 // share of income: a 4px bar across the full row inside a faint track
-                if !is_net {
+                if !is_net && !row.outside {
                     let track = egui::Rect::from_min_size(egui::pos2(rect.min.x, rect.max.y - 6.0), Vec2::new(rect.width(), 4.0));
                     p.rect_filled(track, 2, tint(t.surface, t.border, 0.5));
                     let share = row.pct.map_or(0.0, |pct| (pct.abs() / 100.0).clamp(0.0, 1.0)) as f32;
@@ -1324,7 +1591,7 @@ impl App {
     fn banner(&mut self, ui: &mut egui::Ui) {
         let Some(b) = self.banner.clone() else { return };
         let t = self.t.clone();
-        let (mut dismiss, mut open) = (false, false);
+        let (mut dismiss, mut open, mut restore) = (false, false, false);
         Frame::new().fill(tint(t.surface, t.negative, 0.1)).stroke(Stroke::new(1.0_f32, tint(t.surface, t.negative, 0.4))).corner_radius(theme::RADIUS).inner_margin(Margin::symmetric(12, 8)).show(ui, |ui| {
             ui.horizontal_top(|ui| {
                 ui.label(RichText::new(ph::WARNING_CIRCLE).text_style(ts(ICON)).color(t.negative));
@@ -1335,6 +1602,10 @@ impl App {
                     ui.spacing_mut().item_spacing.y = SP1;
                     if let Some(title) = &b.title { ui.label(RichText::new(title).text_style(ts(SEMI)).color(t.text)); }
                     ui.add(egui::Label::new(RichText::new(&b.text).color(if b.title.is_some() { t.text_muted } else { t.text })).wrap());
+                    if b.offer_restore.is_some() {
+                        ui.add(egui::Label::new(RichText::new("Earlier versions of this budget are available.").color(t.text_muted)).wrap());
+                        if theme::primary_button(ui, "Restore previous version…", &t).clicked() { restore = true; }
+                    }
                     if b.offer_open && theme::secondary_button(ui, format!("{}  Open another…", ph::FOLDER_OPEN), &t).clicked() { open = true; }
                     if let Some(details) = &b.details {
                         egui::CollapsingHeader::new(RichText::new("Details").text_style(ts(CAPTION)).color(t.text_muted))
@@ -1355,6 +1626,7 @@ impl App {
             self.banner = None;
         }
         if open { self.open_dialog(); }
+        if restore { if let Some(path) = &b.offer_restore { self.open_restore(path); } }
     }
 
     fn toast(&mut self, ctx: &egui::Context) {
@@ -1380,7 +1652,7 @@ impl App {
             if let Some(attempt) = &mut prompt.attempt {
                 match attempt.task.poll() {
                     TaskState::Running => {},
-                    TaskState::Done(loaded @ Loaded::Budget(..)) => {
+                    TaskState::Done(loaded @ (Loaded::Budget(..) | Loaded::Restored { .. })) => {
                         attempt.loaded = Some(loaded);
                         // Reuse the authenticated result, including the original file bytes. The
                         // normal open path still guards against edits and changed load settings.
@@ -1389,22 +1661,39 @@ impl App {
                         ctx.request_repaint();
                         return;
                     }
-                    TaskState::Done(_) | TaskState::Lost => {
+                    state => {
                         prompt.attempt = None;
                         prompt.error = "The password is incorrect or the encrypted file is damaged.".into();
+                        if let TaskState::Done(Loaded::Failed(log, has_backup)) = state {
+                            prompt.has_backup = has_backup;
+                            // A damaged sealed file fails just as a wrong password does, and it is the
+                            // file a copy is most useful for. The copy asks for its own password.
+                            if prompt.restore_to.is_none() {
+                                let (path, current) = (prompt.path.clone(), recovery::fingerprint(&prompt.bytes));
+                                self.offer_recovery(&path, Some(current));
+                                if self.dialogs.recovery.is_some() {
+                                    self.fail_load(&path, &log, has_backup);
+                                    self.dialogs.password = None;
+                                    ctx.request_repaint();
+                                    return;
+                                }
+                            }
+                        }
                     }
                 }
             }
         }
-        let Some(PasswordPrompt { path, typed: pw, error: err, attempt, .. }) = &mut self.dialogs.password else { return };
+        let Some(PasswordPrompt { path, typed: pw, error: err, attempt, has_backup, restore_to, .. }) = &mut self.dialogs.password else { return };
         let busy = attempt.is_some();
+        let offer_restore = *has_backup && !err.is_empty();
         let t = &self.t;
         let mut done: Option<Option<String>> = None;
-        let name = file_name(path);
+        let mut restore = false;
+        let line = encrypted_line(path, restore_to.as_deref());
         egui::Modal::new(egui::Id::new("password")).frame(Frame::new().fill(t.surface).stroke(Stroke::new(1.0_f32, t.border)).corner_radius(theme::RADIUS).inner_margin(SP4).shadow(ctx.style().visuals.window_shadow)).show(ctx, |ui| {
             ui.set_width(320.0);
             ui.label(RichText::new("Password required").text_style(ts(TITLE)));
-            ui.label(RichText::new(format!("{name} is encrypted.")).color(t.text_muted));
+            ui.label(RichText::new(line).color(t.text_muted));
             ui.add_space(SP2);
             let r = ui.add_enabled(!busy, TextEdit::singleline(pw).password(true).desired_width(f32::INFINITY).hint_text("Password"));
             let enter = (r.has_focus() || r.lost_focus()) && ui.input(|i| i.key_pressed(Key::Enter));
@@ -1412,6 +1701,7 @@ impl App {
             if !busy && ctx.memory(|m| m.focused()).is_none() { r.request_focus(); }
             if busy { ui.horizontal(|ui| { ui.spinner(); ui.label("Unlocking…"); }); }
             if !err.is_empty() { ui.label(RichText::new(err.as_str()).color(t.negative)); }
+            if offer_restore && theme::secondary_button(ui, "Restore previous version…", t).clicked() { restore = true; }
             ui.add_space(SP2);
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 if ui.add_enabled_ui(!busy, |ui| theme::primary_button(ui, "Unlock", t)).inner.clicked() || (!busy && enter) { done = Some(Some(pw.clone())); }
@@ -1426,11 +1716,99 @@ impl App {
                 // Keep the captured bytes for retries. The worker authenticates and builds once;
                 // there is no preliminary KDF/decrypt on the window thread and no second read.
                 let prompt = self.dialogs.password.as_ref().unwrap();
-                let job = self.opening_job(&prompt.path, Some(prompt.bytes.clone()), Some(p), false);
+                let job = self.opening_job(&prompt.path, Some(prompt.bytes.clone()), Some(p), false, prompt.restore_to.clone());
                 self.dialogs.password.as_mut().unwrap().attempt = Some(job);
             }
             Some(None) => self.dialogs.password = None,
             None => {}
+        }
+        if restore {
+            if let Some(prompt) = self.dialogs.password.take() { self.open_restore(&prompt.path); }
+        }
+    }
+
+    /// Asks what to do with a budget that may be cut short. Opening it is the user's decision, told
+    /// what a save does; every other answer leaves the file as it is.
+    fn incomplete_prompt(&mut self, ctx: &egui::Context) {
+        #[derive(Clone, Copy)]
+        enum Choice { Cancel, Open, Restore }
+        let Some(prompt) = &self.dialogs.incomplete else { return };
+        let t = self.t.clone();
+        let (name, has_backup) = (file_name(&prompt.path), prompt.has_backup);
+        let mut choice = None;
+        egui::Modal::new(egui::Id::new("incomplete")).frame(t.card().inner_margin(24)).show(ctx, |ui| {
+            ui.set_width(480.0);
+            ui.heading("This budget may be incomplete");
+            ui.add_space(SP2);
+            ui.label(RichText::new(&name).text_style(ts(SEMI)));
+            ui.add(egui::Label::new(RichText::new("This file does not end the way a finished save does. It may have been cut short by a crash or a sync, so some payments could be missing. Budgets from the original program can also look like this.").color(t.text_muted)).wrap());
+            ui.add_space(SP2);
+            ui.add(egui::Label::new(RichText::new(if has_backup { "You can restore an earlier version, or open this file as it is. If you open it and save, the file as it is now is kept as a backup." }
+                else { "No earlier versions were found. If you open it and save, the file as it is now is kept as a backup." }).color(t.text_muted)).wrap());
+            ui.add_space(SP4);
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                if has_backup {
+                    if theme::primary_button(ui, "Restore previous version…", &t).clicked() { choice = Some(Choice::Restore); }
+                    if theme::secondary_button(ui, "Open anyway", &t).clicked() { choice = Some(Choice::Open); }
+                } else if theme::primary_button(ui, "Open anyway", &t).clicked() { choice = Some(Choice::Open); }
+                if theme::secondary_button(ui, "Cancel", &t).clicked() { choice = Some(Choice::Cancel); }
+            });
+            if ui.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape)) { choice = Some(Choice::Cancel); }
+        });
+        let Some(choice) = choice else { return };
+        let Some(IncompleteBudget { path, password, db, bytes, quiet, .. }) = self.dialogs.incomplete.take() else { return };
+        match choice {
+            Choice::Cancel => {}
+            Choice::Open => self.apply_loaded(&path, password, Loaded::Budget(db, bytes, Completeness::Complete), quiet),
+            Choice::Restore => self.open_restore(&path),
+        }
+    }
+
+    fn restore_dialog(&mut self, ctx: &egui::Context) {
+        let Some(dialog) = &mut self.dialogs.restore else { return };
+        if let Some(listing) = &dialog.listing {
+            match listing.poll() {
+                TaskState::Running => {}
+                TaskState::Done(backups) => { dialog.backups = backups; dialog.listing = None; }
+                TaskState::Lost => dialog.listing = None,
+            }
+        }
+        let t = self.t.clone();
+        let (mut close, mut picked) = (false, None);
+        egui::Modal::new(egui::Id::new("restore")).frame(t.card().inner_margin(24)).show(ctx, |ui| {
+            ui.set_width(460.0);
+            ui.heading("Restore previous version");
+            ui.add_space(SP2);
+            ui.label(RichText::new(file_name(&dialog.budget)).text_style(ts(SEMI)));
+            ui.add(egui::Label::new(RichText::new("Each version is this budget as it was just before a save at that time. Opening one loads it as unsaved changes. Your current file stays as it is until you save.").color(t.text_muted)).wrap());
+            ui.add_space(SP2);
+            if dialog.listing.is_some() {
+                ui.horizontal(|ui| { ui.spinner(); ui.label("Looking for earlier versions…"); });
+            } else if dialog.backups.is_empty() {
+                ui.label("No earlier versions of this budget were found.");
+            } else {
+                egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
+                    for backup in &dialog.backups {
+                        ui.horizontal(|ui| {
+                            ui.label(backup_time(backup));
+                            ui.label(RichText::new(file_size(backup.size)).color(t.text_muted));
+                            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                if theme::secondary_button(ui, "Open", &t).on_hover_text(file_name(&backup.path)).clicked() { picked = Some(backup.path.clone()); }
+                            });
+                        });
+                    }
+                });
+            }
+            ui.add_space(SP4);
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                if theme::secondary_button(ui, "Close", &t).clicked() { close = true; }
+            });
+            if ui.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape)) { close = true; }
+        });
+        if close || picked.is_some() {
+            let budget = dialog.budget.clone();
+            self.dialogs.restore = None;
+            if let Some(backup) = picked { self.restore_backup(budget, backup); }
         }
     }
 
@@ -1458,10 +1836,22 @@ impl App {
 
     fn has_draft(&self) -> bool { self.dialogs.has_draft() }
 
-    fn has_modal(&self) -> bool { self.dialogs.any() || self.sharing.open }
+    fn has_modal(&self) -> bool { self.dialogs.any() || self.sharing.open || self.restoring_copy() }
 
-    /// After an applied edit. Returns whether the schedule had to be rebuilt.
-    fn changed(&mut self) -> bool {
+    /// An edit in a test, which has no name to show.
+    #[cfg(test)]
+    fn changed(&mut self) -> bool { self.changed_as("edit") }
+
+    /// After an applied edit, which Undo then offers as `label` ("edit Rent"). Returns whether the
+    /// schedule had to be rebuilt.
+    fn changed_as(&mut self, label: impl Into<String>) -> bool {
+        let rebuilt = self.after_change();
+        if let Some(db) = &self.db { self.undo.record(self.generation, label, db); }
+        rebuilt
+    }
+
+    /// After the budget changed, by an edit or by Undo and Redo.
+    fn after_change(&mut self) -> bool {
         // A save that failed while the budget was clean (Save as) says nothing about the edits to come.
         if !self.dirty { self.dialogs.save_error = None; }
         self.dirty = true;
@@ -1472,7 +1862,74 @@ impl App {
         let Some(db) = &mut self.db else { return false };
         let rebuilt = refresh::after_edit(db, &self.cur, self.cfg.future_n_months, self.cfg.unlimited_history);
         if self.sharing.document.is_some() { self.save_shared(); }
+        self.journal_edit();
         rebuilt
+    }
+
+    /// Steps made before this frame belong to the budget they were made in.
+    fn history_follow(&mut self) { self.undo.follow(self.generation, self.db.as_ref(), self.dirty); }
+
+    /// The Edit menu's Undo (`back`) or Redo: its text, and why it cannot be used now.
+    fn history_item(&self, back: bool) -> (String, Option<&'static str>) {
+        let verb = if back { "Undo" } else { "Redo" };
+        let label = if back { self.undo.undo_label() } else { self.undo.redo_label() };
+        let Some(label) = label else { return (verb.into(), Some(if back { "Nothing to undo" } else { "Nothing to redo" })) };
+        let conflict = self.sharing.document.as_ref().is_some_and(|d| d.conflict.is_some());
+        (format!("{verb}: {label}"), conflict.then_some("Review the conflicting shared version first"))
+    }
+
+    /// Undo (`back`) or Redo. On a shared budget it is a new edit like any other, queued for the
+    /// household. Elsewhere, arriving at the state last saved leaves nothing to save.
+    fn step_history(&mut self, back: bool) {
+        self.history_follow();
+        let waiting = if back { self.undo.undo_label() } else { self.undo.redo_label() }.is_some();
+        if !waiting || self.has_modal() || !self.shared_editable() { return; }
+        let Some(step) = (if back { self.undo.undo() } else { self.undo.redo() }) else { return };
+        let Some(db) = &mut self.db else { return };
+        step.snapshot.restore(db);
+        // Undo may bring back any payment, so the in-place shortcut of an edit does not apply.
+        db.rebuild_db(&self.cur, self.cfg.future_n_months, self.cfg.unlimited_history);
+        if self.payment_list.selected.is_some_and(|id| db.get_by_id(id).is_none()) { self.payment_list.selected = None; }
+        self.after_change();
+        let shared = self.sharing.document.is_some();
+        if step.saved && !shared { self.back_at_saved(); }
+        let done = format!("{}: {}.", if back { "Undone" } else { "Redone" }, step.label);
+        self.notify(if shared && self.dirty { format!("{done} Not saved on this device. See the error message.") }
+            else if shared { format!("{done} Queued for household sync.") }
+            else if self.dirty { format!("{done} Press Ctrl+S to save.") }
+            else { format!("{done} Back to your saved budget.") });
+    }
+
+    /// The budget is the file again: as after a save, nothing is left to keep or to ask about.
+    fn back_at_saved(&mut self) {
+        self.dirty = false;
+        if let Some(path) = self.file.clone() { self.forget_copy(&path); }
+        if let Some(opening) = &mut self.opening { opening.edits = self.edits; }
+        if self.banner.as_ref().is_some_and(|banner| self.dialogs.save_error.as_deref() == Some(banner.text.as_str())) { self.banner = None; }
+        self.dialogs.save_error = None;
+    }
+
+    /// Queues a recovery copy of the budget as it stands. The `autosave` setting (`.budgetrc`, on by
+    /// default) turns these copies off. Shared budgets keep their edits in the protected cache instead;
+    /// an edit that cannot reach it stays in memory only, with the error showing (see `save_shared`).
+    fn journal_edit(&mut self) {
+        if self.screenshot.is_some() || !self.cfg.autosave || self.sharing.document.is_some() { return; }
+        if self.file.as_deref().is_some_and(|path| self.copy_is_waiting(path)) { return; }
+        let (Some(db), Some(path)) = (&self.db, &self.file) else { return };
+        let job = recovery::Job::new(db, path, self.password.as_deref(), self.saved_bytes.as_deref(), self.edits);
+        self.journal.note(job);
+    }
+
+    /// A due recovery copy goes to its worker now, and an idle window wakes for the next one.
+    fn journal_step(&mut self, ctx: &egui::Context) {
+        if let Some(wait) = self.journal.tick(ctx, !ctx.input(|i| i.focused)) { ctx.request_repaint_after(wait); }
+        if self.journal.take_failure() { self.warn("Unsaved work could not be copied for recovery. Save soon."); }
+    }
+
+    /// Unsaved changes were given up on: their recovery copy goes too.
+    fn discard_unsaved(&mut self, action: PendingAction, ctx: &egui::Context) {
+        if let Some(path) = self.file.clone() { self.forget_copy(&path); }
+        self.perform_pending(action, ctx);
     }
 
     fn new_payment(&mut self, date: i32) {
@@ -1495,7 +1952,13 @@ impl App {
         }
     }
 
+    /// The name of a payment, for the Undo item of an edit to it.
+    fn payment_name(&self, id: i32) -> String {
+        self.db.as_ref().and_then(|db| db.get_by_id(id).map(|i| db.payments[i].description.clone())).unwrap_or_default()
+    }
+
     fn apply_transaction_edit(&mut self, id: i32, date: i32, amount: f64, note: &str, flag: char, scope: TransactionScope) {
+        let name = self.payment_name(id);
         let Some(db) = &mut self.db else { return };
         // Under the future scope later occurrences are rewritten unless they already show the amount.
         let rewrites_future = scope == TransactionScope::Future && !document::future_already_shows(db, id, date, amount);
@@ -1515,7 +1978,7 @@ impl App {
         match result {
             Ok(()) => {
                 self.dialogs.transaction_editor = None;
-                self.changed();
+                self.changed_as(format!("edit {name}"));
                 self.notify(if rewrites_future {
                     "This and future amounts updated. Press Ctrl+S to save."
                 } else { "Transaction applied. Press Ctrl+S to save." });
@@ -1543,7 +2006,7 @@ impl App {
         match document::set_balance(db, date, amount) {
             Ok(changed) => {
                 self.dialogs.balance_editor = None;
-                if changed { self.changed(); self.notify("Balance updated. Press Ctrl+S to save."); }
+                if changed { self.changed_as(format!("change balance on {}", names::long_date(date))); self.notify("Balance updated. Press Ctrl+S to save."); }
             }
             Err(error) => { if let Some(editor) = &mut self.dialogs.balance_editor { editor.set_error(error); } }
         }
@@ -1575,18 +2038,20 @@ impl App {
             calendar::Action::DeleteTransaction { id, date } => self.dialogs.confirm_delete = Some(DeleteTarget { id, date: Some(date) }),
             calendar::Action::EditBalance(date) => self.edit_balance(date),
             calendar::Action::Restore { id, date } => {
+                let name = self.payment_name(id);
                 let Some(db) = &mut self.db else { return };
                 match document::restore(db, id, date) {
-                    Ok(()) => { self.changed(); self.notify("Transaction restored. Press Ctrl+S to save."); }
+                    Ok(()) => { self.changed_as(format!("restore {name}")); self.notify("Transaction restored. Press Ctrl+S to save."); }
                     Err(error) => self.fail(error),
                 }
             }
             calendar::Action::MoveTransaction { id, from, to, amount } => {
+                let name = self.payment_name(id);
                 let Some(db) = &mut self.db else { return };
                 match document::move_transaction(db, id, from, to, amount) {
                     Ok(true) => {
                         self.cur = Cal::from_int(to); self.cur.set_day_one();
-                        self.changed();
+                        self.changed_as(format!("move {name}"));
                         self.notify(format!("Moved to {}. Press Ctrl+S to save.", budget_core::date::sdate(to)));
                     }
                     Ok(false) => {},
@@ -1703,6 +2168,40 @@ impl App {
         if let Some(action) = action { self.calendar_action(action); }
     }
 
+    /// `id`: the payment edited, or none for a new one.
+    fn apply_payment_edit(&mut self, p: Box<budget_core::Payment>, id: Option<i32>, from: Option<i32>) {
+        let start = p.start_date;
+        if id.is_some_and(|id| document::payment_unchanged(self.db.as_ref().unwrap(), id, &p)) {
+            self.dialogs.payment_editor = None;
+            self.notify("Nothing changed.");
+            return;
+        }
+        let label = format!("{} {}", if id.is_some() { "edit" } else { "add" }, p.description);
+        match document::apply_payment(self.db.as_mut().unwrap(), *p, id, from) {
+            Ok(applied) => {
+                if id.is_none() {
+                    // The calendar moves to the new payment's month, away from the day list.
+                    self.cur = Cal::from_int(start); self.cur.set_day_one();
+                    self.dialogs.day = None;
+                }
+                self.payment_list.selected = Some(applied);
+                self.dialogs.payment_editor = None;
+                self.changed_as(label);
+                self.notify("Payment applied. Press Ctrl+S to save.");
+            }
+            Err(e) => { if let Some(editor) = &mut self.dialogs.payment_editor { editor.set_error(e); } },
+        }
+    }
+
+    /// A confirmed delete of a payment, or of one date of it.
+    fn apply_delete(&mut self, target: DeleteTarget) {
+        let name = self.payment_name(target.id);
+        match document::delete(self.db.as_mut().unwrap(), target.id, target.date) {
+            Ok(()) => { self.dialogs.transaction_editor = None; self.dialogs.payment_editor = None; self.changed_as(format!("delete {name}")); self.notify("Deleted. Press Ctrl+S to save."); }
+            Err(e) => self.fail(e),
+        }
+    }
+
     fn editors(&mut self, ctx: &egui::Context) {
         if self.dialogs.pending.is_some() || self.dialogs.confirm_delete.is_some() { return; }
         if let (Some(editor), Some(db)) = (&mut self.dialogs.payment_editor, &self.db) {
@@ -1710,28 +2209,7 @@ impl App {
             match editor.show(ctx, &self.t, db, self.cfg.first_day_of_week_is_sunday, self.today) {
                 PaymentAction::None => {},
                 PaymentAction::Cancel => self.dialogs.payment_editor = None,
-                PaymentAction::Apply(p, from) => {
-                    let start = p.start_date;
-                    if id.is_some_and(|id| document::payment_unchanged(self.db.as_ref().unwrap(), id, &p)) {
-                        self.dialogs.payment_editor = None;
-                        self.notify("Nothing changed.");
-                        return;
-                    }
-                    match document::apply_payment(self.db.as_mut().unwrap(), *p, id, from) {
-                        Ok(id) => {
-                            if self.dialogs.payment_editor.as_ref().is_some_and(|e| e.payment_id.is_none()) {
-                                // The calendar moves to the new payment's month, away from the day list.
-                                self.cur = Cal::from_int(start); self.cur.set_day_one();
-                                self.dialogs.day = None;
-                            }
-                            self.payment_list.selected = Some(id);
-                            self.dialogs.payment_editor = None;
-                            self.changed();
-                            self.notify("Payment applied. Press Ctrl+S to save.");
-                        }
-                        Err(e) => { if let Some(editor) = &mut self.dialogs.payment_editor { editor.set_error(e); } },
-                    }
-                }
+                PaymentAction::Apply(p, from) => self.apply_payment_edit(p, id, from),
             }
         }
         if let Some(editor) = &mut self.dialogs.transaction_editor {
@@ -1762,6 +2240,7 @@ impl App {
             PendingAction::New(path) => self.create_budget(&path),
             PendingAction::CloseBudget => self.close_budget(),
             PendingAction::Shared(document) => self.activate_shared(*document),
+            PendingAction::Restore { budget, backup } => self.restore_unchecked(budget, &backup),
         }
     }
 
@@ -1804,7 +2283,7 @@ impl App {
                     self.dialogs.payment_editor = None; self.dialogs.transaction_editor = None; self.dialogs.balance_editor = None;
                     if !self.dirty { self.perform_pending(action, ctx); }
                 }
-                Some(UnsavedChoice::Discard) => self.perform_pending(action, ctx),
+                Some(UnsavedChoice::Discard) => self.discard_unsaved(action, ctx),
                 Some(UnsavedChoice::Save) if self.save() => self.perform_pending(action, ctx),
                 Some(UnsavedChoice::SaveCopy) if self.save_as() => self.perform_pending(action, ctx),
                 Some(UnsavedChoice::Save | UnsavedChoice::SaveCopy) | None => {},
@@ -1835,12 +2314,7 @@ impl App {
                 if ui.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape)) { choice = Some(DeleteChoice::Cancel); }
             });
             if choice.is_some() { self.dialogs.confirm_delete = None; }
-            if choice == Some(DeleteChoice::Delete) {
-                match document::delete(self.db.as_mut().unwrap(), target.id, target.date) {
-                    Ok(()) => { self.dialogs.transaction_editor = None; self.dialogs.payment_editor = None; self.changed(); self.notify("Deleted. Press Ctrl+S to save."); }
-                    Err(e) => self.fail(e),
-                }
-            }
+            if choice == Some(DeleteChoice::Delete) { self.apply_delete(target); }
         }
     }
 
@@ -1879,11 +2353,18 @@ impl App {
             calendar && (i.consume_key(Modifiers::ALT, Key::ArrowLeft) | (!typing && i.consume_key(Modifiers::NONE, Key::PageUp))),
             calendar && ((!typing && i.consume_key(Modifiers::NONE, Key::Home)) | (!typing && i.consume_key(Modifiers::NONE, Key::T))),
         ));
+        // A text box undoes its own typing. Ctrl+Shift+Z goes first: Ctrl+Z also matches it.
+        let (redo, undo) = if typing { (false, false) } else { ctx.input_mut(|i| (
+            i.consume_key(Modifiers::COMMAND | Modifiers::SHIFT, Key::Z) | i.consume_key(Modifiers::COMMAND, Key::Y),
+            i.consume_key(Modifiers::COMMAND, Key::Z),
+        )) };
         // Dialogs and view switches wait until a dragged transaction is dropped; month paging still works.
         if o && !dragging { self.open_dialog(); }
         if s { self.save(); }
         if f { if self.show_payments { self.payment_list.focus_search = true; } else { self.focus_filter = true; } }
         if n && !dragging { self.new_payment(self.today); }
+        if undo && !dragging { self.step_history(true); }
+        if redo && !dragging { self.step_history(false); }
         if p && !dragging && self.db.is_some() { self.show_payments = true; self.payment_list.focus_search = true; }
         if pgdn { self.go(1); }
         if pgup { self.go(-1); }
@@ -1901,8 +2382,9 @@ impl App {
             ui.set_width((ctx.screen_rect().width() - 64.0).clamp(280.0, 460.0));
             ui.label(RichText::new("Keyboard shortcuts").text_style(ts(TITLE)));
             ui.add_space(SP2);
-            const ROWS: [(&str, &str); 14] = [
+            const ROWS: [(&str, &str); 16] = [
                 ("Ctrl+N", "New payment"), ("Ctrl+S", "Save changes"), ("Ctrl+O", "Open a budget"),
+                ("Ctrl+Z", "Undo"), ("Ctrl+Y", "Redo (also Ctrl+Shift+Z)"),
                 ("Ctrl+F", "Search transactions"), ("Ctrl+P", "Payments list"),
                 ("PgUp", "Previous month"), ("PgDn", "Next month"), ("Alt+Left", "Previous month (works while searching)"),
                 ("Alt+Right", "Next month (works while searching)"), ("Home", "Jump to the current month"),
@@ -2047,6 +2529,7 @@ impl App {
         }
         self.finish_auto_open();
         self.poll_shared(ctx);
+        self.journal_step(ctx);
         // A dragged transaction belongs to the budget it was picked up from: the swap waits for the drop.
         if !egui::DragAndDrop::has_payload_of_type::<calendar::DraggedTransaction>(ctx) { self.finish_opening(); }
         self.check_date(ctx);
@@ -2068,6 +2551,7 @@ impl App {
             let title = version::window_title(name.as_deref(), self.dirty);
             ctx.send_viewport_cmd(egui::ViewportCommand::Title(title));
         }
+        self.history_follow();
         self.keys(ctx);
         self.ensure_view();
         let t = self.t.clone();
@@ -2119,7 +2603,7 @@ impl App {
                     });
                 });
             });
-        if has_db && !self.show_payments && self.show_summary && ctx.screen_rect().width() >= 1480.0 {
+        if has_db && !self.show_payments && self.show_summary && ctx.screen_rect().width() >= SUMMARY_MIN_WINDOW {
             egui::SidePanel::right("summary").resizable(false).exact_width(SUMMARY_W).show_separator_line(false)
                 .frame(Frame::new().fill(t.bg).inner_margin(Margin { left: 0, right: 8, top: 8, bottom: 8 }))
                 .show(ctx, |ui| self.summary(ui));
@@ -2153,6 +2637,14 @@ impl App {
         } else if self.dialogs.password.is_some() {
             // The password prompt is topmost: Escape and clicks reach it, not a dialog behind it.
             self.password_prompt(ctx);
+        } else if self.dialogs.recovery.is_some() {
+            self.recovery_prompt(ctx);
+        } else if self.dialogs.incomplete.is_some() {
+            self.incomplete_prompt(ctx);
+        } else if self.dialogs.restore.is_some() {
+            self.restore_dialog(ctx);
+        } else if self.restoring_copy() && self.dialogs.pending.is_none() {
+            self.restoring_prompt(ctx);
         } else {
             self.day_window(ctx);
             self.editors(ctx);
@@ -2176,7 +2668,9 @@ impl App {
         // Keyboard focus goes back to the control that opened a dialog (e.g. a row opened with Enter).
         match (modal_before, self.has_modal()) {
             (false, true) => self.focus_return = focus_before,
-            (true, false) => if let Some(id) = self.focus_return.take() { ctx.memory_mut(|m| m.request_focus(id)); },
+            // A menu that opened the dialog is gone by now, and AccessKit crashes on a focused widget that
+            // is not in the frame. egui keeps a fresh request for one frame, so check here.
+            (true, false) => if let Some(id) = self.focus_return.take().filter(|id| ctx.viewport(|v| v.this_pass.widgets.contains(*id))) { ctx.memory_mut(|m| m.request_focus(id)); },
             _ => {}
         }
     }
@@ -2215,6 +2709,7 @@ fn main() -> eframe::Result {
         print_cli(&info);
         return Ok(());
     }
+    recovery::install_panic_hook();
     let cli = parse_cli();
     let size = cli.size.unwrap_or([1280.0, 840.0]);
     let maximized = cli.size.is_none();
@@ -2278,8 +2773,9 @@ mod banner_tests {
         assert_eq!(load_error_summary(log), "Line 23: Invalid data for 'amount'");
         assert_eq!(load_error_summary("unable to open file.\nException: wrong password\nfailed"), "Unable to open file: wrong password");
         assert_eq!(load_error_summary("Exception: java.io.IOException: disk error\nfailed"), "Disk error");
-        assert_eq!(load_error_summary("mismatched number of read lines! line_no=3, file_line_no=4\nfailed"),
-            "Mismatched number of read lines! line_no=3, file_line_no=4");
+        for damaged in ["mismatched number of read lines! line_no=3, file_line_no=4\nfailed", "misformed end-of-data line: line_no=3, text:'x'\nfailed"] {
+            assert_eq!(load_error_summary(damaged), "Part of this budget file is missing, so it may have been damaged.");
+        }
         assert_eq!(load_error_summary("The system cannot find the file specified. (os error 2)"), "The system cannot find the file specified. (os error 2)");
         assert_eq!(load_error_summary(""), "The file could not be read.");
         // A single-line error adds no Details section.
@@ -2295,14 +2791,17 @@ mod dialog_tests {
     #[test]
     fn each_dialog_counts_as_a_draft_the_shortcuts_sheet_or_another_modal() {
         type Open = fn(&mut Dialogs);
-        let open: [(&str, Open); 10] = [
+        let open: [(&str, Open); 13] = [
             ("payment editor", |d| d.payment_editor = Some(PaymentEditor::new(20261027))),
             ("transaction editor", |d| d.transaction_editor = Some(TransactionEditor::new(&budget_core::Payment::new(20261027), 20261027, -1.0))),
             ("balance editor", |d| d.balance_editor = Some(BalanceEditor::new(20261027, 0.0, false))),
             ("day", |d| d.day = Some(20261027)),
             ("delete", |d| d.confirm_delete = Some(DeleteTarget { id: 1, date: None })),
             ("pending", |d| d.pending = Some(PendingAction::Close)),
-            ("password", |d| d.password = Some(PasswordPrompt { path: PathBuf::from("x.bgt"), bytes: Vec::new(), typed: String::new(), error: String::new(), attempt: None })),
+            ("password", |d| d.password = Some(PasswordPrompt { path: PathBuf::from("x.bgt"), bytes: Vec::new(), typed: String::new(), error: String::new(), attempt: None, restore_to: None, has_backup: false })),
+            ("incomplete", |d| d.incomplete = Some(IncompleteBudget { path: PathBuf::from("x.bgt"), password: None, db: Box::new(BudgetDb::new(&Cal::from_int(20261001), 12, false)), bytes: Vec::new(), quiet: false, has_backup: false })),
+            ("restore", |d| d.restore = Some(RestoreDialog { budget: PathBuf::from("x.bgt"), listing: None, backups: Vec::new() })),
+            ("recovery", |d| d.recovery = Some(recovery::Offer { budget: PathBuf::from("x.bgt"), file: PathBuf::from("x.recovery"), bytes: Vec::new(), written: String::new(), file_changed: false })),
             ("about", |d| d.about = true),
             ("legend", |d| d.legend = true),
             ("shortcuts", |d| d.shortcuts = true),
@@ -2338,6 +2837,7 @@ mod lifecycle_tests {
         let app = App {
             sharing: sharing::SharedUi::default(),
             date_watch: DateWatch::fixed(), files: FileProbes::default(), auto_open: None, opening: None, edits: 0, focus_return: None,
+            journal: recovery::Journal::new(dir.join("recovery")), undo: undo::History::default(),
             cfg, rc_path: dir.join(".budgetrc"), db: Some(db), file: Some(dir.join("current.bgt")), password: None,
             saved_bytes: Some(b"previous budget".to_vec()), dirty: true, dialogs: Dialogs::default(), drag_month_hover: None,
             show_payments: false, payment_list: payment_list::PaymentList::default(), allow_close: false, cur, today: 20261027,
@@ -2811,6 +3311,50 @@ mod lifecycle_tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    /// The Windows AccessKit adapter panics when an update names a focused node it does not contain.
+    fn assert_focus_is_in_the_tree(output: &egui::FullOutput) {
+        let update = output.platform_output.accesskit_update.as_ref().expect("AccessKit output is switched on");
+        assert!(update.nodes.iter().any(|(id, _)| *id == update.focus), "focused node {:?} is not in the update", update.focus);
+    }
+
+    #[test]
+    fn closing_a_dialog_opened_from_a_menu_item_does_not_focus_the_vanished_item() {
+        let (mut app, dir) = fixture();
+        let ctx = gui(&app);
+        ctx.enable_accesskit();
+        frame(&mut app, &ctx, vec![], false);
+        // The menu that opened the dialog closed with it, so the remembered control no longer exists.
+        app.focus_return = Some(egui::Id::new("menu item that closed with its menu"));
+        app.dialogs.legend = true;
+        for _ in 0..2 { assert_focus_is_in_the_tree(&frame(&mut app, &ctx, vec![], false)); }
+        let output = frame(&mut app, &ctx, vec![key(Key::Escape, Modifiers::NONE)], false);
+        assert!(!app.dialogs.legend, "Escape closes the legend");
+        assert_focus_is_in_the_tree(&output);
+        assert_focus_is_in_the_tree(&frame(&mut app, &ctx, vec![], false));
+        assert_eq!(app.focus_return, None);
+        assert_eq!(ctx.memory(|m| m.focused()), None);
+        drop(app);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn closing_a_dialog_still_returns_focus_to_a_control_that_exists() {
+        let (mut app, dir) = fixture();
+        let ctx = gui(&app);
+        ctx.enable_accesskit();
+        for _ in 0..2 { frame(&mut app, &ctx, vec![], false); }
+        frame(&mut app, &ctx, vec![key(Key::Tab, Modifiers::NONE)], false);
+        let control = ctx.memory(|m| m.focused()).expect("Tab focuses a control");
+        app.focus_return = Some(control);
+        app.dialogs.legend = true;
+        frame(&mut app, &ctx, vec![], false);
+        let output = frame(&mut app, &ctx, vec![key(Key::Escape, Modifiers::NONE)], false);
+        assert_focus_is_in_the_tree(&output);
+        assert_eq!(ctx.memory(|m| m.focused()), Some(control));
+        drop(app);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     fn key(key: Key, modifiers: Modifiers) -> egui::Event {
         egui::Event::Key { key, physical_key: None, pressed: true, repeat: false, modifiers }
     }
@@ -3110,6 +3654,8 @@ mod lifecycle_tests {
         let (mut app, dir) = fixture();
         app.dirty = false;
         let ctx = gui(&app);
+        // This walk is of the calendar page alone; the summary panel, added first, is walked before it.
+        app.show_summary = false;
         let mut texts = Vec::new();
         for _ in 0..3 { texts = rendered_text(&frame(&mut app, &ctx, vec![], false)); }
         let landmarks = [
@@ -3573,6 +4119,314 @@ mod lifecycle_tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    /// A budget file named `name` holding one payment, saved `versions` times so it has backups.
+    fn saved_budget(dir: &Path, name: &str, versions: &[&str], password: Option<&str>) -> PathBuf {
+        let path = dir.join(name);
+        for version in versions {
+            let mut db = BudgetDb::new(&Cal::from_int(20261001), 12, false);
+            let mut p = budget_core::Payment::new(20261027); p.description = version.to_string(); p.amount = -12.0;
+            db.add(p);
+            bgt::save_file(&path, &db.to_text(password).unwrap()).unwrap();
+        }
+        path
+    }
+    /// The same file with its end-of-data line cut off.
+    fn cut_short(path: &Path) -> Vec<u8> {
+        let text = std::fs::read_to_string(path).unwrap();
+        let cut = text[..text.rfind("## END").unwrap()].as_bytes().to_vec();
+        std::fs::write(path, &cut).unwrap();
+        cut
+    }
+    fn first_payment(app: &App) -> &str { &app.db.as_ref().unwrap().payments[0].description }
+
+    #[test]
+    fn a_budget_cut_short_is_not_opened_until_the_user_decides_and_save_cannot_touch_it() {
+        let (mut app, dir) = fixture();
+        app.dirty = false;
+        let previous = app.file.clone();
+        let path = saved_budget(&dir, "cut.bgt", &["first", "second"], None);
+        let cut = cut_short(&path);
+        let ctx = gui(&app);
+        app.open(&path);
+        settle(&mut app, &ctx, |app| app.dialogs.incomplete.is_some());
+        assert_eq!(app.file, previous, "held back: the open budget stays");
+        assert!(app.dialogs.incomplete.as_ref().unwrap().has_backup);
+        let texts = rendered_text(&frame(&mut app, &ctx, vec![], false));
+        assert!(shown(&texts, "This budget may be incomplete") && shown(&texts, "Restore previous version…"));
+        app.save();
+        assert_eq!(std::fs::read(&path).unwrap(), cut);
+        // Cancel leaves everything as it was.
+        frame(&mut app, &ctx, vec![key(Key::Escape, Modifiers::NONE)], false);
+        assert!(app.dialogs.incomplete.is_none());
+        assert_eq!(app.file, previous);
+        assert_eq!(std::fs::read(&path).unwrap(), cut);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn opening_a_cut_budget_anyway_then_saving_keeps_the_file_as_it_was_in_a_backup() {
+        let (mut app, dir) = fixture();
+        app.dirty = false;
+        let path = saved_budget(&dir, "only.bgt", &["only"], None);
+        let cut = cut_short(&path);
+        let ctx = gui(&app);
+        app.open(&path);
+        settle(&mut app, &ctx, |app| app.dialogs.incomplete.is_some());
+        assert!(!app.dialogs.incomplete.as_ref().unwrap().has_backup, "nothing to offer yet");
+        let texts = rendered_text(&frame(&mut app, &ctx, vec![], false));
+        let texts = click_at(&mut app, &ctx, text_center(&texts, |s| s == "Open anyway").expect("Open anyway"));
+        assert!(!shown(&texts, "Restore previous version…"));
+        assert_eq!(app.file.as_deref(), Some(path.as_path()));
+        assert!(!app.dirty);
+        app.changed();
+        assert!(app.save());
+        assert_eq!(std::fs::read(dir.join("only.bgt.bak")).unwrap(), cut);
+        assert!(!bgt::load_file(&path, 20261030, None).unwrap().missing_end_marker);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn an_empty_budget_file_is_refused_and_offers_a_backup_only_when_there_is_one() {
+        let (mut app, dir) = fixture();
+        app.dirty = false;
+        let previous = app.file.clone();
+        let ctx = gui(&app);
+        let bare = dir.join("bare.bgt");
+        std::fs::write(&bare, b"").unwrap();
+        app.open(&bare);
+        settle(&mut app, &ctx, |app| app.banner.is_some());
+        let banner = app.banner.clone().unwrap();
+        assert_eq!(banner.text, "This file is empty, so it holds no budget.");
+        assert_eq!(banner.offer_restore, None);
+
+        let path = saved_budget(&dir, "emptied.bgt", &["first", "second"], None);
+        std::fs::write(&path, b"").unwrap();
+        app.banner = None;
+        app.open(&path);
+        settle(&mut app, &ctx, |app| app.banner.is_some());
+        assert_eq!(app.banner.as_ref().unwrap().offer_restore.as_deref(), Some(path.as_path()));
+        let texts = rendered_text(&frame(&mut app, &ctx, vec![], false));
+        assert!(shown(&texts, "Restore previous version…"));
+        click_at(&mut app, &ctx, text_center(&texts, |s| s == "Restore previous version…").unwrap());
+        assert!(app.dialogs.restore.is_some(), "the offer opens the list");
+        assert_eq!(app.file, previous);
+        assert!(app.save());
+        assert_eq!(std::fs::read(&path).unwrap(), b"", "the refused file is not written");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_missing_line_reads_as_damage_and_offers_a_backup() {
+        let (mut app, dir) = fixture();
+        app.dirty = false;
+        let path = saved_budget(&dir, "gap.bgt", &["first", "second"], None);
+        let text = std::fs::read_to_string(&path).unwrap();
+        std::fs::write(&path, text.lines().filter(|l| !l.contains("second")).collect::<Vec<_>>().join("\n")).unwrap();
+        let ctx = gui(&app);
+        app.open(&path);
+        settle(&mut app, &ctx, |app| app.banner.is_some());
+        let banner = app.banner.as_ref().unwrap();
+        assert_eq!(banner.text, "Part of this budget file is missing, so it may have been damaged.");
+        assert!(banner.offer_restore.is_some());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn the_file_menu_lists_this_budgets_backups_with_date_and_size() {
+        let (mut app, dir) = fixture();
+        app.dirty = false;
+        let path = saved_budget(&dir, "home.bgt", &["first", "second", "third"], None);
+        app.load(&path, None);
+        let ctx = gui(&app);
+        let mut texts = Vec::new();
+        for _ in 0..3 { texts = rendered_text(&frame(&mut app, &ctx, vec![], false)); }
+        let texts_open = click_at(&mut app, &ctx, text_center(&texts, |s| s == "File").unwrap());
+        let texts = click_at(&mut app, &ctx, text_center(&texts_open, |s| s == "Restore previous version…").expect("the menu item"));
+        assert!(app.dialogs.restore.is_some());
+        let _ = texts;
+        settle(&mut app, &ctx, |app| app.dialogs.restore.as_ref().is_some_and(|d| d.listing.is_none()));
+        let backups = bgt::list_backups(&path);
+        assert_eq!(backups.len(), 2);
+        let mut texts = Vec::new();
+        for _ in 0..3 { texts = rendered_text(&frame(&mut app, &ctx, vec![], false)); }
+        for backup in &backups { assert!(shown(&texts, &backup_time(backup)), "{}", backup_time(backup)); }
+        assert!(shown(&texts, &file_size(backups[0].size)));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_restored_version_is_an_unsaved_draft_until_saved() {
+        let (mut app, dir) = fixture();
+        app.dirty = false;
+        let path = saved_budget(&dir, "home.bgt", &["first", "second", "third"], None);
+        let current = std::fs::read(&path).unwrap();
+        app.load(&path, None);
+        let ctx = gui(&app);
+        app.restore_backup(path.clone(), dir.join("home.bgt.bak"));
+        settle(&mut app, &ctx, |app| app.opening.is_none() && app.dirty);
+        assert_eq!(first_payment(&app), "first");
+        assert_eq!(app.file.as_deref(), Some(path.as_path()));
+        assert_eq!(std::fs::read(&path).unwrap(), current, "nothing is written until the user saves");
+        assert_eq!(app.db.as_ref().unwrap().file_name.as_deref(), Some(path.display().to_string().as_str()));
+        // Leaving asks, like any unsaved change.
+        app.request_close_budget();
+        assert!(matches!(app.dialogs.pending, Some(PendingAction::CloseBudget)));
+        app.dialogs.pending = None;
+        assert!(app.save());
+        assert_eq!(bgt::load_file(&path, 20261030, None).unwrap().payments[0].description, "first");
+        assert!(!app.dirty);
+        assert!(bgt::list_backups(&path).len() == 3, "the version it replaced is a backup too");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn restoring_over_a_budget_that_changed_on_disk_is_refused_at_save() {
+        let (mut app, dir) = fixture();
+        app.dirty = false;
+        let path = saved_budget(&dir, "home.bgt", &["first", "second"], None);
+        app.load(&path, None);
+        let ctx = gui(&app);
+        std::fs::write(&path, b"another program's work").unwrap();
+        app.restore_backup(path.clone(), dir.join("home.bgt.bak"));
+        settle(&mut app, &ctx, |app| app.opening.is_none() && app.dirty);
+        assert!(!app.save());
+        assert_eq!(std::fs::read(&path).unwrap(), b"another program's work");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn restoring_with_unsaved_edits_asks_first_and_keeps_them_until_answered() {
+        let (mut app, dir) = fixture();
+        let path = saved_budget(&dir, "home.bgt", &["first", "second"], None);
+        let ctx = gui(&app);
+        let backup = dir.join("home.bgt.bak");
+        assert!(app.dirty);
+        app.restore_backup(path.clone(), backup.clone());
+        assert!(matches!(&app.dialogs.pending, Some(PendingAction::Restore { backup: b, .. }) if *b == backup));
+        assert!(app.opening.is_none());
+        assert_eq!(first_payment(&app), "Fixture payment");
+        // Discard changes: the budget is still dirty when the prompt carries out the restore.
+        let action = app.dialogs.pending.clone().unwrap();
+        app.perform_pending(action, &ctx);
+        assert!(app.dialogs.pending.is_none(), "answered once");
+        settle(&mut app, &ctx, |app| app.opening.is_none());
+        assert_eq!(first_payment(&app), "first");
+        assert!(app.dirty);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_cut_budget_can_be_replaced_by_a_backup_and_the_cut_file_is_kept() {
+        let (mut app, dir) = fixture();
+        app.dirty = false;
+        let path = saved_budget(&dir, "home.bgt", &["first", "second"], None);
+        let cut = cut_short(&path);
+        let ctx = gui(&app);
+        app.open(&path);
+        settle(&mut app, &ctx, |app| app.dialogs.incomplete.is_some());
+        let texts = rendered_text(&frame(&mut app, &ctx, vec![], false));
+        click_at(&mut app, &ctx, text_center(&texts, |s| s == "Restore previous version…").unwrap());
+        assert!(app.dialogs.incomplete.is_none() && app.dialogs.restore.is_some());
+        app.dialogs.restore = None;
+        app.restore_backup(path.clone(), dir.join("home.bgt.bak"));
+        settle(&mut app, &ctx, |app| app.opening.is_none() && app.dirty);
+        assert_eq!(app.file.as_deref(), Some(path.as_path()));
+        assert_eq!(app.saved_bytes.as_deref(), Some(cut.as_slice()), "the file as it is now is the baseline");
+        assert!(app.save());
+        assert_eq!(std::fs::read(dir.join("home.bgt.bak.1")).unwrap(), cut);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_sealed_backup_asks_for_its_password_and_stays_a_draft() {
+        let (mut app, dir) = fixture();
+        app.dirty = false;
+        let path = saved_budget(&dir, "sealed.bgt", &["first", "second"], Some("secret"));
+        let current = std::fs::read(&path).unwrap();
+        let ctx = gui(&app);
+        app.restore_backup(path.clone(), dir.join("sealed.bgt.bak"));
+        settle(&mut app, &ctx, |app| app.dialogs.password.is_some());
+        assert_eq!(app.dialogs.password.as_ref().unwrap().restore_to.as_deref(), Some(path.as_path()));
+        frame(&mut app, &ctx, vec![], false);
+        frame(&mut app, &ctx, vec![egui::Event::Text("wrong".into())], false);
+        frame(&mut app, &ctx, vec![key(Key::Enter, Modifiers::NONE)], false);
+        settle(&mut app, &ctx, |app| app.dialogs.password.as_ref().is_some_and(|p| !p.error.is_empty()));
+        frame(&mut app, &ctx, vec![], false);
+        frame(&mut app, &ctx, vec![egui::Event::Text("secret".into())], false);
+        frame(&mut app, &ctx, vec![key(Key::Enter, Modifiers::NONE)], false);
+        settle(&mut app, &ctx, |app| app.dialogs.password.is_none() && app.opening.is_none() && app.dirty);
+        assert_eq!(first_payment(&app), "first");
+        assert_eq!(app.file.as_deref(), Some(path.as_path()));
+        assert_eq!(app.password.as_deref(), Some("secret"), "saved, it stays sealed");
+        assert_eq!(std::fs::read(&path).unwrap(), current);
+        assert!(app.save());
+        assert!(bgt::is_decryptable(&bgt::latin1_decode(&std::fs::read(&path).unwrap()), "secret"));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A password changed since the backup: the older version takes the file's current password.
+    #[test]
+    fn an_older_version_of_an_open_sealed_budget_keeps_the_current_password() {
+        let (mut app, dir) = fixture();
+        app.dirty = false;
+        let plain = saved_budget(&dir, "home.bgt", &["no password yet"], None);
+        let path = saved_budget(&dir, "home.bgt", &["sealed now"], Some("secret"));
+        assert_eq!(plain, path);
+        let ctx = gui(&app);
+        app.load(&path, Some("secret"));
+        app.restore_backup(path.clone(), dir.join("home.bgt.bak"));
+        settle(&mut app, &ctx, |app| app.opening.is_none() && app.dirty);
+        assert_eq!(first_payment(&app), "no password yet");
+        assert_eq!(app.password.as_deref(), Some("secret"));
+        assert!(app.save());
+        assert!(bgt::is_encrypted_text(&bgt::latin1_decode(&std::fs::read(&path).unwrap())));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// Unopened and sealed, with a plain backup: the app cannot keep the seal, so it says so.
+    #[test]
+    fn a_plain_backup_of_a_sealed_file_warns_before_a_save_drops_the_password() {
+        let (mut app, dir) = fixture();
+        app.dirty = false;
+        saved_budget(&dir, "home.bgt", &["no password yet"], None);
+        let path = saved_budget(&dir, "home.bgt", &["sealed now"], Some("secret"));
+        let ctx = gui(&app);
+        app.restore_backup(path.clone(), dir.join("home.bgt.bak"));
+        settle(&mut app, &ctx, |app| app.opening.is_none() && app.dirty);
+        let toast = app.toast.as_ref().unwrap();
+        assert!(toast.error && toast.text.contains("no password"), "{}", toast.text);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn a_damaged_sealed_budget_offers_its_backups_from_the_password_prompt() {
+        let (mut app, dir) = fixture();
+        app.dirty = false;
+        let path = saved_budget(&dir, "sealed.bgt", &["first", "second"], Some("secret"));
+        let text = std::fs::read(&path).unwrap();
+        std::fs::write(&path, &text[..text.len() / 2]).unwrap();
+        let ctx = gui(&app);
+        app.open(&path);
+        settle(&mut app, &ctx, |app| app.dialogs.password.is_some());
+        frame(&mut app, &ctx, vec![], false);
+        frame(&mut app, &ctx, vec![egui::Event::Text("secret".into())], false);
+        frame(&mut app, &ctx, vec![key(Key::Enter, Modifiers::NONE)], false);
+        settle(&mut app, &ctx, |app| app.dialogs.password.as_ref().is_some_and(|p| p.has_backup));
+        let texts = rendered_text(&frame(&mut app, &ctx, vec![], false));
+        click_at(&mut app, &ctx, text_center(&texts, |s| s == "Restore previous version…").expect("the offer"));
+        assert!(app.dialogs.password.is_none());
+        assert_eq!(app.dialogs.restore.as_ref().unwrap().budget, path);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn sizes_read_as_bytes_kb_and_mb() {
+        assert_eq!(file_size(0), "0 bytes");
+        assert_eq!(file_size(1023), "1023 bytes");
+        assert_eq!(file_size(1536), "1.5 KB");
+        assert_eq!(file_size(3 * 1_048_576), "3.0 MB");
+    }
+
     #[test]
     fn a_save_as_name_gets_bgt_unless_it_already_ends_with_it() {
         assert_eq!(with_bgt_extension(PathBuf::from("Household 2026.10")), PathBuf::from("Household 2026.10.bgt"));
@@ -3744,6 +4598,58 @@ mod lifecycle_tests {
             texts = rendered_text(&ctx.run(egui::RawInput { time: Some(time), events: vec![egui::Event::PointerMoved(closing)], ..window(1280.0, 840.0) }, |ctx| app.render(ctx)));
         }
         assert!(texts.iter().any(|(t, _)| t.galley.job.text.contains(note)), "the tile's tooltip explains the whole dollars");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A fixture with history: a pay since January 2025 and two checkpoints, viewing October 2026.
+    fn reconciled(app: &mut App) {
+        let db = app.db.as_mut().unwrap();
+        let mut pay = budget_core::Payment::new(20250115);
+        pay.description = "Pay".into();
+        pay.amount = 1000.0;
+        pay.set_end_mode(budget_core::END_MODE_INDEFINITE);
+        db.add(pay);
+        db.adjustments.set_custom_amount(20260620, 2500.0);
+        db.adjustments.set_custom_amount(20260101, 7000.0);
+        db.rebuild_db(&app.cur, 12, false);
+        app.dirty = false;
+    }
+
+    #[test]
+    fn paging_back_to_the_first_loaded_month_shows_real_balances() {
+        let (mut app, dir) = fixture();
+        reconciled(&mut app);
+        assert_eq!((app.cur.get(), app.db.as_ref().unwrap().start_date.get()), (20261001, 20260601));
+        let ctx = gui(&app);
+        // PgUp to June, the month the window starts in.
+        for _ in 0..4 { app.go(-1); }
+        assert_eq!(app.cur.get(), 20260601);
+        frame(&mut app, &ctx, vec![], false);
+        let q = app.view.as_ref().unwrap().quick.clone();
+        assert!(q.opening > 7000.0, "June opens with May's closing balance, not 0: {}", q.opening);
+        assert!(q.income < 2000.0, "the bank balance is not income: {}", q.income);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn balance_corrections_are_explained_and_the_summary_shows_at_1280_wide() {
+        let (mut app, dir) = fixture();
+        reconciled(&mut app);
+        app.go(-4);
+        let ctx = gui(&app);
+        let mut texts = Vec::new();
+        for time in [0.0, 0.1, 0.2] {
+            texts = rendered_text(&ctx.run(egui::RawInput { time: Some(time), ..window(1280.0, 800.0) }, |ctx| app.render(ctx)));
+        }
+        let shown = |texts: &[(egui::epaint::TextShape, egui::Rect)], text: &str| texts.iter().any(|(t, _)| t.galley.job.text.contains(text));
+        assert!(shown(&texts, "Summary") && shown(&texts, "Disposable income"), "the summary panel fits at 1280");
+        assert!(shown(&texts, "outside Money in and Money out"), "the tiles say why they do not add up");
+        // Narrower than the panel, the line under the tiles still explains it.
+        for time in [1.0, 1.1, 1.2] {
+            texts = rendered_text(&ctx.run(egui::RawInput { time: Some(time), ..window(1100.0, 800.0) }, |ctx| app.render(ctx)));
+        }
+        assert!(!shown(&texts, "Disposable income"));
+        assert!(shown(&texts, "Balance corrections"), "the correction is named at any width");
         std::fs::remove_dir_all(dir).unwrap();
     }
 

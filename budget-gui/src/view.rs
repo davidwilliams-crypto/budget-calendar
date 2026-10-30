@@ -116,11 +116,27 @@ pub struct CellData {
 }
 
 #[derive(Clone)]
-pub struct QuickStats { pub opening: f64, pub closing: f64, pub min: f64, pub max: f64, pub avg: f64, pub income: f64, pub expenses: f64 }
+pub struct QuickStats {
+    pub opening: f64, pub closing: f64, pub min: f64, pub max: f64, pub avg: f64, pub income: f64, pub expenses: f64,
+    /// What moved the balance without being money in or out, so the tiles still add up.
+    pub corrections: f64, pub starting_balance: f64,
+}
 
-/// `pct` is `None` (shown as `?`) when the month has neither income nor expenses.
+impl QuickStats {
+    /// Says what moved the balance outside Money in and Money out. Drawn under the tiles, so it is
+    /// there at any window width.
+    pub fn corrections_note(&self) -> Option<String> {
+        let mut parts = Vec::new();
+        if self.starting_balance != 0.0 { parts.push(format!("Starting balance {}", money(self.starting_balance, true))); }
+        if self.corrections != 0.0 { parts.push(format!("Balance corrections {}", money(self.corrections, true))); }
+        (!parts.is_empty()).then(|| format!("Also changed the balance, outside Money in and Money out: {}", parts.join(" · ")))
+    }
+}
+
+/// `pct` is `None` (shown as `?`) when the month has neither income nor expenses. `outside` marks a
+/// line that is neither income nor spending: it is listed below the bottom line and has no share.
 #[derive(Clone)]
-pub struct BriefRow { pub desc: String, pub amount: f64, pub pct: Option<f64>, pub diff: Option<f64>, pub total: bool, pub filter: String }
+pub struct BriefRow { pub desc: String, pub amount: f64, pub pct: Option<f64>, pub diff: Option<f64>, pub total: bool, pub filter: String, pub outside: bool }
 
 /// What a month's search-independent content depends on.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -301,7 +317,7 @@ pub fn month(db: &mut BudgetDb, cfg: &BudgetConfig, cur: &Cal, today: i32, key: 
     let opening = db.get_day(cur).map_or(0.0, |d| d.opening_balance);
     let closing = db.get_day(&last).map_or(0.0, |d| d.closing_balance);
     let avg = if closings.is_empty() { 0.0 } else { closings.iter().sum::<f64>() / closings.len() as f64 };
-    let quick = QuickStats { opening, closing, min, max, avg, income: st.total_income, expenses: st.total_expense };
+    let quick = QuickStats { opening, closing, min, max, avg, income: st.total_income, expenses: st.total_expense, corrections: st.corrections, starting_balance: st.starting_balance };
     let (brief, shares_of_expenses) = brief(&st);
     Month { key, cells, sources, quick, brief, shares_of_expenses, total, below_min: min + 0.05 < cfg.min_balance_4_max_saving && min != max }
 }
@@ -336,7 +352,7 @@ fn brief(st: &stats::Stats) -> (Vec<BriefRow>, bool) {
     let pct = |a: f64| (base != 0.0).then(|| a / base * 100.0);
     let income_diff = st.total_income - st.total_planned_income;
     let mut brief = vec![BriefRow { desc: "Total income".into(), amount: st.total_income, pct: pct(st.total_income),
-        diff: (snap_to_cent(income_diff).abs() >= 5.0).then_some(income_diff), total: true, filter: ">0".into() }];
+        diff: (snap_to_cent(income_diff).abs() >= 5.0).then_some(income_diff), total: true, filter: ">0".into(), outside: false }];
     let mut other = 0.0;
     for r in st.income.iter().chain(st.expense.iter()).filter(|r| !r.is_sub) {
         // A row of exactly 5.00% (to the cent) stays: 75.02 against 1500.40 compares as 75.02 >= 75.02000000000001
@@ -344,15 +360,18 @@ fn brief(st: &stats::Stats) -> (Vec<BriefRow>, bool) {
         if snap_to_cent(r.amount.abs() * 20.0 - base.abs()) >= 0.0 {
             let diff = r.amount - r.planned_amount;
             let filter = if r.pmt.is_some() { format!("desc:{}", esc(r.key.trim())) } else { format!("cat:{}", esc(&r.key)) };
-            brief.push(BriefRow { desc: r.key.trim().to_string(), amount: r.amount, pct: pct(r.amount), diff: (snap_to_cent(diff).abs() >= 5.0).then_some(diff), total: false, filter });
+            brief.push(BriefRow { desc: r.key.trim().to_string(), amount: r.amount, pct: pct(r.amount), diff: (snap_to_cent(diff).abs() >= 5.0).then_some(diff), total: false, filter, outside: false });
         } else {
             other += r.amount;
         }
     }
     let other = snap_to_cent(other); // rows that cancel to the cent leave dust, not an "Other…" row
-    if other != 0.0 { brief.push(BriefRow { desc: "Other…".into(), amount: other, pct: pct(other), diff: None, total: false, filter: String::new() }); }
+    if other != 0.0 { brief.push(BriefRow { desc: "Other…".into(), amount: other, pct: pct(other), diff: None, total: false, filter: String::new(), outside: false }); }
     let net = st.net();
-    brief.push(BriefRow { desc: "Disposable income".into(), amount: net, pct: pct(net), diff: None, total: true, filter: String::new() });
+    brief.push(BriefRow { desc: "Disposable income".into(), amount: net, pct: pct(net), diff: None, total: true, filter: String::new(), outside: false });
+    for (desc, amount) in [("Starting balance", st.starting_balance), ("Balance corrections", st.corrections)] {
+        if amount != 0.0 { brief.push(BriefRow { desc: desc.into(), amount, pct: None, diff: None, total: false, filter: String::new(), outside: true }); }
+    }
     (brief, st.total_income == 0.0 && st.total_expense != 0.0)
 }
 
@@ -509,6 +528,31 @@ mod build_tests {
     }
 
     #[test]
+    fn a_balance_correction_has_its_own_summary_line_outside_money_in_and_out() {
+        let (mut db, cur) = db_with(vec![payment(20261001, "Salary", 1000.0), payment(20261005, "Rent", -300.0)]);
+        crate::document::set_balance(&mut db, 20261001, Some(5000.0)).unwrap();
+        let view = month(&mut db, &cur, None);
+        assert_eq!((view.quick.income, view.quick.expenses), (1000.0, -300.0));
+        // The tiles add up once the line is counted.
+        assert_eq!(view.quick.opening + view.quick.income + view.quick.expenses + view.quick.corrections + view.quick.starting_balance, view.quick.closing);
+        let net = view.brief.iter().position(|r| r.desc == "Disposable income").unwrap();
+        assert_eq!(view.brief[net].amount, 700.0);
+        let line = &view.brief[net + 1];
+        assert_eq!((line.desc.as_str(), line.amount, line.outside, line.filter.as_str()), ("Starting balance", 4000.0, true, ""));
+        assert!(view.brief.iter().all(|r| !r.desc.contains("Unaccounted")));
+        assert_eq!(view.quick.corrections_note().unwrap(), "Also changed the balance, outside Money in and Money out: Starting balance 4,000.00");
+        // Payments before the checkpoint make it a correction.
+        let (mut db, cur) = db_with(vec![payment(20260910, "Old", -20.0), payment(20261005, "Rent", -300.0)]);
+        crate::document::set_balance(&mut db, 20261015, Some(5000.0)).unwrap();
+        let view = month(&mut db, &cur, None);
+        assert_eq!((view.quick.corrections, view.quick.starting_balance), (5320.0, 0.0));
+        assert_eq!(view.brief.last().unwrap().desc, "Balance corrections");
+        assert_eq!(view.quick.corrections_note().unwrap(), "Also changed the balance, outside Money in and Money out: Balance corrections 5,320.00");
+        let (mut plain, cur) = db_with(vec![payment(20261005, "Rent", -300.0)]);
+        assert_eq!(month(&mut plain, &cur, None).quick.corrections_note(), None);
+    }
+
+    #[test]
     fn total_income_row_shows_the_difference_from_plan() {
         let mut salary = payment(20261015, "Salary", 3000.0);
         salary.set_custom_amount(20261015, 2500.0);
@@ -583,11 +627,14 @@ mod build_tests {
 mod money_tests {
     use super::{balance_display, balance_kind, is_negative, money, BalKind};
     #[test]
-    fn balance_strip_uses_nudge_and_truncate() {
+    fn balance_strip_rounds_to_the_nearest_dollar() {
         let s = |v: f64| money(balance_display(v, false), false);
         assert_eq!(s(10.96), "11");
-        assert_eq!(s(10.94), "10");
-        assert_eq!(s(10.6), "10");
+        assert_eq!(s(10.94), "11");
+        assert_eq!(s(10.6), "11");
+        assert_eq!(s(10.5), "11");
+        assert_eq!(s(10.49), "10");
+        assert_eq!(s(5613.5), "5,614");
         assert_eq!(s(-10.96), "\u{2212}11");
         assert_eq!(s(1234.96), "1,235");
         assert_eq!(s(-0.4), "0");
