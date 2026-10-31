@@ -308,3 +308,42 @@ fn forecast_totals_leave_out_disabled_payments_and_balance_changes() {
     assert_eq!(forecast_of(&s, 20261106, 20261204)["totals"], json!({"moneyIn":0.0,"moneyOut":0.0}));
     assert_eq!(forecast_of(&s, 20261101, 20261231)["totals"], json!({"moneyIn":1000.0,"moneyOut":200.6}));
 }
+#[test]
+fn passcode_actions_wrap_and_unwrap_the_household_key_through_the_engine() {
+    let key = "BC1-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"; // 32 zero bytes, url-safe
+    let wrap = ask(json!({"action":"passcode_wrap","recoveryKey":key,"passcode":"copper river lantern",
+        "budgetId":"0f9e5e52-1111-4111-8111-111111111111",
+        "entropy":{"salt":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],"nonce":[0,0,0,0,0,0,0,0,0,0,0,0]}}));
+    assert_eq!(wrap["ok"], json!(true), "wrap must succeed: {wrap}");
+    let slot = wrap["result"]["slot"].clone();
+    assert_eq!(slot["version"], json!(1));
+    assert_eq!(slot["memoryKiB"], json!(65536));
+    let unwrap_ok = ask(json!({"action":"passcode_unwrap","slot":slot,"passcode":"copper river lantern",
+        "budgetId":"0f9e5e52-1111-4111-8111-111111111111"}));
+    assert_eq!(unwrap_ok["result"]["recoveryKey"], json!(key));
+    let wrong = ask(json!({"action":"passcode_unwrap","slot":slot,"passcode":"copper river latern",
+        "budgetId":"0f9e5e52-1111-4111-8111-111111111111"}));
+    assert_eq!(wrong["ok"], json!(false));
+    assert!(wrong["error"].as_str().unwrap().contains("incorrect passcode"));
+    // The slot is bound to its household.
+    let other = ask(json!({"action":"passcode_unwrap","slot":slot,"passcode":"copper river lantern",
+        "budgetId":"0f9e5e52-1111-4111-8111-111111111112"}));
+    assert_eq!(other["ok"], json!(false));
+}
+#[test]
+fn passcode_wrap_enforces_policy_and_fresh_full_length_entropy() {
+    for passcode in ["short", "12345678"] {
+        let weak = ask(json!({"action":"passcode_wrap","recoveryKey":"BC1-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+            "passcode":passcode,"budgetId":"0f9e5e52",
+            "entropy":{"salt":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],"nonce":[0,0,0,0,0,0,0,0,0,0,0,0]}}));
+        assert_eq!(weak["ok"], json!(false), "{passcode} must be refused");
+    }
+    let short_salt = ask(json!({"action":"passcode_wrap","recoveryKey":"BC1-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "passcode":"copper river lantern","budgetId":"0f9e5e52",
+        "entropy":{"salt":[0,0,0,0,0,0,0,0],"nonce":[0,0,0,0,0,0,0,0,0,0,0,0]}}));
+    assert_eq!(short_salt["ok"], json!(false), "entropy must be full length");
+    let bad_key = ask(json!({"action":"passcode_wrap","recoveryKey":"not-a-key",
+        "passcode":"copper river lantern","budgetId":"0f9e5e52",
+        "entropy":{"salt":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],"nonce":[0,0,0,0,0,0,0,0,0,0,0,0]}}));
+    assert_eq!(bad_key["ok"], json!(false));
+}

@@ -521,3 +521,53 @@ test('invitation recheck rejects removal, cancellation and expiry during real as
     assert.equal(members.data.members.length, 1);
   }
 });
+
+test('household passcode records are owner-managed, member-readable, and structurally enforced', async t => {
+  const { request, setup, create, joinUser } = await fixture(t);
+  const owner = await setup();
+  const budget = await create(owner.token);
+  const slot = { version: 1, kdf: 'argon2id', kdfVersion: 19, memoryKiB: 65536, iterations: 3, parallelism: 4,
+    salt: 'AAAAAAAAAAAAAAAAAAAAAA==', nonce: 'AAAAAAAAAAAAAAAA', wrappedKey: 'A'.repeat(64) };
+  // Nothing set yet: members learn there is no passcode instead of guessing one.
+  const empty = await request('GET', `/api/budgets/${budget.id}/passcode`, undefined, owner.token);
+  assert.equal(empty.status, 404);
+  // Only the owner may choose the wrap; a member device may read it.
+  const editor = await joinUser(owner, budget);
+  const denied = await request('PUT', `/api/budgets/${budget.id}/passcode`, { slot }, editor.token);
+  assert.equal(denied.status, 403);
+  const set = await request('PUT', `/api/budgets/${budget.id}/passcode`, { slot }, owner.token);
+  assert.equal(set.status, 200);
+  assert.equal(set.data.ok, true);
+  const read = await request('GET', `/api/budgets/${budget.id}/passcode`, undefined, editor.token);
+  assert.equal(read.status, 200);
+  assert.deepEqual(read.data.slot, slot);
+  // Structural enforcement: cheap or foreign parameters never reach storage.
+  for (const bad of [
+    { ...slot, memoryKiB: 1024 },
+    { ...slot, kdf: 'pbkdf2' },
+    { ...slot, salt: 'short' },
+    { ...slot, nonce: 'A'.repeat(17) },
+    { ...slot, wrappedKey: 'A'.repeat(63) },
+    { ...slot, extra: true },
+  ]) {
+    const refused = await request('PUT', `/api/budgets/${budget.id}/passcode`, { slot: bad }, owner.token);
+    assert.equal(refused.status, 400, JSON.stringify(bad));
+  }
+  // Replacement and removal stay owner-only and take effect immediately.
+  const next = { ...slot, salt: 'BBBBBBBBBBBBBBBBBBBBBB==' };
+  const replaced = await request('PUT', `/api/budgets/${budget.id}/passcode`, { slot: next }, owner.token);
+  assert.equal(replaced.status, 200);
+  assert.deepEqual((await request('GET', `/api/budgets/${budget.id}/passcode`, undefined, owner.token)).data.slot, next);
+  const removedByEditor = await request('DELETE', `/api/budgets/${budget.id}/passcode`, {}, editor.token);
+  assert.equal(removedByEditor.status, 403);
+  const removed = await request('DELETE', `/api/budgets/${budget.id}/passcode`, {}, owner.token);
+  assert.equal(removed.status, 200);
+  assert.equal((await request('GET', `/api/budgets/${budget.id}/passcode`, undefined, owner.token)).status, 404);
+  const again = await request('DELETE', `/api/budgets/${budget.id}/passcode`, {}, owner.token);
+  assert.equal(again.status, 200, 'removal is idempotent');
+  // A revoked member cannot read the slot either.
+  const revokedOwner = owner;
+  const kick = await request('DELETE', `/api/budgets/${budget.id}/members/${editor.user.id}`, {}, revokedOwner.token);
+  assert.equal(kick.status, 200);
+  assert.equal((await request('GET', `/api/budgets/${budget.id}/passcode`, undefined, editor.token)).status, 404, 'membership is checked before the slot is served');
+});

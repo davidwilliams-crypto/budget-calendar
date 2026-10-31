@@ -73,9 +73,9 @@ impl App {
                 ui.set_width(content_size.x);
                 ui.set_height(content_size.y);
                 ui.heading("Shared budget");
-                ui.add(egui::Label::new(egui::RichText::new("Encrypted household sync. Your recovery key stays on your devices.")
+                ui.add(egui::Label::new(egui::RichText::new("Encrypted household sync. Unlock with your household passcode; your recovery key stays on your devices.")
                     .color(t.text_muted)).truncate())
-                    .on_hover_text("Encrypted household sync. Your recovery key stays on your devices.");
+                    .on_hover_text("Encrypted household sync. Unlock with your household passcode; your recovery key stays on your devices.");
                 let status = self.sharing.status(self.dirty).unwrap_or_else(|| "Sign in or open a saved household.".into());
                 let status = if busy { format!("Connecting… · {status}") } else { status };
                 // A static status has no animation repaint loop and always occupies the same row.
@@ -92,8 +92,14 @@ impl App {
                             ui.label(egui::RichText::new(format!("{} · revision {} · {}", doc.working.name, doc.revision, doc.role))
                                 .text_style(ts(SEMI)));
                             ui.label(format!("Household time zone: {}", doc.working.time_zone));
-                            if ui.button("Copy recovery key").on_hover_text("Copy this household's key to unlock it on another device. Keep it private.").clicked() {
+                            if ui.button("Copy recovery key").on_hover_text("Copy this household's emergency backup key. Keep it private.").clicked() {
                                 command = Some("copy-key");
+                            }
+                            if doc.role == "owner" && ui.button("Set or change household passcode…").on_hover_text("Choose the passcode members type to unlock this household on another device. The recovery key keeps working.").clicked() {
+                                command = Some("passcode-open");
+                            }
+                            if doc.role == "owner" && ui.button("Remove household passcode").on_hover_text("New devices will need the recovery key to unlock.").clicked() {
+                                command = Some("passcode-remove");
                             }
                             if ui.button("Sync now").clicked() { command = Some("sync"); }
                             if let Ok(server) = client::normalize_server(&doc.connection.server) {
@@ -170,13 +176,18 @@ impl App {
                                         ui.hyperlink_to("Open mobile app to set up an account or accept an invitation", server);
                                     }
                                     ui.separator();
-                                    ui.label("Recovery key for the household you want to open");
-                                    ui.add(egui::TextEdit::singleline(&mut self.sharing.key).password(true).desired_width(ui.available_width()));
-                                    for budget in &self.sharing.budgets {
-                                        let label = format!("Open {} · revision {}", budget["name"].as_str().unwrap_or("Household"), budget["revision"]);
-                                        if ui.add_enabled(!busy && !self.sharing.key.is_empty(), Button::new(label)).clicked() {
-                                            command = Some("open"); self.sharing.name = budget["id"].as_str().unwrap_or_default().into();
-                                        }
+                                    if self.sharing.unlock_use_key {
+                                        ui.label("Recovery key for the household you want to open");
+                                        ui.add(egui::TextEdit::singleline(&mut self.sharing.key).password(true).desired_width(ui.available_width()));
+                                        if ui.button("Use the household passcode instead").clicked() { self.sharing.unlock_use_key = false; }
+                                        let ready = !self.sharing.key.is_empty();
+                                        self.open_buttons(ui, busy, ready, &mut command);
+                                    } else {
+                                        ui.label("Household passcode");
+                                        ui.add(egui::TextEdit::singleline(&mut self.sharing.unlock_passcode).password(true).hint_text("Three or more unrelated words").desired_width(ui.available_width()));
+                                        if ui.button("Use the recovery key instead").clicked() { self.sharing.unlock_use_key = true; }
+                                        let ready = !self.sharing.unlock_passcode.trim().is_empty();
+                                        self.open_buttons(ui, busy, ready, &mut command);
                                     }
                                     if self.db.is_some() && self.sharing.document.is_none() {
                                         ui.separator();
@@ -186,11 +197,16 @@ impl App {
                                             ui.add(egui::TextEdit::singleline(&mut self.sharing.name).desired_width(ui.available_width()));
                                             ui.label("Household time zone (IANA, for example America/Halifax)");
                                             ui.add(egui::TextEdit::singleline(&mut self.sharing.zone).desired_width(ui.available_width()));
-                                            ui.label("Save this recovery key somewhere safe. Share it with household members separately from invitations.");
+                                            ui.label("Household passcode");
+                                            ui.add(egui::TextEdit::singleline(&mut self.sharing.passcode_a).password(true).hint_text("Three or more unrelated words").desired_width(ui.available_width()));
+                                            ui.label("Confirm passcode");
+                                            ui.add(egui::TextEdit::singleline(&mut self.sharing.passcode_b).password(true).desired_width(ui.available_width()));
+                                            ui.label("Save this recovery key somewhere safe: it is the emergency backup if the passcode is ever lost. Share the passcode with household members; keep the key private.");
                                             ui.add(egui::TextEdit::multiline(&mut self.sharing.key).desired_rows(2).desired_width(ui.available_width()));
                                             if ui.button("Copy recovery key").clicked() { ui.ctx().copy_text(self.sharing.key.clone()); }
                                             ui.checkbox(&mut self.sharing.saved_key, "I saved the recovery key");
-                                            if ui.add_enabled(!busy && self.sharing.saved_key && !self.has_draft(), Button::new("Share current budget (upload encrypted copy)")).clicked() {
+                                            let passcode_ready = !self.sharing.passcode_a.trim().is_empty() && self.sharing.passcode_a.trim() == self.sharing.passcode_b.trim();
+                                            if ui.add_enabled(!busy && self.sharing.saved_key && passcode_ready && !self.has_draft(), Button::new("Share current budget (upload encrypted copy)")).clicked() {
                                                 command = Some("create");
                                             }
                                         }
@@ -199,6 +215,9 @@ impl App {
                                     ui.hyperlink_to("Open mobile app for account setup / invitation", server);
                                 }
                             });
+                        if self.sharing.passcode_dialog {
+                            if let Some(action) = self.passcode_dialog(ctx, content_size, &t) { command = Some(action); }
+                        }
                         ui.separator();
                         if ui.add_enabled(!busy, Button::new("Open cached shared budget on this device")).clicked() { command = Some("cache"); }
                         if ui.add_enabled(!busy, Button::new("Resume pending household creation")).clicked() { command = Some("resume-create"); }
@@ -214,6 +233,38 @@ impl App {
             });
         self.sharing.recover = recover;
         command
+    }
+    /// One row of household Open buttons, shared by the passcode and recovery-key unlock paths.
+    fn open_buttons(&mut self, ui: &mut egui::Ui, busy: bool, ready: bool, command: &mut Option<&'static str>) {
+        for budget in &self.sharing.budgets {
+            let label = format!("Open {} · revision {}", budget["name"].as_str().unwrap_or("Household"), budget["revision"]);
+            if ui.add_enabled(!busy && ready, Button::new(label)).clicked() {
+                *command = Some("open"); self.sharing.name = budget["id"].as_str().unwrap_or_default().into();
+            }
+        }
+    }
+    /// The owner's set-or-change dialog. This device already holds the household key, so only the
+    /// new passcode is asked for; the recovery key keeps working either way.
+    fn passcode_dialog(&mut self, ctx: &egui::Context, content_size: Vec2, t: &theme::Tokens) -> Option<&'static str> {
+        let id = egui::Id::new("household-passcode");
+        let width = (content_size.x * 0.9).min(420.0);
+        let mut action = None;
+        egui::Modal::new(id).area(egui::Modal::default_area(id).default_size(Vec2::new(width, 0.0))).frame(t.card()).show(ctx, |ui| {
+            ui.set_width(width);
+            ui.heading("Household passcode");
+            ui.label("Every member types this to unlock the household on another device. It wraps the household key; the recovery key keeps working.");
+            ui.label("New passcode");
+            let first = ui.add(egui::TextEdit::singleline(&mut self.sharing.passcode_a).password(true).hint_text("Three or more unrelated words").desired_width(ui.available_width()));
+            ui.label("Confirm passcode");
+            let second = ui.add(egui::TextEdit::singleline(&mut self.sharing.passcode_b).password(true).desired_width(ui.available_width()));
+            let entered = second.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) || first.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
+            ui.horizontal(|ui| {
+                if theme::secondary_button(ui, "Cancel", t).clicked() { action = Some("passcode-cancel"); }
+                if ui.button("Save passcode").clicked() || entered { action = Some("passcode-save"); }
+            });
+        });
+        if action.is_some() { self.sharing.passcode_dialog = false; }
+        action
     }
 }
 
@@ -293,6 +344,46 @@ mod tests {
                 unit: egui::MouseWheelUnit::Point, delta: Vec2::new(0.0, -80.0), modifiers: Modifiers::NONE }]);
         }
         panic!("{label} must be reachable by scrolling");
+    }
+
+    #[test]
+    fn unlock_leads_with_the_passcode_and_keeps_the_key_one_toggle_away() {
+        let (mut app, dir) = fixture();
+        app.sharing.document = None;
+        app.sharing.budgets = vec![json!({"id":"fixture-budget","name":"Household","revision":1})];
+        app.sharing.unlock_passcode.clear();
+        let ctx = context(&app); let size = Vec2::new(900.0, 700.0);
+        let output = scroll_to(&ctx, &mut app, size, "Household passcode");
+        assert!(visible_text(&output, "Household passcode").is_some(), "the passcode field leads");
+        assert!(visible_text(&output, "Recovery key for the household you want to open").is_none(), "the key field waits behind its toggle");
+        // The owner actions of an open household are absent while signing in afresh.
+        assert!(visible_text(&output, "Set or change household passcode…").is_none());
+        // Toggle to the recovery key, and back to the passcode.
+        let toggle = visible_text(&output, "Use the recovery key instead").expect("the key remains one click away").center();
+        click(&ctx, &mut app, size, toggle);
+        let output = settled(&ctx, &mut app, size, 1.0);
+        assert!(visible_text(&output, "Recovery key for the household you want to open").is_some());
+        let back = visible_text(&output, "Use the household passcode instead").expect("the passcode returns").center();
+        click(&ctx, &mut app, size, back);
+        let output = settled(&ctx, &mut app, size, 1.0);
+        assert!(visible_text(&output, "Household passcode").is_some());
+        drop(app); std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn an_open_household_offers_its_owner_passcode_actions() {
+        let (mut app, dir) = fixture();
+        let ctx = context(&app); let size = Vec2::new(900.0, 700.0);
+        let output = settled(&ctx, &mut app, size, 1.0);
+        assert!(visible_text(&output, "Set or change household passcode…").is_some(), "an owner sets or changes the passcode");
+        assert!(visible_text(&output, "Remove household passcode").is_some());
+        // Opening the dialog asks for the new passcode twice, over the open panel.
+        let open = visible_text(&output, "Set or change household passcode…").unwrap().center();
+        click(&ctx, &mut app, size, open);
+        let output = settled(&ctx, &mut app, size, 1.0);
+        assert!(visible_text(&output, "Confirm passcode").is_some());
+        assert!(visible_text(&output, "Save passcode").is_some());
+        drop(app); std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
@@ -412,7 +503,8 @@ mod tests {
             role: "owner".into(), summary: "Fixture conflict".into() });
         let ctx = context(&app); let size = Vec2::new(900.0, 700.0);
         press(&ctx, &mut app, size, "Use current shared version");
-        let output = settled(&ctx, &mut app, size, 1.0);
+        // The owner's passcode actions sit above the resolution, so the prompt asks to be scrolled to.
+        let output = scroll_to(&ctx, &mut app, size, "Discard 2 unsynced changes?");
         assert!(visible_text(&output, "Discard 2 unsynced changes?").is_some());
         assert_eq!(app.sharing.document.as_ref().unwrap().pending.len(), 2, "the first click only asks");
 

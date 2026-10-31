@@ -25,6 +25,12 @@ pub(crate) struct SharedUi {
     connection: Option<Connection>,
     budgets: Vec<Value>,
     key: String,
+    /// Unlock input: the household passcode, or the recovery key when `unlock_use_key` is set.
+    unlock_passcode: String,
+    unlock_use_key: bool,
+    passcode_a: String,
+    passcode_b: String,
+    passcode_dialog: bool,
     name: String,
     zone: String,
     saved_key: bool,
@@ -60,7 +66,8 @@ fn changes_text(count: usize) -> String { format!("{count} unsynced change{}", i
 
 enum Event {
     SignedIn(Result<(Connection, Vec<Value>), String>),
-    Opened(Result<SharedDocument, String>),
+    Opened(Result<(SharedDocument, Option<String>), String>),
+    Passcode(Result<String, String>),
     Sync { id: String, operation: Option<String>, result: Result<Remote, client::ServiceError> },
 }
 
@@ -70,13 +77,16 @@ enum Event {
 struct CreationCandidate {
     connection: Connection,
     recovery_key: String,
+    /// Empty when the household is created before this release or without a passcode.
+    #[serde(default)]
+    passcode: String,
     snapshot: budget_core::sharing::Snapshot,
     request: Value,
 }
 impl CreationCandidate {
-    fn new(connection: Connection, recovery_key: String, snapshot: budget_core::sharing::Snapshot) -> Result<Self, String> {
+    fn new(connection: Connection, recovery_key: String, passcode: String, snapshot: budget_core::sharing::Snapshot) -> Result<Self, String> {
         let request = json!({"id":snapshot.id,"name":snapshot.name,"payload":client::seal(&snapshot, &recovery_key, 1)?});
-        let mut candidate = Self { connection, recovery_key, snapshot, request };
+        let mut candidate = Self { connection, recovery_key, passcode, snapshot, request };
         candidate.validate()?;
         Ok(candidate)
     }
@@ -93,7 +103,8 @@ impl CreationCandidate {
     }
 }
 
-fn submit_creation(mut candidate: CreationCandidate) -> Result<SharedDocument, String> {
+/// The created household, and a warning to show when its passcode could not be stored.
+fn submit_creation(mut candidate: CreationCandidate) -> Result<(SharedDocument, Option<String>), String> {
     candidate.validate()?;
     let api = Api::new(candidate.connection.clone()).map_err(|e| e.to_string())?;
     let posted = api.request("POST", "/api/budgets", Some(candidate.request)).and_then(|v| serde_json::from_value::<Remote>(v)
@@ -104,13 +115,25 @@ fn submit_creation(mut candidate: CreationCandidate) -> Result<SharedDocument, S
         Ok(remote) => remote,
         Err(error) => api.remote(&candidate.snapshot.id).map_err(|_| format!("{error} The pending household and recovery key remain protected on this device. Use Resume pending household creation to retry."))?,
     };
-    SharedDocument::open(candidate.connection, candidate.recovery_key, remote)
+    let document = SharedDocument::open(candidate.connection, candidate.recovery_key, remote)?;
+    if !candidate.passcode.is_empty() {
+        // The household exists and this device holds its key, so a failed passcode upload is
+        // recoverable from Shared budget; the household itself opens either way.
+        let id = document.working.id.clone();
+        match client::wrap_key_with_passcode(&document.recovery_key, &candidate.passcode, &id)
+            .and_then(|slot| Api::new(document.connection.clone()).and_then(|api| api.set_passcode(&id, &slot)).map_err(|e| e.to_string())) {
+            Ok(()) => {}
+            Err(e) => return Ok((document, Some(format!("{e} The household was created; set its passcode from Shared budget.")))),
+        }
+    }
+    Ok((document, None))
 }
 impl Default for SharedUi {
     fn default() -> Self { Self {
         document: None, open: false, error: None,
         cache: home_dir().join(".budget-calendar/shared.enc"), cache_lock: None, server: String::new(), username: String::new(), password: String::new(),
-        connection: None, budgets: vec![], key: String::new(), name: "Household".into(), zone: "America/Halifax".into(),
+        connection: None, budgets: vec![], key: String::new(), unlock_passcode: String::new(), unlock_use_key: false,
+        passcode_a: String::new(), passcode_b: String::new(), passcode_dialog: false, name: "Household".into(), zone: "America/Halifax".into(),
         saved_key: false, creating: false, job: None, last_poll: Instant::now(), deferred: None, staged: None, preview: None,
         confirm_discard: None, discarded: vec![], discarded_for: None, recover: None,
     } }
@@ -145,7 +168,7 @@ impl SharedUi {
         Ok(candidate)
     }
     pub fn disconnect(&mut self) {
-        self.document = None; self.job = None; self.deferred = None; self.staged = None; self.preview = None; self.open = false;
+        self.document = None; self.job = None; self.deferred = None; self.staged = None; self.preview = None; self.open = false; self.passcode_dialog = false;
         self.confirm_discard = None; self.discarded.clear(); self.discarded_for = None; self.recover = None;
     }
     pub fn status(&self, dirty: bool) -> Option<String> {
@@ -381,7 +404,17 @@ impl App {
                     }
                     Err(e) => self.sharing.error = Some(e),
                 },
-                Event::Opened(result) => match result { Ok(doc) => self.sharing.staged = Some(doc), Err(e) => self.sharing.error = Some(e) },
+                Event::Opened(result) => match result {
+                    Ok((doc, warning)) => {
+                        if let Some(warning) = warning { self.sharing.error = Some(warning); }
+                        self.sharing.staged = Some(doc);
+                    }
+                    Err(e) => self.sharing.error = Some(e),
+                },
+                Event::Passcode(result) => match result {
+                    Ok(message) => { self.sharing.error = None; self.notify(message); }
+                    Err(e) => self.sharing.error = Some(e),
+                },
                 Event::Sync { id, operation, result } => {
                     if self.sharing.document.as_ref().is_some_and(|d| d.working.id == id) {
                         match result {
@@ -489,8 +522,20 @@ impl App {
             }
             Some("open") => {
                 if let Err(e) = self.sharing.ensure_cache_lock() { self.sharing.error = Some(e); return; }
-                let connection = self.sharing.connection.clone().unwrap(); let id = self.sharing.name.clone(); let key = self.sharing.key.trim().to_string();
-                self.sharing.spawn(ctx, move || Event::Opened((|| { let remote = Api::new(connection.clone()).map_err(|e| e.to_string())?.remote(&id).map_err(|e| e.to_string())?; SharedDocument::open(connection, key, remote) })()));
+                let connection = self.sharing.connection.clone().unwrap(); let id = self.sharing.name.clone();
+                let use_key = self.sharing.unlock_use_key;
+                let key = self.sharing.key.trim().to_string();
+                let passcode = self.sharing.unlock_passcode.trim().to_string();
+                self.sharing.spawn(ctx, move || Event::Opened((|| {
+                    let api = Api::new(connection.clone()).map_err(|e| e.to_string())?;
+                    let remote = api.remote(&id).map_err(|e| e.to_string())?;
+                    let key_text = if use_key { key } else {
+                        let slot = api.passcode_slot(&id).map_err(|e| e.to_string())?
+                            .ok_or("This household has no passcode yet. Ask its owner to set one, or unlock with its recovery key.")?;
+                        client::unlock_with_passcode(&slot, &passcode, &id)?
+                    };
+                    Ok((SharedDocument::open(connection, key_text, remote)?, None))
+                })()));
             }
             Some("cache") => {
                 match self.sharing.load_cached() {
@@ -508,8 +553,11 @@ impl App {
                     Err(e) => self.sharing.error = Some(e),
                     Ok(snapshot) => {
                         let connection = self.sharing.connection.clone().unwrap(); let key = self.sharing.key.clone();
+                        let passcode = self.sharing.passcode_a.trim().to_string();
+                        if passcode != self.sharing.passcode_b.trim() { self.sharing.error = Some("The two passcodes do not match.".into()); return; }
+                        if let Err(e) = budget_core::passcode::check_passcode(&passcode) { self.sharing.error = Some(e); return; }
                         // The explicit upload button is the only creation path.
-                        match CreationCandidate::new(connection, key, snapshot).and_then(|candidate| { self.sharing.persist_creation(&candidate)?; Ok(candidate) }) {
+                        match CreationCandidate::new(connection, key, passcode, snapshot).and_then(|candidate| { self.sharing.persist_creation(&candidate)?; Ok(candidate) }) {
                             Ok(candidate) => self.sharing.spawn(ctx, move || Event::Opened(submit_creation(candidate))),
                             Err(e) => self.sharing.error = Some(e),
                         }
@@ -535,6 +583,36 @@ impl App {
                     }
                     Err(e) => self.sharing.error = Some(e),
                 }
+            }
+            Some("passcode-cancel") => {}
+            Some("passcode-open") => {
+                self.sharing.passcode_a.clear(); self.sharing.passcode_b.clear(); self.sharing.passcode_dialog = true;
+            }
+            Some("passcode-save") => {
+                self.sharing.passcode_dialog = false;
+                let Some(doc) = self.sharing.document.clone() else { return };
+                let passcode = self.sharing.passcode_a.trim().to_string();
+                if passcode != self.sharing.passcode_b.trim() { self.sharing.error = Some("The two passcodes do not match.".into()); return; }
+                match budget_core::passcode::check_passcode(&passcode).and_then(|()| client::wrap_key_with_passcode(&doc.recovery_key, &passcode, &doc.working.id)) {
+                    Ok(slot) => {
+                        let id = doc.working.id.clone();
+                        self.sharing.spawn(ctx, move || Event::Passcode((|| {
+                            Api::new(doc.connection.clone()).map_err(|e| e.to_string())?
+                                .set_passcode(&id, &slot).map_err(|e| e.to_string())?;
+                            Ok("Household passcode saved. Members can unlock new devices with it.".to_string())
+                        })()));
+                    }
+                    Err(e) => self.sharing.error = Some(e),
+                }
+            }
+            Some("passcode-remove") => {
+                let Some(doc) = self.sharing.document.clone() else { return };
+                let id = doc.working.id.clone();
+                self.sharing.spawn(ctx, move || Event::Passcode((|| {
+                    Api::new(doc.connection.clone()).map_err(|e| e.to_string())?
+                        .remove_passcode(&id).map_err(|e| e.to_string())?;
+                    Ok("Household passcode removed. Keep the recovery key safe.".to_string())
+                })()));
             }
             Some("sync") => self.sharing.last_poll = Instant::now() - Duration::from_secs(5),
             Some("export") => { self.export_shared_copy(); }
@@ -1139,10 +1217,88 @@ mod tests {
         assert_eq!(second.db.as_ref().unwrap().payments[0], original_payment);
         assert!(second.dirty);
     }
+    /// Serves the household-creation and passcode routes, recording the stored passcode slot.
+    fn creation_server(created_response: String, passcode_status: (String, String)) -> (String, std::sync::mpsc::Receiver<Value>) {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let origin = format!("http://{}", listener.local_addr().unwrap());
+        let (send, received) = mpsc::channel();
+        let (status_line, body) = passcode_status;
+        std::thread::spawn(move || {
+            for turn in 0..2 {
+                let (mut stream, _) = listener.accept().unwrap();
+                stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+                let mut bytes = Vec::new(); let mut buffer = [0u8; 4096];
+                let (header_end, content_length) = loop {
+                    let count = stream.read(&mut buffer).unwrap(); assert!(count > 0); bytes.extend_from_slice(&buffer[..count]);
+                    if let Some(end) = bytes.windows(4).position(|v| v == b"\r\n\r\n") {
+                        let header = String::from_utf8_lossy(&bytes[..end]);
+                        let len = header.lines().find_map(|line| line.to_ascii_lowercase().strip_prefix("content-length:").and_then(|v| v.trim().parse::<usize>().ok())).unwrap_or(0);
+                        break (end + 4, len);
+                    }
+                };
+                while bytes.len() < header_end + content_length { let count = stream.read(&mut buffer).unwrap(); assert!(count > 0); bytes.extend_from_slice(&buffer[..count]); }
+                let header = String::from_utf8_lossy(&bytes[..header_end]).to_string();
+                let (status, response_body) = if header.starts_with("POST /api/budgets") {
+                    ("201 Created".to_string(), created_response.clone())
+                } else {
+                    assert!(header.starts_with("PUT /api/budgets/") && header.contains("/passcode "), "unexpected request: {header}");
+                    let stored: Value = serde_json::from_slice(&bytes[header_end..header_end + content_length]).unwrap();
+                    let _ = send.send(stored["slot"].clone());
+                    (status_line.to_string(), body.clone())
+                };
+                let _ = turn;
+                write!(stream, "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{response_body}", response_body.len()).unwrap();
+            }
+        });
+        (origin, received)
+    }
+    fn passcode_fixture_origin(candidate: &CreationCandidate) -> String {
+        serde_json::to_string(&Remote { id: candidate.snapshot.id.clone(), name: candidate.snapshot.name.clone(), revision: 1,
+            payload: client::seal(&candidate.snapshot, &candidate.recovery_key, 1).unwrap(), updated_at: "fixture".into(),
+            role: "owner".into(), summary: "Created".into() }).unwrap()
+    }
+
+    fn creation_with_passcode(app: &App, passcode: &str) -> CreationCandidate {
+        let doc = app.sharing.document.clone().unwrap();
+        let mut snapshot = doc.working.clone(); snapshot.id = uuid::Uuid::new_v4().to_string();
+        CreationCandidate::new(doc.connection.clone(), client::generate_recovery_key(), passcode.to_string(), snapshot).unwrap()
+    }
+
+    #[test]
+    fn creating_with_a_passcode_stores_its_slot_and_opens_without_warning() {
+        let (mut app, _dir) = setup();
+        let mut candidate = creation_with_passcode(&app, "copper river lantern");
+        let created = passcode_fixture_origin(&candidate);
+        let (origin, stored_slot) = creation_server(created, ("200 OK".to_string(), json!({"ok":true}).to_string()));
+        candidate.connection.server = origin;
+        app.sharing.persist_creation(&candidate).unwrap();
+        let stored: CreationCandidate = client::load_protected(&app.sharing.creation_path()).unwrap();
+        let (document, warning) = submit_creation(stored).unwrap();
+        assert!(warning.is_none());
+        let slot: budget_core::passcode::PasscodeSlot = serde_json::from_value(stored_slot.recv_timeout(Duration::from_secs(5)).unwrap()).unwrap();
+        assert_eq!(client::unlock_with_passcode(&slot, "copper river lantern", &document.working.id).unwrap(), document.recovery_key);
+    }
+
+    #[test]
+    fn a_failed_passcode_upload_opens_the_household_and_reports_the_remedy() {
+        let (mut app, _dir) = setup();
+        let mut candidate = creation_with_passcode(&app, "copper river lantern");
+        let created = passcode_fixture_origin(&candidate);
+        let (origin, stored_slot) = creation_server(created, ("500 Internal Server Error".to_string(), json!({"error":{"message":"fixture refused"}}).to_string()));
+        candidate.connection.server = origin;
+        app.sharing.persist_creation(&candidate).unwrap();
+        let stored: CreationCandidate = client::load_protected(&app.sharing.creation_path()).unwrap();
+        let (document, warning) = submit_creation(stored).unwrap();
+        let warning = warning.expect("the household opens but the failure is named");
+        assert!(warning.contains("fixture refused") && warning.contains("set its passcode from Shared budget"), "{warning}");
+        assert!(stored_slot.recv_timeout(Duration::from_secs(5)).is_ok(), "the slot was still sent");
+    }
+
     fn creation(app: &App) -> CreationCandidate {
         let doc = app.sharing.document.as_ref().unwrap();
         let mut snapshot = doc.working.clone(); snapshot.id = uuid::Uuid::new_v4().to_string();
-        CreationCandidate::new(doc.connection.clone(), client::generate_recovery_key(), snapshot).unwrap()
+        CreationCandidate::new(doc.connection.clone(), client::generate_recovery_key(), String::new(), snapshot).unwrap()
     }
     #[test]
     fn creation_candidate_is_protected_durable_and_does_not_replace_an_open_household_cache() {
@@ -1194,10 +1350,11 @@ mod tests {
             }
         });
         let stored: CreationCandidate = client::load_protected(&app.sharing.creation_path()).unwrap();
-        let first = submit_creation(stored).unwrap();
+        let (first, first_warning) = submit_creation(stored).unwrap();
         let restarted: CreationCandidate = client::load_protected(&app.sharing.creation_path()).unwrap();
-        let second = submit_creation(restarted).unwrap();
+        let (second, second_warning) = submit_creation(restarted).unwrap();
         server.join().unwrap();
+        assert!(first_warning.is_none() && second_warning.is_none());
         assert_eq!(first.working.id, candidate.snapshot.id); assert_eq!(second.working.id, first.working.id);
         assert_eq!(first.recovery_key, second.recovery_key); assert_eq!(first.revision, 1); assert_eq!(second.revision, 1);
     }

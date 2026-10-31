@@ -43,6 +43,19 @@ function operationId(value) {
   if (typeof value !== 'string' || !/^[A-Za-z0-9._:-]{8,128}$/.test(value)) fail(400, 'invalid_request', 'Invalid operationId');
   return value;
 }
+/** The passcode slot is opaque here: exactly the fixed wrap the clients build, nothing more. */
+function passcodeSlot(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)
+    || value.version !== 1 || value.kdf !== 'argon2id' || value.kdfVersion !== 19
+    || value.memoryKiB !== 65536 || value.iterations !== 3 || value.parallelism !== 4
+    // 16-byte salt -> 22 chars + '=='; 12-byte nonce and 48-byte wrap have no padding.
+    || !/^[A-Za-z0-9+/]{22}==$/.test(value.salt ?? '') || !/^[A-Za-z0-9+/]{16}$/.test(value.nonce ?? '')
+    || !/^[A-Za-z0-9+/]{64}$/.test(value.wrappedKey ?? '')
+    || Object.keys(value).some(k => !['version', 'kdf', 'kdfVersion', 'memoryKiB', 'iterations', 'parallelism', 'salt', 'nonce', 'wrappedKey'].includes(k))) {
+    fail(400, 'invalid_request', 'Invalid household passcode record');
+  }
+  return value;
+}
 function revision(value) {
   if (!Number.isSafeInteger(value) || value < 1) fail(400, 'invalid_request', 'Invalid revision');
   return value;
@@ -101,6 +114,7 @@ export function createBudgetServer(options) {
     CREATE TABLE IF NOT EXISTS snapshots (budget_id TEXT NOT NULL REFERENCES budgets(id), revision INTEGER NOT NULL, payload TEXT NOT NULL, author_id TEXT NOT NULL REFERENCES users(id), summary TEXT NOT NULL, created_at TEXT NOT NULL, operation_id TEXT, PRIMARY KEY(budget_id,revision));
     CREATE TABLE IF NOT EXISTS operations (budget_id TEXT NOT NULL REFERENCES budgets(id), operation_id TEXT NOT NULL, author_id TEXT NOT NULL REFERENCES users(id), request_hash TEXT NOT NULL, result TEXT NOT NULL, PRIMARY KEY(budget_id,operation_id));
     CREATE TABLE IF NOT EXISTS invites (id TEXT PRIMARY KEY, code_hash TEXT NOT NULL UNIQUE, budget_id TEXT NOT NULL REFERENCES budgets(id), recipient TEXT NOT NULL, expires_at INTEGER NOT NULL, used INTEGER NOT NULL DEFAULT 0);
+    CREATE TABLE IF NOT EXISTS passcodes (budget_id TEXT PRIMARY KEY REFERENCES budgets(id), slot TEXT NOT NULL, updated_at TEXT NOT NULL, updated_by TEXT NOT NULL REFERENCES users(id));
     CREATE INDEX IF NOT EXISTS session_expiry ON sessions(expires_at);
     CREATE INDEX IF NOT EXISTS member_user ON members(user_id);`);
   const sql = query => db.prepare(query);
@@ -364,10 +378,33 @@ export function createBudgetServer(options) {
           return send(res, 201, result);
         }
       }
-      const match = /^\/api\/budgets\/([A-Za-z0-9-]{1,128})(?:\/(commits|history|invites|members)(?:\/([A-Za-z0-9-]{1,128}))?)?$/.exec(path);
+      const match = /^\/api\/budgets\/([A-Za-z0-9-]{1,128})(?:\/(commits|history|invites|members|passcode)(?:\/([A-Za-z0-9-]{1,128}))?)?$/.exec(path);
       if (!match) fail(404, 'not_found', 'Not found');
       const [, budgetId, route, item] = match;
       const budget = membership(budgetId, user.id);
+      if (route === 'passcode' && !item) {
+        // A member device unlocks with the passcode; only the owner chooses it.
+        if (req.method === 'GET') {
+          const row = sql('SELECT slot,updated_at AS updatedAt FROM passcodes WHERE budget_id=?').get(budgetId);
+          if (!row) fail(404, 'not_found', 'This household has no passcode');
+          return send(res, 200, { slot: JSON.parse(row.slot), updatedAt: row.updatedAt });
+        }
+        if (req.method === 'PUT') {
+          membership(budgetId, user.id, true);
+          const input = await readBody();
+          const slot = passcodeSlot(input.slot);
+          const encoded = JSON.stringify(slot);
+          if (Buffer.byteLength(encoded) > 4096) fail(413, 'payload_too_large', 'Passcode record exceeds service limit');
+          transaction(() => { membership(budgetId, user.id, true); sql('INSERT INTO passcodes(budget_id,slot,updated_at,updated_by) VALUES(?,?,?,?) ON CONFLICT(budget_id) DO UPDATE SET slot=excluded.slot,updated_at=excluded.updated_at,updated_by=excluded.updated_by').run(budgetId, encoded, iso(), user.id); });
+          return send(res, 200, { ok: true, updatedAt: iso() });
+        }
+        if (req.method === 'DELETE') {
+          membership(budgetId, user.id, true);
+          await readBody();
+          transaction(() => { membership(budgetId, user.id, true); sql('DELETE FROM passcodes WHERE budget_id=?').run(budgetId); });
+          return send(res, 200, { ok: true });
+        }
+      }
       if (!route && req.method === 'GET') return send(res, 200, snapshot(budget));
       if (route === 'commits' && !item && req.method === 'POST') return send(res, 200, commit(user, budgetId, await readBody()));
       if (route === 'history' && req.method === 'GET') {

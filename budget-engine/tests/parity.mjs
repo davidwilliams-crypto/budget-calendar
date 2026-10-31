@@ -44,6 +44,25 @@ test('password files interoperate between native and no-import WASM with trusted
   assert.equal(portable({...importRequest(a.text),password:'wrong'}).ok,false);
   assert.deepEqual(request.entropy,{salt:Array(16).fill(0),nonce:Array(12).fill(0)},'wrapper must not mutate caller input');
 });
+test('passcode wrap and unwrap agree across native, raw WASM and the browser wrapper',async()=>{
+  const household='0f9e5e52-9f43-4f28-9d7d-2f6a10c91a11',passcode='copper river lantern',recoveryKey='BC1-'+Buffer.alloc(32).fill(7).toString('base64url');
+  const entropy={salt:Array(16).fill(3),nonce:Array(12).fill(5)};
+  const request={action:'passcode_wrap',recoveryKey,passcode,budgetId:household,entropy};
+  const wrapped=native(request),raw=portable(request);
+  assert.equal(wrapped.ok,true,wrapped.error);assert.deepEqual(raw,wrapped);
+  const unwrapped=same({action:'passcode_unwrap',slot:wrapped.result.slot,passcode,budgetId:household});
+  assert.equal(unwrapped.ok,true,unwrapped.error);assert.equal(unwrapped.result.recoveryKey,recoveryKey);
+  const wrong=same({action:'passcode_unwrap',slot:wrapped.result.slot,passcode:'copper river latern',budgetId:household});
+  assert.equal(wrong.ok,false);assert.match(wrong.error,/incorrect passcode/);
+  const foreign=same({action:'passcode_unwrap',slot:wrapped.result.slot,passcode,budgetId:'0f9e5e52-9f43-4f28-9d7d-2f6a10c91a12'});
+  assert.equal(foreign.ok,false);
+  // The official browser wrapper replaces caller entropy, so a second wrap differs but opens.
+  const browserEngine=await loadEngine(`data:application/wasm;base64,${readFileSync(wasm).toString('base64')}`);
+  const fresh=browserEngine({action:'passcode_wrap',recoveryKey,passcode,budgetId:household,entropy});
+  assert.notDeepEqual(fresh.slot,wrapped.result.slot,'wrapper entropy must be replaced');
+  const opened=same({action:'passcode_unwrap',slot:fresh.slot,passcode,budgetId:household});
+  assert.equal(opened.ok,true,opened.error);assert.equal(opened.result.recoveryKey,recoveryKey);
+});
 const today=20261029;
 function start(){return same({action:'new',id:'parity-household',name:'Generated fixture',timeZone:'America/Halifax',today}).result;}
 function apply(snapshot,command,operationId){const result=same({action:'apply',snapshot,today,command,operationId});assert.equal(result.ok,true,result.error);return result.result;}

@@ -1,8 +1,8 @@
 export async function loadEngine(url='./budget_engine.wasm'){
  const response=await fetch(url);if(!response.ok)throw Error('The calculation engine is unavailable. Reconnect and reload.');
  const {instance}=await WebAssembly.instantiate(await response.arrayBuffer(),{});const e=instance.exports;const encoder=new TextEncoder(),decoder=new TextDecoder();
- return request=>{if(request.action==='export'&&typeof request.password==='string'){
-  // Raw WASM has no OS imports. Replace untrusted caller entropy on every password export.
+ return request=>{if((request.action==='export'&&typeof request.password==='string')||request.action==='passcode_wrap'){
+  // Raw WASM has no OS imports. Replace untrusted caller entropy on every password export or passcode wrap.
   const entropy={salt:[...crypto.getRandomValues(new Uint8Array(16))],nonce:[...crypto.getRandomValues(new Uint8Array(12))]};request={...request,entropy};
  }const bytes=encoder.encode(JSON.stringify(request));if(bytes.length>8*1024*1024)throw Error('Budget exceeds the engine limit.');const ptr=e.alloc(bytes.length);if(!ptr)throw Error('The engine could not allocate this budget.');let result;try{new Uint8Array(e.memory.buffer,ptr,bytes.length).set(bytes);e.request(ptr,bytes.length);result=JSON.parse(decoder.decode(new Uint8Array(e.memory.buffer,e.result_ptr(),e.result_len())))}finally{e.dealloc(ptr,bytes.length)}if(!result.ok)throw Error(result.error||'The engine rejected this change.');return result.result};
 }

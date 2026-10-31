@@ -31,6 +31,8 @@ URL note 99990102 and default highlight 99990101 survive snapshot round trips.
 - `{action:"validate",snapshot}` → `{valid:true}`.
 - `{action:"forecast",snapshot,today,from,to}` → `{days:[{date,openingBalance,closingBalance,adjusted,note,transactions:[{id,internalId,description,category,amount,balance,flag,note,suffix,disabled}]}],lowPoint:{date,balance},totals:{moneyIn,moneyOut}}`. `totals` covers the requested range to the cent; both figures are zero or positive and leave out disabled payments and balance checkpoints.
 - `{action:"apply",snapshot,today,operationId,command}` → updated snapshot (atomic).
+- `{action:"passcode_wrap",recoveryKey,passcode,budgetId,entropy:{salt,nonce}}` → `{slot}`. Wraps the household key text with a user-chosen passcode (Argon2id 64 MiB/3/4 + AES-256-GCM, AAD binds `budgetId`). `entropy` is caller CSPRNG: standard base64 of exactly 16 (salt) and 12 (nonce) bytes. The passcode needs 8+ characters and is refused when too common.
+- `{action:"passcode_unwrap",slot,passcode,budgetId}` → `{recoveryKey}`; the slot's GCM tag is the wrong-passcode test.
 
 Commands use `type` and stable record `id`:
 - `{type:"put_payment",id?:string,payment,from?:date}`; omit id to add; use `from` for a series split. As in the desktop editor, a `freq_type` `L` start date moves to the last matching weekday of its month, except a single payment (end mode 48, `n_pays` 1) or the unchanged start of an existing `L` payment. A `W` start date is kept: it already names the nth weekday.

@@ -81,14 +81,47 @@ impl Api {
         validate_budget_id(id).map_err(local_error)?;
         serde_json::from_value(self.request("GET",&format!("/api/budgets/{id}"),None)?).map_err(|_|local_error("Invalid shared-budget response."))
     }
+    /// The household's passcode wrap, or `None` when it has no passcode yet.
+    pub fn passcode_slot(&self,id:&str)->Result<Option<budget_core::passcode::PasscodeSlot>,ServiceError>{
+        validate_budget_id(id).map_err(local_error)?;
+        match self.request("GET",&format!("/api/budgets/{id}/passcode"),None) {
+            Ok(value)=>serde_json::from_value(value["slot"].clone())
+                .map(Some)
+                .map_err(|_|local_error("Invalid household passcode record.")),
+            Err(error) if error.status==404=>Ok(None),
+            Err(error)=>Err(error),
+        }
+    }
+    pub fn set_passcode(&self,id:&str,slot:&budget_core::passcode::PasscodeSlot)->Result<(),ServiceError>{
+        validate_budget_id(id).map_err(local_error)?;
+        self.request("PUT",&format!("/api/budgets/{id}/passcode"),Some(json!({"slot":slot}))).map(|_|())
+    }
+    pub fn remove_passcode(&self,id:&str)->Result<(),ServiceError>{
+        validate_budget_id(id).map_err(local_error)?;
+        // The service reads and checks a JSON body on every write route, deletion included.
+        self.request("DELETE",&format!("/api/budgets/{id}/passcode"),Some(json!({}))).map(|_|())
+    }
 }
 fn validate_budget_id(id:&str)->Result<(),String>{uuid::Uuid::parse_str(id).map(|_|()).map_err(|_|"Invalid shared budget identity.".into())}
 
 pub fn generate_recovery_key()->String { let mut key=[0u8;32];OsRng.fill_bytes(&mut key);format!("BC1-{}",URL_SAFE_NO_PAD.encode(key)) }
-fn key_bytes(text:&str)->Result<Vec<u8>,String>{
+pub fn key_from_bytes(bytes:&[u8;32])->String { format!("BC1-{}",URL_SAFE_NO_PAD.encode(bytes)) }
+pub fn key_bytes(text:&str)->Result<Vec<u8>,String>{
     let raw=text.trim().strip_prefix("BC1-").ok_or("Enter the complete recovery key beginning BC1-.")?;
     let bytes=URL_SAFE_NO_PAD.decode(raw).map_err(|_|"Invalid recovery key.")?;
     if bytes.len()!=32{return Err("Invalid recovery key.".into())}Ok(bytes)
+}
+/// The household key a passcode unwraps, in the shared `BC1-` text form every path already
+/// carries, so nothing downstream learns a second representation of the key.
+pub fn unlock_with_passcode(slot:&budget_core::passcode::PasscodeSlot,passcode:&str,budget_id:&str)->Result<String,String>{
+    let key=budget_core::passcode::unwrap_key(slot,passcode,budget_id)?;
+    Ok(key_from_bytes(&*key))
+}
+/// Protects the household key with a passcode so other devices can unlock without the key text.
+pub fn wrap_key_with_passcode(recovery_key:&str,passcode:&str,budget_id:&str)->Result<budget_core::passcode::PasscodeSlot,String>{
+    let bytes = key_bytes(recovery_key)?;
+    let bytes:[u8;32]=bytes.as_slice().try_into().map_err(|_|"Invalid recovery key.".to_string())?;
+    budget_core::passcode::wrap(&bytes,passcode,budget_id)
 }
 fn aad(id:&str,revision:u64)->Result<Vec<u8>,String>{if id.is_empty()||id.len()>200||revision==0||revision>9_007_199_254_740_991{return Err("Invalid budget identity or revision.".into())}Ok(format!("BudgetCalendar:1:{id}:{revision}").into_bytes())}
 fn encode_snapshot(snapshot: &Snapshot) -> Result<Vec<u8>, String> {
@@ -455,6 +488,16 @@ pub fn load_protected<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T, 
         document.acknowledge(remote,&operation).unwrap();assert!(document.pending.is_empty());
         let repeated:Remote=serde_json::from_value(api.request("POST",&format!("/api/budgets/{id}/commits"),Some(request)).unwrap()).unwrap();
         assert_eq!(repeated.revision,document.revision);assert_eq!(unlock(&api.remote(&id).unwrap(),&document.recovery_key).unwrap().notes,"Windows fixture edit");
+    }
+    #[test]fn passcode_wrap_unlock_round_trip_returns_the_exact_key(){
+        let s=fixture();let key=generate_recovery_key();
+        let slot=wrap_key_with_passcode(&key,"copper river lantern",&s.id).unwrap();
+        assert_eq!(unlock_with_passcode(&slot,"copper river lantern",&s.id).unwrap(),key);
+        assert!(unlock_with_passcode(&slot,"copper river latern",&s.id).unwrap_err().contains("incorrect passcode"));
+        assert!(wrap_key_with_passcode(&key,"12345678",&s.id).is_err(),"policy is checked before any upload");
+        // The unwrapped text opens the household exactly like the original key does.
+        let mut document=SharedDocument::open(connection(),key.clone(),remote(&s,&key,1)).unwrap();
+        assert_eq!(document.recovery_key,key);
     }
     #[cfg(windows)]#[test]fn device_cache_is_protected_and_reopens(){let s=fixture();let key=generate_recovery_key();let d=SharedDocument::open(connection(),key.clone(),remote(&s,&key,1)).unwrap();let dir=std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("target/shared-device-tests").join(uuid::Uuid::new_v4().to_string());let path=dir.join("state.enc");save_device(&path,&d).unwrap();assert_eq!(load_device(&path).unwrap().working,s);assert!(!String::from_utf8_lossy(&std::fs::read(&path).unwrap()).contains("fixture-session"));save_device(&path,&d).unwrap();}
 }

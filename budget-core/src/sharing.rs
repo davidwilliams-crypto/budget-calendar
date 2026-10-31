@@ -2,6 +2,7 @@
 //! Native password exports use OS randomness; raw WASM exports require fresh host entropy.
 use crate::numfmt::snap_to_cent;
 use crate::{bgt, commands, date::is_calendar_date, BudgetDb, Cal, Field, Payment, END_MODE_N_PAYS};
+use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::collections::BTreeSet;
@@ -330,6 +331,13 @@ fn flag(v: &Value) -> Result<char, String> {
         Ok(f)
     }
 }
+
+/// The household key in its `BC1-` text form, decoded to the 32 raw bytes every client shares.
+fn household_key_bytes(text: &str) -> Result<[u8; 32], String> {
+    let raw = text.trim().strip_prefix("BC1-").ok_or("Enter the complete recovery key beginning BC1-.")?;
+    let bytes = URL_SAFE_NO_PAD.decode(raw).map_err(|_| "Invalid recovery key.")?;
+    bytes.as_slice().try_into().map_err(|_| "Invalid recovery key.".to_string())
+}
 fn record(s: &Snapshot, c: &Value) -> Result<i32, String> {
     let id = string(c, "id")?;
     s.payments
@@ -563,6 +571,25 @@ fn dispatch(v: Value) -> Result<Value, String> {
             string(&v, "operationId")?,
         )?)
         .unwrap()),
+        "passcode_wrap" => {
+            let entropy: crate::passcode::WrapEntropy =
+                serde_json::from_value(required(&v, "entropy")?.clone())
+                    .map_err(|_| "Passcode wrapping needs fresh CSPRNG entropy from the browser host.".to_string())?;
+            let slot = crate::passcode::wrap_with_entropy(
+                &household_key_bytes(string(&v, "recoveryKey")?)?,
+                string(&v, "passcode")?,
+                string(&v, "budgetId")?,
+                entropy.salt,
+                entropy.nonce,
+            )?;
+            Ok(json!({"slot":slot}))
+        }
+        "passcode_unwrap" => {
+            let slot: crate::passcode::PasscodeSlot =
+                serde_json::from_value(required(&v, "slot")?.clone()).map_err(|e| format!("Invalid household passcode record: {e}"))?;
+            let key = crate::passcode::unwrap_key(&slot, string(&v, "passcode")?, string(&v, "budgetId")?)?;
+            Ok(json!({"recoveryKey": format!("BC1-{}", URL_SAFE_NO_PAD.encode(key.as_ref()))}))
+        }
         _ => Err("Unsupported engine action.".into()),
     }
 }

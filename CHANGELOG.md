@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.10.0] - 2026-10-31
+
+Unlock with a passcode you choose, and a full security review of everything that protects a household.
+
+- **Household passcodes:** creating a household now chooses a passcode of three or more unrelated words instead of forcing you to manage the long recovery key. Every member types that passcode to unlock the household on a new device — Windows, phone or browser. The passcode unwraps the household's encryption key on the device; the service never receives the passcode, and a wrong passcode saves nothing.
+- **The recovery key becomes the backup:** it is still created, shown once and copyable at any time, and it keeps working. If the passcode is ever lost, the recovery key unlocks the household; if the key is lost, the passcode does. A household that prefers key-only can remove its passcode entirely.
+- **Set, change, remove:** the household owner sets or changes the passcode from Shared budget on Windows or from Settings on the phone. Changing it asks for the current passcode or recovery key, and verifies it against the household before saving, so a mistyped current secret can never lock the household out. Removing the passcode is immediate and returns the household to key-only unlocking.
+- **How it protects the budget:** the passcode is stretched with Argon2id at the same cost as password-protected budget files (64 MiB, 3 passes), then wraps the random 256-bit household key with AES-256-GCM bound to the household's identity. Only the wrapped copy is stored with the household, and the service validates nothing but its exact shape. A full security review of this design and of the whole app — encryption, service, phone and Windows — is recorded in `docs/security-review-2026-10-31.md`; it found no high-severity issues.
+- **Plain-language wording:** invitations, unlock screens, settings and help now speak of the household passcode first and the recovery key as its backup, with the trade-off (a service break-in plus a guessed passcode could decrypt a budget) stated where you choose the passcode.
+- **Engine:** the shared Rust calculation engine gained the two passcode actions, and the phone's WebAssembly engine, its native parity tests and the service-worker build were rebuilt and re-stamped for this release.
+
 ## [0.9.0] - 2026-10-30
 
 Fixes from the full product review: figures you can trust, work you cannot lose.
