@@ -37,8 +37,18 @@ jobs:
       - name: Run the release gate
         shell: powershell
         run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/release-gate.ps1
+      # The gate points the browsers' HOME inside its log folder; the profiles Chrome leaves there
+      # (INetCache above all) carry ACLs the runner cannot scan, which failed artifact upload on
+      # passing runs. Strip the profile trees, and keep log retention best-effort regardless.
+      - name: Strip browser profiles from gate logs
+        if: always()
+        shell: powershell
+        run: |
+          Get-ChildItem -LiteralPath target/release-gate -Recurse -Directory -Filter 'home' -Force -ErrorAction SilentlyContinue |
+            Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
       - name: Keep gate logs
         if: always()
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: release-gate-logs
