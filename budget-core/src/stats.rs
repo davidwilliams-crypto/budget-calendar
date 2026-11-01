@@ -27,9 +27,11 @@ pub struct Amount {
 impl Amount {
     fn new(key: &str) -> Amount { Amount { key: key.to_string(), ..Default::default() } }
     pub fn is_aggregate(&self) -> bool { !self.sub_amounts.is_empty() }
-    fn sub_mut(&mut self, key: &str, pmt: Option<usize>) -> &mut Amount {
-        if let Some(i) = self.sub_amounts.iter().position(|a| a.key == key) { return &mut self.sub_amounts[i]; }
-        let mut a = Amount::new(key);
+    /// Find or add the sub row for `description`. Sub keys are stored with the leading indent, so
+    /// the lookup matches through it instead of formatting an indented copy per occurrence.
+    fn sub_mut(&mut self, description: &str, pmt: Option<usize>) -> &mut Amount {
+        if let Some(i) = self.sub_amounts.iter().position(|a| a.key.strip_prefix(INDENT) == Some(description)) { return &mut self.sub_amounts[i]; }
+        let mut a = Amount::new(&format!("{INDENT}{description}"));
         a.pmt = pmt;
         self.sub_amounts.push(a);
         self.sub_amounts.last_mut().unwrap()
@@ -102,7 +104,7 @@ impl Stats {
                 let top = self.top_mut(cat);
                 top.amount += amount;
                 if planned { top.planned_amount += pmt_amount; }
-                let sub = top.sub_mut(&format!("{INDENT}{description}"), pmt_idx);
+                let sub = top.sub_mut(description, pmt_idx);
                 sub.amount += amount;
                 if planned { sub.planned_amount += pmt_amount; }
             }
@@ -168,20 +170,23 @@ pub fn calc_statistics_exact(db: &mut BudgetDb, start: &Cal, end: &Cal, full: bo
     st.top_mut(UNCATEGORIZED_EXPENSES);
 
     // planned pass: each scheduled occurrence is tested on its own day's note and flag, as the calendar does
+    // (the sorted indices are copied into one buffer reused across days; the day's borrow of the db ends
+    // at that copy, leaving the payments free to read for the rest of the pass)
+    let mut regulars: Vec<usize> = Vec::new();
     let mut c = *start;
     while c.le(end) {
         let date = c.get();
         if let Some(day) = db.get_day(&c) {
             // Sorted so the order of equal summary rows does not depend on how the schedule was built.
-            let mut regulars = day.regulars.clone();
+            regulars.clear();
+            regulars.extend_from_slice(&day.regulars);
             regulars.sort_unstable();
-            for pi in regulars {
+            for pi in regulars.iter().copied() {
                 let p = &db.payments[pi];
                 if let Some(f) = filter { if !f.is_match(p, p.amount, date) { continue; } }
                 if p.disabled { continue; }
-                let (cat, desc, amt) = (p.category.clone(), p.description.clone(), p.amount);
-                st.add_stat_info(cat.as_deref(), &desc, 0.0, Some((pi, amt)), true);
-                if amt < 0.0 { st.total_planned_expense += amt; } else { st.total_planned_income += amt; }
+                st.add_stat_info(p.category.as_deref(), &p.description, 0.0, Some((pi, p.amount)), true);
+                if p.amount < 0.0 { st.total_planned_expense += p.amount; } else { st.total_planned_income += p.amount; }
             }
         }
         c.add(Field::Day, 1);
@@ -197,8 +202,7 @@ pub fn calc_statistics_exact(db: &mut BudgetDb, start: &Cal, end: &Cal, full: bo
                 let p = &db.payments[pi];
                 if let Some(f) = filter { if !f.is_match(p, amount, date) { continue; } }
                 if p.disabled { continue; }
-                let (cat, desc, amt) = (p.category.clone(), p.description.clone(), p.amount);
-                st.add_stat_info(cat.as_deref(), &desc, amount, Some((pi, amt)), false);
+                st.add_stat_info(p.category.as_deref(), &p.description, amount, Some((pi, p.amount)), false);
             }
             // A balance adjustment is not a transaction: a search that narrows the statistics leaves it out.
             if adj != 0.0 && filter.is_none_or(|f| f.is_empty()) {

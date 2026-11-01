@@ -51,9 +51,9 @@ pub fn encode_description(s: &str) -> String {
         if (c as u32) > 0xFFFF {
             // Java works on UTF-16 units: write the surrogate pair
             let mut buf = [0u16; 2];
-            for u in c.encode_utf16(&mut buf) { out.push_str(&format!("&#x{:04x};", u)); }
+            for u in c.encode_utf16(&mut buf) { crate::push_hex_entity(&mut out, *u as u32, 4); }
         } else if (c as u32) >= 128 || c == ',' || ((c as u32) < 0x20 && c != '\t') || edge || entity {
-            out.push_str(&format!("&#x{:04x};", c as u32));
+            crate::push_hex_entity(&mut out, c as u32, 4);
         } else {
             out.push(c);
         }

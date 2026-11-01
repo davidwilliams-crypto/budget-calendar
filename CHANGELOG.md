@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.10.1] - 2026-10-31
+
+A speed pass over the engine and the calendar: the same answers, noticeably less work to produce them.
+
+- **Shared budgets sync faster:** every edit on a shared budget used to re-scan the whole payment list against every other payment to check naming conflicts and stable identities — work that grew with the square of the budget size, twice per edit. Those checks and the balance forecast's per-transaction lookups are now hash lookups, so a large household budget edits and forecasts in time proportional to its size rather than to its square.
+- **Smoother calendar on Windows:** the sign used to pick a figure's colour was taken from a fully formatted money string several times per row every frame; it is now read straight from the value. The accessible colour-contrast search is remembered per colour pair instead of being recomputed for every row, every frame.
+- **Leaner statistics and reports:** the monthly statistics that drive the summary panel and search no longer copy each payment's description and category per occurrence, and report and save text escaping no longer allocates per character. Month views, searches, printed reports and saves all do less allocating on the same data.
+- **Engine:** the phone's WebAssembly calculation engine was rebuilt and re-stamped from these sources; native parity and all workspace, mobile and integration tests pass.
+
 ## [0.10.0] - 2026-10-31
 
 Unlock with a passcode you choose, and a full security review of everything that protects a household.

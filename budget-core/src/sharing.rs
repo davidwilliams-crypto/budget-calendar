@@ -5,7 +5,7 @@ use crate::{bgt, commands, date::is_calendar_date, BudgetDb, Cal, Field, Payment
 use base64::{Engine, engine::general_purpose::URL_SAFE_NO_PAD};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 pub const SCHEMA_VERSION: u32 = 1;
 pub const MAX_REQUEST_BYTES: usize = 8 * 1024 * 1024;
@@ -152,13 +152,17 @@ pub fn validate_snapshot(s: &Snapshot) -> Result<(), String> {
     {
         return Err("Balance metadata exceeds supported bounds.".into());
     }
-    // Match editor naming constraints without renaming existing records.
+    // Match editor naming constraints without renaming existing records. One pass collects the
+    // categories so each description is a membership test instead of a scan of every payment.
+    let categories: HashSet<&str> = s
+        .payments
+        .iter()
+        .filter_map(|p| p.payment.category.as_deref())
+        .collect();
     for p in &s.payments {
         if p.payment.category.as_deref() == Some(&p.payment.description)
             || p.payment.category.as_deref() == Some(crate::stats::UNACCOUNTED)
-            || s.payments
-                .iter()
-                .any(|other| other.payment.category.as_deref() == Some(&p.payment.description))
+            || categories.contains(p.payment.description.as_str())
         {
             return Err("Payment descriptions and categories conflict.".into());
         }
@@ -202,10 +206,21 @@ fn capture(
         return Err("Previous snapshot belongs to another budget.".into());
     }
     let mut tombstones = previous.map(|p| p.tombstones.clone()).unwrap_or_default();
+    // Index the previous payments once: every db payment and every old stable id is then a lookup,
+    // not a scan of the whole snapshot.
+    let previous_by_payment: HashMap<i32, &SharedPayment> = previous
+        .map(|old| {
+            let mut m = HashMap::with_capacity(old.payments.len());
+            for r in &old.payments {
+                m.entry(r.payment.id).or_insert(r);
+            }
+            m
+        })
+        .unwrap_or_default();
     let mut payments = Vec::new();
     let mut created = 0;
     for p in &db.payments {
-        let existing = previous.and_then(|old| old.payments.iter().find(|r| r.payment.id == p.id));
+        let existing = previous_by_payment.get(&p.id).copied();
         let stable = if let Some(r) = existing {
             r.id.clone()
         } else if previous.is_none() {
@@ -224,8 +239,9 @@ fn capture(
         });
     }
     if let Some(old) = previous {
+        let live: HashSet<&str> = payments.iter().map(|r| r.id.as_str()).collect();
         for p in &old.payments {
-            if !payments.iter().any(|r| r.id == p.id) {
+            if !live.contains(p.id.as_str()) {
                 tombstones.push(p.id.clone())
             }
         }
@@ -357,6 +373,10 @@ fn forecast(s: &Snapshot, today: i32, from: i32, to: i32) -> Result<Value, Strin
     let b = Cal::from_int(to);
     let months = (b.year() - a.year()) * 12 + b.month() - a.month();
     let mut db = snapshot_to_db(s, today, from, months)?;
+    // The db was built from this snapshot, so every numeric payment id resolves to its stable id
+    // with one lookup instead of a scan per transaction per day.
+    let stable_ids: HashMap<i32, &str> =
+        s.payments.iter().map(|r| (r.payment.id, r.id.as_str())).collect();
     let mut date = a;
     let mut days = Vec::new();
     let mut low = (from, f64::INFINITY);
@@ -378,7 +398,7 @@ fn forecast(s: &Snapshot, today: i32, from: i32, to: i32) -> Result<Value, Strin
             }
         }
         let transactions:Vec<Value>=d.transactions.iter().map(|t|{
-            let p=&db.payments[t.pmt];let id=&s.payments.iter().find(|r|r.payment.id==p.id).unwrap().id;
+            let p=&db.payments[t.pmt];let id=stable_ids.get(&p.id).copied().unwrap();
             json!({"id":id,"internalId":p.id,"description":p.description,"category":p.category,"amount":t.amount,"balance":t.balance,"flag":p.get_flag(date.get()).to_string(),"note":p.get_note(date.get()).unwrap_or_default(),"suffix":t.suffix.to_string(),"disabled":p.disabled})
         }).collect();
         days.push(json!({"date":date.get(),"openingBalance":d.opening_balance,"closingBalance":d.closing_balance,"adjusted":d.closing_balance_adjusted,"note":db.day_note(&date),"transactions":transactions}));

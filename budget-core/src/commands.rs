@@ -19,7 +19,8 @@ pub fn apply_payment(db: &mut BudgetDb, payment: Payment, id: Option<i32>, from:
 fn check_payment_input(db: &BudgetDb, payment: &Payment, id: Option<i32>) -> Result<(), String> {
     // The desktop editor intentionally retains unchanged legacy fields. A public
     // caller may keep those values but cannot introduce unsupported new values.
-    let original = id.and_then(|id| db.get_by_id(id)).map(|i| &db.payments[i]);
+    let idx = id.and_then(|id| db.get_by_id(id));
+    let original = idx.map(|i| &db.payments[i]);
     let mut checked = payment.clone();
     if let Some(old) = original {
         let known = crate::NO_WEEKENDS | crate::TENTATIVE | crate::EARLY_PAY | crate::REMINDER | crate::END_MODE_MASK | crate::IS_STICKY;
@@ -38,12 +39,12 @@ fn check_payment_input(db: &BudgetDb, payment: &Payment, id: Option<i32>) -> Res
         && !original.is_some_and(|p| p.is_tentative() && p.end_mode() == END_MODE_LOAN_PAID) {
         return Err("A loan payment cannot be tentative. Clear Tentative or choose another end condition.".into());
     }
-    let except = id.and_then(|id| db.get_by_id(id));
+    let except = idx;
     if !db.is_valid_description(&payment.description, except) || !db.is_valid_category(payment.category.as_deref(), except) {
         return Err("Payment descriptions and categories conflict.".into());
     }
     // An existing payment's unchanged legacy amount may lie outside the range; keep it editable.
-    let unchanged_amount = id.and_then(|id| db.get_by_id(id))
+    let unchanged_amount = idx
         .is_some_and(|i| db.payments[i].amount.to_bits() == payment.amount.to_bits());
     if !(unchanged_amount || amount_in_range(payment.amount)) || payment.description.trim().is_empty() {
         return Err("Enter a description and an amount within +/-1,000,000,000,000.".into());

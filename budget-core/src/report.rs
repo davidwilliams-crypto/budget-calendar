@@ -128,7 +128,7 @@ pub fn escape_html_text(s: &str) -> String {
             '>' => out.push_str("&gt;"),
             '"' => out.push_str("&quot;"),
             '\'' => out.push_str("&#39;"),
-            c if (c as u32) > 255 => out.push_str(&format!("&#x{:x};", c as u32)),
+            c if (c as u32) > 255 => crate::push_hex_entity(&mut out, c as u32, 1),
             c => out.push(c),
         }
     }
@@ -209,7 +209,7 @@ pub fn gen_rep_image(value: f64, total_income: f64, total_expense: f64, width: i
 pub fn unicodish(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for u in s.encode_utf16() {
-        if u >= 128 || u == 44 || u == 10 || u == 13 { out.push_str(&format!("&#x{u:04x};")); }
+        if u >= 128 || u == 44 || u == 10 || u == 13 { crate::push_hex_entity(&mut out, u as u32, 4); }
         else { out.push(u as u8 as char); }
     }
     out

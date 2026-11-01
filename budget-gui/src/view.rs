@@ -38,8 +38,13 @@ pub fn share_cell(p: Option<f64>, signed: bool) -> String {
 
 /// Whether `money(v, decimals)` shows a minus sign. The colour follows the text, so a value that
 /// rounds to zero is never coloured as negative and every figure printed as "−1" is.
+/// Same answer as the formatters give, without building the string: negative, with a magnitude the
+/// formatter would not print as zero (`format_frac0` rounds `|v|` itself; `format_frac2` rounds at
+/// two decimals, and no double below 0.005 has a `*100` product that rounds up to a half).
 pub fn is_negative(v: f64, decimals: bool) -> bool {
-    money(v, decimals).starts_with('\u{2212}')
+    if !(v < 0.0) { return false; }  // NaN formats without a sign, like the formatters
+    let scale = if decimals { 100.0 } else { 1.0 };
+    (v.abs() * scale).round() != 0.0
 }
 
 
@@ -677,5 +682,40 @@ mod money_tests {
         assert_eq!(money(-0.4, false), "0");
         assert_eq!(money(-1234.5, true), "\u{2212}1,234.50");
         assert_eq!(money(f64::INFINITY, true), "\u{221E}");
+    }
+    #[test]
+    fn is_negative_matches_the_formatted_sign_everywhere() {
+        // The arithmetic test must answer exactly what the string it replaces answered: every
+        // rounding boundary of both formatters, the non-finite values, and a deterministic sweep.
+        let string_based = |v: f64, decimals: bool| money(v, decimals).starts_with('\u{2212}');
+        let mut edges: Vec<f64> = vec![
+            0.0, -0.0, -1e-13, -2.7e-17, -0.004, -0.004999999999999999, -0.005, -0.006, -0.01,
+            -0.02, -0.49, -0.49999999999999994, -0.5, -0.51, -0.7, -1.0, -1.2, -62.5, -145.5,
+            -1234.5, -5613.5, f64::NEG_INFINITY, f64::INFINITY, f64::NAN,
+        ];
+        for e in edges {
+            assert_eq!(is_negative(e, true), string_based(e, true), "decimals {e:?}");
+            assert_eq!(is_negative(e, false), string_based(e, false), "whole {e:?}");
+        }
+        // Around each boundary, at ulp steps, in both precisions.
+        for b in [0.005f64, 0.01, 0.5, 1.0, 100.0, 1234.5] {
+            for k in -3i32..=3 {
+                let v = -(b + k as f64 * f64::EPSILON * b.max(1e-3) * 4.0);
+                assert_eq!(is_negative(v, true), string_based(v, true), "decimals {v:?}");
+                assert_eq!(is_negative(v, false), string_based(v, false), "whole {v:?}");
+            }
+        }
+        // Deterministic pseudo-random sweep (xorshift over the bits of cent-like values).
+        let mut state = 0x2545F4914F6CDD1Du64;
+        for _ in 0..20000 {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            let cents = (state % 400_001) as i64 - 200_000; // +/-2,000.00
+            let sub = (state >> 32) % 10_000; // fractional cents down to 1e-4
+            let v = -(cents as f64 + sub as f64 / 1e6);
+            assert_eq!(is_negative(v, true), string_based(v, true), "decimals {v:?}");
+            assert_eq!(is_negative(v, false), string_based(v, false), "whole {v:?}");
+        }
     }
 }

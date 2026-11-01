@@ -6,6 +6,8 @@
 
 use budget_core::config::{Colors, Theme};
 use eframe::egui::{self, Color32, CornerRadius, FontData, FontDefinitions, FontFamily, FontId, Shadow, Stroke, StrokeKind, TextStyle, Vec2};
+use std::cell::RefCell;
+use std::collections::HashMap;
 use std::sync::Arc;
 
 /// 8-px spacing scale.
@@ -184,7 +186,21 @@ pub fn contrast(a: Color32, b: Color32) -> f32 {
 /// `fg` as text on `bg`: moved toward the readable ink of `bg` (dark ink on light fills, white on dark
 /// ones) only as far as WCAG AA needs. A colour that already passes is returned unchanged, so a
 /// user-chosen colour keeps its hue wherever it is legible.
+///
+/// Called many times per frame for the handful of colour pairs a theme produces, so the powf-based
+/// contrast walk is memoized per `(fg, bg)` pair; repeated pairs are a map lookup.
 pub fn legible(fg: Color32, bg: Color32) -> Color32 {
+    thread_local! {
+        static CACHE: RefCell<HashMap<[u8; 8], Color32>> = RefCell::new(HashMap::new());
+    }
+    let key = [fg.r(), fg.g(), fg.b(), fg.a(), bg.r(), bg.g(), bg.b(), bg.a()];
+    if let Some(c) = CACHE.with(|m| m.borrow().get(&key).copied()) { return c; }
+    let c = legible_uncached(fg, bg);
+    CACHE.with(|m| m.borrow_mut().insert(key, c));
+    c
+}
+
+fn legible_uncached(fg: Color32, bg: Color32) -> Color32 {
     if contrast(fg, bg) >= AA_TEXT { return fg; }
     let ink = on(bg);
     (1..=50).map(|i| fg.lerp_to_gamma(ink, i as f32 / 50.0)).find(|c| contrast(*c, bg) >= AA_TEXT).unwrap_or(ink)
