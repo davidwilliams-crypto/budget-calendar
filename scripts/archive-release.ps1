@@ -113,7 +113,7 @@ function Get-SourceFiles {
     # In particular, reference/, analysis/, target/, .git/, and user budgets are excluded.
     # Keep this allowlist aligned with budget-gui/build.rs source_inputs.
     $files = [Collections.Generic.SortedDictionary[string, string]]::new([StringComparer]::Ordinal)
-    foreach ($relative in @('Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', '.gitattributes', '.gitignore',
+    foreach ($relative in @('Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', '.cargo/config.toml', '.gitattributes', '.gitignore',
         'SPEC.md', 'CHANGELOG.md', 'AGENTS.md', 'budget-gui/Cargo.toml', 'budget-gui/build.rs',
         'budget-core/Cargo.toml', 'vendor/webbrowser/Cargo.toml', 'docs/ux.md',
         'README.md', 'budget-engine/Cargo.toml', 'budget-mobile/package.json', 'budget-mobile/README.md', 'budget-mobile/ENGINE-CONTRACT.md', 'budget-mobile/SERVER-CONTRACT.md', 'budget-mobile/server/DEPLOYMENT.md', 'budget-mobile/Dockerfile', 'budget-mobile/.dockerignore')) {

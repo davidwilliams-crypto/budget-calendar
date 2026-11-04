@@ -1121,7 +1121,7 @@ impl App {
                 }
             });
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                // With no budget there is nothing to add or save: the empty state offers Open… instead.
+                // With no budget there is nothing to add or save: the empty state offers New and Open… instead.
                 if self.db.is_some() {
                     if theme::primary_button(ui, format!("{}  New payment", ph::PLUS), &t).on_hover_text("Add a one-time or repeating payment · Ctrl+N").clicked() { self.new_payment(self.today); }
                     let label = format!("{}  Save changes", ph::FLOPPY_DISK);
@@ -1489,7 +1489,7 @@ impl App {
             ui.add_space((h * 0.10).max(SP3));
             // A dashed accent outline invites a drop anywhere inside it.
             let width = 440.0_f32.min(ui.available_width() - SP3 * 2.0).max(240.0);
-            let (zone, _) = ui.allocate_exact_size(Vec2::new(width, 236.0), Sense::hover());
+            let (zone, _) = ui.allocate_exact_size(Vec2::new(width, 280.0), Sense::hover());
             let hovering_file = ui.ctx().input(|i| !i.raw.hovered_files.is_empty());
             ui.painter().rect_filled(zone, theme::RADIUS, tint(t.bg, t.accent, if hovering_file { 0.12 } else { 0.04 }));
             let corners = [zone.left_top(), zone.right_top(), zone.right_bottom(), zone.left_bottom(), zone.left_top()];
@@ -1499,10 +1499,13 @@ impl App {
             let (circle, _) = inner.allocate_exact_size(Vec2::splat(56.0), Sense::hover());
             inner.painter().circle_filled(circle.center(), 28.0, tint(t.bg, t.accent, 0.16));
             inner.painter().text(circle.center(), Align2::CENTER_CENTER, ph::CALENDAR_DOTS, egui::FontId::new(30.0, egui::FontFamily::Proportional), t.accent);
-            inner.label(RichText::new("Open a budget").text_style(ts(TITLE)));
-            inner.label(RichText::new("Drop a .bgt file here, or choose one from your computer.").color(t.text_muted));
+            inner.label(RichText::new("Start or open a budget").text_style(ts(TITLE)));
+            inner.label(RichText::new("Create a new budget, or drop a .bgt file here to open one.").color(t.text_muted));
             inner.add_space(SP1);
-            if theme::primary_button(&mut inner, format!("{}  Open…", ph::FOLDER_OPEN), &t).on_hover_text("Ctrl+O").clicked() { self.open_dialog(); }
+            // A first-time user has no file yet, so starting one is the main action; opening is beside it.
+            if theme::primary_button(&mut inner, format!("{}  Start a new budget…", ph::PLUS), &t).on_hover_text("Choose where to save it, then add your balance and payments").clicked() { self.new_budget_dialog(); }
+            inner.add_space(SP1);
+            if theme::secondary_button(&mut inner, format!("{}  Open…", ph::FOLDER_OPEN), &t).on_hover_text("Ctrl+O").clicked() { self.open_dialog(); }
 
             let recent: Vec<String> = self.cfg.recent_file.clone();
             if !recent.is_empty() {
@@ -4101,7 +4104,9 @@ mod lifecycle_tests {
         assert!(app.dialogs.pending.is_none() && app.db.is_none() && app.file.is_none());
         let ctx = gui(&app);
         let texts = rendered_text(&frame(&mut app, &ctx, vec![], false));
-        assert!(shown(&texts, "Open a budget"), "the empty state is back");
+        assert!(shown(&texts, "Start or open a budget"), "the empty state is back");
+        assert!(texts.iter().any(|(s, _)| s.galley.job.text.contains("Start a new budget")), "a first-time user can start a budget from it");
+        assert!(texts.iter().any(|(s, _)| s.galley.job.text.ends_with("Open…")), "and open an existing one");
         assert!(app.cfg.last_file_name.is_none(), "a closed budget is not reopened at the next start");
         std::fs::remove_dir_all(dir).unwrap();
     }

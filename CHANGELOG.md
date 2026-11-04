@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.11.0] - 2026-11-04
+
+Ready to hand to someone else: a friendlier installer, a clear way to start, and signed downloads.
+
+- **Start a budget from the first screen:** with no budget open, the window now offers **Start a new budget…** as its main button, with **Open…** beside it. Before, a first-time user saw only Open… and had to find File > New budget.
+- **Friendlier installer:** setup now has a welcome screen, can start Budget Calendar when it finishes and offers a desktop shortcut. If Budget Calendar is open while you install or uninstall, it asks you to save and close it instead of failing part-way. `.bgt` files get the app's icon straight away, and the setup program carries version details in its file properties.
+- **Runs on a clean PC:** the Windows executable now includes the C runtime it needs, so it no longer depends on the separately installed Visual C++ Redistributable.
+- **No bundled sample:** the installer no longer copies a sample budget into the program folder. An existing copy from an earlier install is left alone.
+- **Signed releases on GitHub:** a release workflow builds and tests each tagged version on Windows, signs the executable and setup program with Azure Artifact Signing, archives the release and drafts a GitHub release with the installer and a plain-language install guide (`docs/INSTALL.md`). Setup is described in `docs/RELEASING.md`.
+
 ## [0.10.1] - 2026-10-31
 
 A speed pass over the engine and the calendar: the same answers, noticeably less work to produce them.

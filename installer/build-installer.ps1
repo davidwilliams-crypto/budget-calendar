@@ -10,6 +10,8 @@ repository root, not the current directory.
 Version to package. Default: the version in budget-gui/Cargo.toml. When given, it must equal that version.
 .PARAMETER Makensis
 Path to makensis.exe. Default: makensis on PATH, then the standard NSIS install folders.
+.PARAMETER OutputDirectory
+Folder for the setup program, inside this repository. Default: target/.
 .EXAMPLE
 powershell -NoProfile -ExecutionPolicy Bypass -File installer/build-installer.ps1
 #>
@@ -17,7 +19,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File installer/build-installer.ps
 [CmdletBinding()]
 param(
     [string]$Version,
-    [string]$Makensis
+    [string]$Makensis,
+    [string]$OutputDirectory
 )
 
 $ErrorActionPreference = 'Stop'
@@ -84,11 +87,25 @@ if ($iconHash -cne $saved.files.'budget-calendar.ico') {
     throw 'Archived icon differs from its release.json; it will not be packaged. Restore the archive or archive a new version.'
 }
 
+# Windows file properties need a purely numeric a.b.c.d version; any pre-release or build suffix is dropped.
+$numeric = [regex]::Match($Version, '^(?<major>\d+)\.(?<minor>\d+)\.(?<patch>\d+)')
+$fileVersion = '{0}.{1}.{2}.0' -f $numeric.Groups['major'].Value, $numeric.Groups['minor'].Value, $numeric.Groups['patch'].Value
+
+if ([string]::IsNullOrWhiteSpace($OutputDirectory)) { $OutputDirectory = Join-Path $repository 'target' }
+elseif (-not [IO.Path]::IsPathRooted($OutputDirectory)) { $OutputDirectory = Join-Path $repository $OutputDirectory }
+$OutputDirectory = [IO.Path]::GetFullPath($OutputDirectory).TrimEnd('\', '/')
+if (-not $OutputDirectory.StartsWith($repository + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
+    throw "OutputDirectory must stay inside this repository: $OutputDirectory"
+}
+New-Item -ItemType Directory -Force -Path $OutputDirectory | Out-Null
+$setup = Join-Path $OutputDirectory "BudgetCalendar-${Version}-setup.exe"
+
 $compiler = Find-Makensis
 # Run from installer/ so the script's relative paths resolve the same way NSIS expects.
 Push-Location -LiteralPath (Join-Path $repository 'installer')
 try {
-    & $compiler "/DVERSION=$Version" "/DPAYLOAD=$payload" "/DICON_PAYLOAD=$iconPayload" 'budget.nsi'
+    & $compiler "/DVERSION=$Version" "/DFILEVERSION=$fileVersion" "/DPAYLOAD=$payload" "/DICON_PAYLOAD=$iconPayload" "/DOUTPUT_DIR=$OutputDirectory" 'budget.nsi'
     if ($LASTEXITCODE -ne 0) { throw "makensis failed with exit code $LASTEXITCODE." }
 } finally { Pop-Location }
-Write-Output "Built the setup program for Budget Calendar ${Version}: $(Join-Path $repository "target/BudgetCalendar-${Version}-setup.exe")"
+if (-not (Test-Path -LiteralPath $setup -PathType Leaf)) { throw "makensis reported success but $setup was not written." }
+Write-Output "Built the setup program for Budget Calendar ${Version}: $setup"

@@ -68,6 +68,7 @@ function New-Fixture([string]$Name) {
     Write-Text (Join-Path $root 'Cargo.toml') '[workspace]'
     Write-Text (Join-Path $root 'Cargo.lock') '# fixture lock'
     Write-Text (Join-Path $root 'rust-toolchain.toml') '[toolchain]'
+    Write-Text (Join-Path $root '.cargo/config.toml') '# fixture cargo config'
     Write-Text (Join-Path $root '.gitignore') "/target`n/local-releases`n"
     Write-Text (Join-Path $root '.gitattributes') '* text=auto'
     Write-Text (Join-Path $root 'AGENTS.md') 'Fixture workflow'
@@ -109,7 +110,7 @@ function New-Fixture([string]$Name) {
 }
 
 function New-BuildManifest([string]$Root, [string]$BuildId) {
-    $inputs = @('Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', '.gitignore', '.gitattributes',
+    $inputs = @('Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', '.cargo/config.toml', '.gitignore', '.gitattributes',
         'AGENTS.md', 'SPEC.md', 'CHANGELOG.md', 'budget-gui/Cargo.toml', 'budget-gui/build.rs',
         'budget-gui/src/main.rs', 'budget-gui/assets/budget-calendar.ico', 'budget-core/Cargo.toml',
         'budget-core/src/lib.rs', 'budget-core/tests/example.rs', 'vendor/webbrowser/Cargo.toml',

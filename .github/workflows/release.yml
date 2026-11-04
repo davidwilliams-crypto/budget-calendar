@@ -1,0 +1,235 @@
+name: Release
+
+# Pushing a tag such as v0.11.0 builds, tests, signs and archives that version on Windows, builds and signs
+# its setup program, and drafts a GitHub release with the installer for you to review and publish.
+# Running the workflow by hand ("Run workflow") does the same without creating a release; download the
+# result from the run's artifacts. Setup is described in docs/RELEASING.md.
+
+on:
+  push:
+    tags: ['v*.*.*']
+  workflow_dispatch:
+
+permissions:
+  contents: write   # create the draft release
+  id-token: write   # sign in to Azure with OpenID Connect; no Azure password is stored in GitHub
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-2025
+    timeout-minutes: 150
+    # The Azure federated credential trusts this environment. Add required reviewers to it in
+    # Settings > Environments if a person should approve each signing.
+    environment: release
+    env:
+      RUSTUP_TOOLCHAIN: 1.99.1-x86_64-pc-windows-msvc
+      BUDGET_CHROME: C:\Program Files\Google\Chrome\Application\chrome.exe
+      SIGNING_ENABLED: ${{ vars.AZURE_SIGNING_ENDPOINT != '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.19.0
+
+      - name: Read the version and check it matches the tag
+        id: version
+        shell: powershell
+        run: |
+          $text = [IO.File]::ReadAllText('budget-gui/Cargo.toml')
+          $section = [regex]::Match($text, '(?ms)^\[package\]\s*\r?\n(?<content>.*?)(?=^\[|\z)')
+          $version = [regex]::Match($section.Groups['content'].Value, '(?m)^version\s*=\s*"(?<v>[^"]+)"\s*$').Groups['v'].Value
+          if ([string]::IsNullOrWhiteSpace($version)) { throw 'budget-gui/Cargo.toml has no package version.' }
+          if ($env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME -cne "v$version") {
+            throw "Tag $env:GITHUB_REF_NAME does not match budget-gui/Cargo.toml version $version. Tag the commit as v$version."
+          }
+          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          if ($env:SIGNING_ENABLED -ne 'true') {
+            Write-Output '::warning::Azure signing is not configured, so this build is unsigned and Windows will warn people who run it. See docs/RELEASING.md.'
+          }
+
+      - name: Install the Rust toolchain
+        shell: powershell
+        run: |
+          rustup toolchain install $env:RUSTUP_TOOLCHAIN --profile minimal --no-self-update
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          rustc --version
+          cargo --version
+      - name: Fetch locked Rust dependencies
+        shell: powershell
+        run: cargo fetch --locked
+      - name: Install Playwright
+        shell: powershell
+        run: npm install --no-save --no-package-lock --prefix target/ci-tools playwright@1.58.2
+
+      - name: Run the release gate
+        shell: powershell
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File scripts/release-gate.ps1
+      - name: Strip browser profiles from gate logs
+        if: always()
+        shell: powershell
+        run: |
+          Get-ChildItem -LiteralPath target/release-gate -Recurse -Directory -Filter 'home' -Force -ErrorAction SilentlyContinue |
+            Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+      - name: Keep gate logs
+        if: failure()
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-gate-logs
+          path: target/release-gate/
+          if-no-files-found: ignore
+
+      - name: Build the release executable
+        shell: powershell
+        run: |
+          cargo build -p budget-gui --release --locked
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Check the executable's version and that it needs no separate C runtime
+        shell: powershell
+        run: |
+          $exe = 'target\release\budget-gui.exe'
+          foreach ($flag in @('--version', '--version-json')) {
+            $out = Join-Path $env:RUNNER_TEMP "version$flag.txt"
+            $process = Start-Process -FilePath $exe -ArgumentList $flag -NoNewWindow -Wait -PassThru -RedirectStandardOutput $out
+            if ($process.ExitCode -ne 0) { throw "$exe $flag exited with $($process.ExitCode)." }
+            $text = [IO.File]::ReadAllText($out)
+            Write-Output "$flag -> $text"
+            if ($text -notmatch [regex]::Escape('${{ steps.version.outputs.version }}')) { throw "$exe $flag does not report ${{ steps.version.outputs.version }}." }
+          }
+          # Imported DLL names are stored as plain text. A clean PC may not have the Visual C++ runtime,
+          # so the executable must not import it (.cargo/config.toml links it in statically).
+          $bytes = [Text.Encoding]::ASCII.GetString([IO.File]::ReadAllBytes($exe))
+          if ($bytes -match '(?i)vcruntime\d+\.dll|msvcp\d+\.dll') { throw "$exe still needs the separately installed C runtime ($($Matches[0]))." }
+
+      - name: Sign in to Azure
+        if: env.SIGNING_ENABLED == 'true'
+        uses: azure/login@v3
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - name: Sign the executable
+        if: env.SIGNING_ENABLED == 'true'
+        uses: azure/artifact-signing-action@v2.0.0
+        with:
+          endpoint: ${{ vars.AZURE_SIGNING_ENDPOINT }}
+          signing-account-name: ${{ vars.AZURE_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ vars.AZURE_CERTIFICATE_PROFILE }}
+          files: ${{ github.workspace }}\target\release\budget-gui.exe
+          description: Budget Calendar
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+          exclude-environment-credential: true
+          exclude-workload-identity-credential: true
+          exclude-managed-identity-credential: true
+          exclude-shared-token-cache-credential: true
+          exclude-visual-studio-credential: true
+          exclude-visual-studio-code-credential: true
+          exclude-azure-cli-credential: false
+          exclude-azure-powershell-credential: true
+          exclude-azure-developer-cli-credential: true
+          exclude-interactive-browser-credential: true
+
+      # The archive records the signed executable, so the installer below packages exactly the signed file.
+      - name: Archive the release
+        shell: powershell
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File scripts/archive-release.ps1
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Install NSIS if the runner lacks it
+        shell: powershell
+        run: |
+          $found = (Get-Command makensis -ErrorAction SilentlyContinue) -or
+            (Test-Path "${env:ProgramFiles(x86)}\NSIS\makensis.exe") -or (Test-Path "$env:ProgramFiles\NSIS\makensis.exe")
+          if (-not $found) {
+            choco install nsis --yes --no-progress
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+      - name: Build the setup program
+        shell: powershell
+        run: |
+          powershell -NoProfile -ExecutionPolicy Bypass -File installer/build-installer.ps1 -OutputDirectory target/setup
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Sign the setup program
+        if: env.SIGNING_ENABLED == 'true'
+        uses: azure/artifact-signing-action@v2.0.0
+        with:
+          endpoint: ${{ vars.AZURE_SIGNING_ENDPOINT }}
+          signing-account-name: ${{ vars.AZURE_SIGNING_ACCOUNT }}
+          certificate-profile-name: ${{ vars.AZURE_CERTIFICATE_PROFILE }}
+          files: ${{ github.workspace }}\target\setup\BudgetCalendar-${{ steps.version.outputs.version }}-setup.exe
+          description: Budget Calendar Setup
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+          exclude-environment-credential: true
+          exclude-workload-identity-credential: true
+          exclude-managed-identity-credential: true
+          exclude-shared-token-cache-credential: true
+          exclude-visual-studio-credential: true
+          exclude-visual-studio-code-credential: true
+          exclude-azure-cli-credential: false
+          exclude-azure-powershell-credential: true
+          exclude-azure-developer-cli-credential: true
+          exclude-interactive-browser-credential: true
+      - name: Check signatures and write checksums
+        shell: powershell
+        run: |
+          $version = '${{ steps.version.outputs.version }}'
+          $setup = "target\setup\BudgetCalendar-$version-setup.exe"
+          if ($env:SIGNING_ENABLED -eq 'true') {
+            foreach ($file in @("local-releases\v$version\budget-gui.exe", $setup)) {
+              $signature = Get-AuthenticodeSignature -LiteralPath $file
+              if ($signature.Status -ne 'Valid') { throw "$file is not validly signed: $($signature.Status) $($signature.StatusMessage)" }
+              Write-Output "$file signed by $($signature.SignerCertificate.Subject)"
+            }
+          }
+          $hash = (Get-FileHash -LiteralPath $setup -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  BudgetCalendar-$version-setup.exe" | Out-File -FilePath target\setup\SHA256SUMS.txt -Encoding ascii
+
+      - name: Keep the installer and release archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: budget-calendar-${{ steps.version.outputs.version }}
+          path: |
+            target/setup/
+            local-releases/v${{ steps.version.outputs.version }}/
+          if-no-files-found: error
+
+      # Only the setup program and its checksum are attached; the full archive (with its source ZIP) is the run's artifact.
+      - name: Draft the GitHub release
+        if: github.ref_type == 'tag'
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN || github.token }}
+          RELEASE_REPOSITORY: ${{ vars.RELEASE_REPOSITORY || github.repository }}
+        run: |
+          $version = '${{ steps.version.outputs.version }}'
+          $changelog = [IO.File]::ReadAllText('CHANGELOG.md')
+          $entry = [regex]::Match($changelog, '(?ms)^## \[' + [regex]::Escape($version) + '\][^\n]*\n(?<body>.*?)(?=^## \[|\z)').Groups['body'].Value.Trim()
+          # The install guide is the top of the release page, because people downloading it cannot open this repository.
+          $guide = [IO.File]::ReadAllText('docs/INSTALL.md').Replace('{VERSION}', $version).Trim()
+          $notes = @()
+          if ($env:SIGNING_ENABLED -ne 'true') {
+            $notes += '> **Unsigned test build.** Windows will warn more strongly than described below. Do not publish this draft to other people.'
+            $notes += ''
+          }
+          $notes += $guide
+          $notes += ''
+          $notes += "## What's new in $version"
+          $notes += ''
+          $notes += $entry
+          $notesFile = Join-Path $env:RUNNER_TEMP 'release-notes.md'
+          [IO.File]::WriteAllText($notesFile, ($notes -join "`n"), [Text.UTF8Encoding]::new($false))
+          $arguments = @('release', 'create', "v$version", '--repo', $env:RELEASE_REPOSITORY, '--draft',
+            '--title', "Budget Calendar $version", '--notes-file', $notesFile,
+            "target/setup/BudgetCalendar-$version-setup.exe", 'target/setup/SHA256SUMS.txt')
+          if ($env:RELEASE_REPOSITORY -eq $env:GITHUB_REPOSITORY) { $arguments += @('--verify-tag') }
+          gh @arguments
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

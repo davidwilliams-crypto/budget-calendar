@@ -1,0 +1,5 @@
+# Link the C runtime into the Windows executable, so Budget Calendar starts on a clean PC without the
+# separately installed Visual C++ Redistributable. Other targets (the phone's WebAssembly engine, Linux
+# test builds) are unaffected. This file is a release input: changing it changes the build identity.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]
