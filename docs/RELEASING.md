@@ -59,7 +59,7 @@ Signing switches on as soon as `AZURE_SIGNING_ENDPOINT` is set.
 
 ## Each release
 
-1. Make the release changes as `AGENTS.md` describes: bump the version, add the `CHANGELOG.md` entry and pass the release gate. Merge them to `main`.
+1. Make the release changes as `AGENTS.md` describes: bump the version, add the `CHANGELOG.md` entry and pass the release gate. Merge them to `master`.
 2. Tag the merged commit and push the tag:
    ```
    git tag v0.11.0
