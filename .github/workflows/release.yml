@@ -48,7 +48,7 @@ jobs:
           }
           "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
           if ($env:SIGNING_ENABLED -ne 'true') {
-            Write-Output '::warning::Azure signing is not configured, so this build is unsigned and Windows will warn people who run it. See docs/RELEASING.md.'
+            Write-Output '::warning::Azure signing is not configured, so this build is unsigned: Windows will show Unknown publisher, and the release notes tell people to expect that. See docs/RELEASING.md.'
           }
 
       - name: Install the Rust toolchain
@@ -211,22 +211,12 @@ jobs:
           RELEASE_REPOSITORY: ${{ vars.RELEASE_REPOSITORY || github.repository }}
         run: |
           $version = '${{ steps.version.outputs.version }}'
-          $changelog = [IO.File]::ReadAllText('CHANGELOG.md')
-          $entry = [regex]::Match($changelog, '(?ms)^## \[' + [regex]::Escape($version) + '\][^\n]*\n(?<body>.*?)(?=^## \[|\z)').Groups['body'].Value.Trim()
           # The install guide is the top of the release page, because people downloading it cannot open this repository.
-          $guide = [IO.File]::ReadAllText('docs/INSTALL.md').Replace('{VERSION}', $version).Trim()
-          $notes = @()
-          if ($env:SIGNING_ENABLED -ne 'true') {
-            $notes += '> **Unsigned test build.** Windows will warn more strongly than described below. Do not publish this draft to other people.'
-            $notes += ''
-          }
-          $notes += $guide
-          $notes += ''
-          $notes += "## What's new in $version"
-          $notes += ''
-          $notes += $entry
+          # Its "open the file" step matches the build: an unsigned one tells people to expect "Unknown publisher".
+          $signing = if ($env:SIGNING_ENABLED -eq 'true') { 'signed' } else { 'unsigned' }
           $notesFile = Join-Path $env:RUNNER_TEMP 'release-notes.md'
-          [IO.File]::WriteAllText($notesFile, ($notes -join "`n"), [Text.UTF8Encoding]::new($false))
+          powershell -NoProfile -ExecutionPolicy Bypass -File scripts/release-notes.ps1 -Version $version -Signing $signing -OutputPath $notesFile
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $arguments = @('release', 'create', "v$version", '--repo', $env:RELEASE_REPOSITORY, '--draft',
             '--title', "Budget Calendar $version", '--notes-file', $notesFile,
             "target/setup/BudgetCalendar-$version-setup.exe", 'target/setup/SHA256SUMS.txt')
