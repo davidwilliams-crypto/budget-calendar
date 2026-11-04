@@ -68,6 +68,7 @@ function New-Fixture([string]$Name) {
     Write-Text (Join-Path $root 'Cargo.toml') '[workspace]'
     Write-Text (Join-Path $root 'Cargo.lock') '# fixture lock'
     Write-Text (Join-Path $root 'rust-toolchain.toml') '[toolchain]'
+    Write-Text (Join-Path $root '.cargo/config.toml') '# fixture cargo config'
     Write-Text (Join-Path $root '.gitignore') "/target`n/local-releases`n"
     Write-Text (Join-Path $root '.gitattributes') '* text=auto'
     Write-Text (Join-Path $root 'AGENTS.md') 'Fixture workflow'
@@ -109,7 +110,7 @@ function New-Fixture([string]$Name) {
 }
 
 function New-BuildManifest([string]$Root, [string]$BuildId) {
-    $inputs = @('Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', '.gitignore', '.gitattributes',
+    $inputs = @('Cargo.toml', 'Cargo.lock', 'rust-toolchain.toml', '.cargo/config.toml', '.gitignore', '.gitattributes',
         'AGENTS.md', 'SPEC.md', 'CHANGELOG.md', 'budget-gui/Cargo.toml', 'budget-gui/build.rs',
         'budget-gui/src/main.rs', 'budget-gui/assets/budget-calendar.ico', 'budget-core/Cargo.toml',
         'budget-core/src/lib.rs', 'budget-core/tests/example.rs', 'vendor/webbrowser/Cargo.toml',
@@ -439,14 +440,14 @@ Test-Case 'installer never clobbers or deletes user files and packages only the 
     $nsi = Get-Content -LiteralPath (Join-Path $repository 'installer/budget.nsi') -Raw
     Assert-True ($nsi -notmatch 'lib\.rs') 'Installer must not ship or delete a stray lib.rs.'
     Assert-True ($nsi -notmatch '(?m)^\s*Delete\s+"\$INSTDIR\\sample\.bgt"') 'Uninstaller must not delete a user-editable sample.bgt.'
-    Assert-True ($nsi -match 'IfFileExists\s+"\$INSTDIR\\sample\.bgt"') 'Installer must not unconditionally overwrite sample.bgt.'
+    Assert-True ($nsi -notmatch '(?m)^\s*File\s+.*sample\.bgt') 'Installer must not ship the vendor sample budget.'
     Assert-True ($nsi -notmatch '!define VERSION "') 'Installer must not carry a stale default version.'
     Assert-True ($nsi -match '!ifndef VERSION') 'Installer must fail when VERSION is not supplied.'
     Assert-True ($nsi -match '!ifndef PAYLOAD') 'Installer must fail when the archived executable is not supplied.'
     Assert-True ($nsi -match '!ifndef ICON_PAYLOAD') 'Installer must fail when the archived icon is not supplied.'
     Assert-True ($nsi -match [regex]::Escape('File "/oname=${EXE}" "${PAYLOAD}"')) 'Installer must package the supplied payload.'
-    Assert-True ($nsi -match '(?m)^Icon "\$\{ICON_PAYLOAD\}"\s*$') 'Setup must use the verified archived icon.'
-    Assert-True ($nsi -match '(?m)^UninstallIcon "\$\{ICON_PAYLOAD\}"\s*$') 'Uninstall must use the verified archived icon.'
+    Assert-True ($nsi -match '(?m)^!define MUI_ICON "\$\{ICON_PAYLOAD\}"\s*$') 'Setup must use the verified archived icon.'
+    Assert-True ($nsi -match '(?m)^!define MUI_UNICON "\$\{ICON_PAYLOAD\}"\s*$') 'Uninstall must use the verified archived icon.'
     Assert-True ($nsi -notmatch 'budget-gui\\assets\\budget-calendar\.ico') 'Installer must not read the current source icon.'
     Assert-True ($nsi -notmatch 'target\\release\\budget-gui\.exe') 'Installer must not package whatever is in target\release.'
     Assert-True ($nsi -match [regex]::Escape('"DisplayVersion" "${VERSION}"')) 'DisplayVersion must come from VERSION.'
@@ -492,6 +493,8 @@ Test-Case 'installer wrapper passes the archived executable and icon even when t
     & (Join-Path $root 'installer/build-installer.ps1') -Makensis $fake | Out-Null
     $recorded = Get-Content -LiteralPath (Join-Path $root 'tools/args.txt') -Raw
     Assert-True ($recorded -match '/DVERSION=0\.3\.0') "Compiler did not receive VERSION: $recorded"
+    Assert-True ($recorded -match '/DFILEVERSION=0\.3\.0\.0') "Compiler did not receive the numeric file version: $recorded"
+    Assert-True ($recorded.Contains('/DOUTPUT_DIR=' + (Join-Path $root 'target'))) "Compiler did not receive the default output folder: $recorded"
     Assert-True ($recorded -match '/DPAYLOAD=.*local-releases.v0\.3\.0.budget-gui\.exe') "Compiler did not receive the archived executable: $recorded"
     $expectedIcon = '/DICON_PAYLOAD=' + (Join-Path $root 'local-releases/v0.3.0/budget-calendar.ico')
     Assert-True ($recorded.Contains($expectedIcon)) "Compiler did not receive the archived icon: $recorded"

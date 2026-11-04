@@ -2,6 +2,10 @@
 
 Budget Calendar provides a Windows desktop budget calendar and an Android installable web app backed by a private household synchronization service. Both use the same Rust calculations. The mobile service and deployable package are built locally; hosting and a real HTTPS address still require configuration. Physical phone installation has not been verified.
 
+## Installing (for people using the app)
+
+Download the setup program from the [latest release](https://github.com/davidwilliams-crypto/budget-calendar/releases/latest). [docs/INSTALL.md](docs/INSTALL.md) walks through installing it and starting a first budget. Signed releases are published by `.github/workflows/release.yml`; [docs/RELEASING.md](docs/RELEASING.md) covers its one-time Azure and GitHub setup.
+
 ## Windows build and local releases
 
 Use the Rust toolchain pinned by `rust-toolchain.toml` and the available offline Cargo cache:

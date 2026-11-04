@@ -202,6 +202,7 @@ fn source_inputs(root: &Path) -> io::Result<Vec<PathBuf>> {
         "Cargo.toml",
         "Cargo.lock",
         "rust-toolchain.toml",
+        ".cargo/config.toml",
         ".gitattributes",
         ".gitignore",
         "SPEC.md",
@@ -568,6 +569,7 @@ mod tests {
                 "Cargo.toml",
                 "Cargo.lock",
                 "rust-toolchain.toml",
+                ".cargo/config.toml",
                 ".gitattributes",
                 ".gitignore",
                 "SPEC.md",
@@ -672,6 +674,7 @@ mod tests {
             "Cargo.toml",
             "Cargo.lock",
             "rust-toolchain.toml",
+            ".cargo/config.toml",
             ".gitattributes",
             ".gitignore",
             "SPEC.md",
@@ -719,7 +722,7 @@ mod tests {
         }
         assert_eq!(
             paths.len(),
-            42,
+            43,
             "unexpected generated or local input: {paths:?}"
         );
         assert!(paths.windows(2).all(|pair| pair[0] < pair[1]));
