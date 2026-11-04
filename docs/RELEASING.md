@@ -18,7 +18,7 @@ On a `vX.Y.Z` tag, a GitHub-hosted Windows machine:
 
 The release archive, including the source ZIP, is kept as a workflow artifact (90 days by default); it is not attached to the public release.
 
-Until signing is configured, the run still produces an **unsigned** draft marked as a test build. Don't publish that draft to other people.
+Until signing is configured, steps 5, 7 and 8 skip signing and the draft is **unsigned**. You can still publish it. `scripts/release-notes.ps1` builds the notes from `docs/INSTALL.md`, which has a signed and an unsigned version of its "open the file" step. An unsigned draft gets the unsigned one: it tells people Windows will show *Unknown publisher*, how to get past it (**More info → Run anyway**) and how to check the file against `SHA256SUMS.txt`. A signed draft gets the step that tells people to delete any file showing *Unknown publisher*.
 
 ## One-time Azure setup (about 30 minutes, plus identity checks that can take a few days)
 

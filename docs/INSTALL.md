@@ -4,8 +4,13 @@ You need a Windows 10 or Windows 11 PC. You don't need an administrator password
 
 1. **Download** `BudgetCalendar-{VERSION}-setup.exe` from the **Assets** list at the bottom of this page.
 2. **Open the file** from your Downloads folder.
+<!-- signed: the release workflow keeps this part for a signed build and removes the unsigned part -->
    - Windows may show a blue box titled **"Windows protected your PC"**. This happens with new programs that few people have downloaded yet. Click **More info**. The *Publisher* line should show a name, not *Unknown publisher*. If it does, click **Run anyway**.
    - If the *Publisher* line says *Unknown publisher*, stop: that file did not come from this page. Delete it and download it again from here.
+<!-- unsigned: kept instead for a build made before code signing is set up -->
+   - This version is not yet code-signed, so Windows shows a blue box titled **"Windows protected your PC"** and the *Publisher* line reads *Unknown publisher*. That is expected for this download. Click **More info**, then **Run anyway**.
+   - Only do this for a file you downloaded from this page. To be sure the file is intact, you can compare its SHA256 checksum with the one in `SHA256SUMS.txt` below: in PowerShell, run `Get-FileHash .\BudgetCalendar-{VERSION}-setup.exe`.
+<!-- end -->
 3. Click **Next**, then **Install**.
 4. On the last screen, leave **Start Budget Calendar now** ticked. Untick **Put a shortcut on my desktop** if you don't want one. Then click **Finish**.
 
