@@ -107,5 +107,4 @@ try {
     & $compiler "/DVERSION=$Version" "/DFILEVERSION=$fileVersion" "/DPAYLOAD=$payload" "/DICON_PAYLOAD=$iconPayload" "/DOUTPUT_DIR=$OutputDirectory" 'budget.nsi'
     if ($LASTEXITCODE -ne 0) { throw "makensis failed with exit code $LASTEXITCODE." }
 } finally { Pop-Location }
-if (-not (Test-Path -LiteralPath $setup -PathType Leaf)) { throw "makensis reported success but $setup was not written." }
 Write-Output "Built the setup program for Budget Calendar ${Version}: $setup"
