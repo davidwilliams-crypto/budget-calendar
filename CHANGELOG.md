@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.11.1] - 2026-11-04
+
+A polish pass: the monthly chores take fewer clicks, searches answer "how much?", and a first budget starts from your real balance.
+
+- **Mark paid in one click:** right-click a payment on the calendar, or open More in a day's list, and choose **Mark as paid**. A paid one offers **Mark as unpaid**. Only that date changes; its amount and note are kept, and Undo reverses it. Before, marking a bill paid took four steps through the transaction dialog.
+- **Search totals:** while a search narrows the calendar, the "Showing 5 of 21" chip also shows what the matching transactions add up to this month, so a search for "gas" says how much went on gas.
+- **Start from your real balance:** the first-payment card now begins with **Set today's balance…**, which opens the balance editor for today. Forecasts no longer have to start from zero.
+- **Readable load errors:** a budget file that cannot be read names the part in plain words, such as "Line 4: a payment's end date could not be read", instead of the loader's internal field name ('end_date').
+- **Screen readers:** calendar payments are read with their date and whether they are paid or important, not only their name and amount. The previous and next month buttons, both search boxes and the search's clear button now have names instead of an icon glyph or nothing.
+- **Tidier File menu:** with no recent budgets, the File menu no longer shows two separators stacked together.
+
 ## [0.11.0] - 2026-11-04
 
 Ready to hand to someone else: a friendlier installer, a clear way to start, and signed downloads.
