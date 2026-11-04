@@ -125,8 +125,24 @@ impl Banner {
 /// One readable sentence from a loader log such as
 /// `(23): Invalid data for 'frequency'\nException: NumberFormatException: ""\nfailed`.
 /// The line that caused the failure (the one before the first `Exception:`, or else
-/// the first line) is used; `(N):` becomes `Line N:`, Java exception prefixes and the
-/// lone trailing `failed` are dropped.
+/// the first line) is used; `(N):` becomes `Line N:`, a field's internal name becomes plain words,
+/// Java exception prefixes and the lone trailing `failed` are dropped.
+/// Plain words for a field named in a loader log.
+fn field_words(field: &str) -> String {
+    let part = match field {
+        "start_date" => "start date",
+        "frequency" => "repeat frequency",
+        "n_pays" => "number of payments",
+        "end_date" => "end date",
+        "flags" => "settings",
+        "image_path" => "icon",
+        // Options carry a payment's notes, statuses and changed dates, and a balance line's checkpoints.
+        "opts" => return "some saved details (notes, statuses, changed dates or balances)".into(),
+        other => return format!("a payment's {}", other.replace('_', " ")),
+    };
+    format!("a payment's {part}")
+}
+
 fn load_error_summary(log: &str) -> String {
     if log.contains("mismatched number of read lines") || log.contains("misformed end-of-data line") {
         return "Part of this budget file is missing, so it may have been damaged.".into();
@@ -147,6 +163,12 @@ fn load_error_summary(log: &str) -> String {
     if let Some(rest) = out.strip_prefix('(') {
         if let Some((n, tail)) = rest.split_once("):") {
             if !n.is_empty() && n.chars().all(|c| c.is_ascii_digit()) { out = format!("Line {n}: {}", tail.trim_start()); }
+        }
+    }
+    // "Invalid data for 'end_date'" names the loader's field; say which part of a payment it is.
+    if let Some((before, field)) = out.split_once("Invalid data for '") {
+        if let Some(field) = field.strip_suffix('\'') {
+            out = format!("{before}{} could not be read", field_words(field));
         }
     }
     // "unable to open file." alone says nothing: add the exception's own message.
@@ -462,6 +484,12 @@ struct App {
 
 /// The pass in which a text input of the main window (a search box, the year box) last had keyboard focus.
 const TEXT_FOCUS: &str = "text_input_focus";
+
+/// Give a widget the name a screen reader announces, where its visible text is only an icon glyph or
+/// a hint (egui names an icon button after its private-use glyph and leaves a text box unnamed).
+pub(crate) fn accessible_name(ctx: &egui::Context, response: &egui::Response, name: &str) {
+    ctx.accesskit_node_builder(response.id, |node| node.set_label(name));
+}
 
 /// Record that `response` is a text input holding the keyboard focus. egui's own
 /// `wants_keyboard_input` is true for any focused widget, so a Tab-focused button would otherwise
@@ -1145,10 +1173,13 @@ impl App {
                     }
                     if ui.add_enabled(self.db.is_some(), egui::Button::new("Close budget")).clicked() { ui.close_menu(); self.request_close_budget(); }
                     ui.separator();
-                    for recent in self.cfg.recent_file.clone() {
-                        if ui.button(file_name(Path::new(&recent))).on_hover_text(&recent).clicked() { ui.close_menu(); self.open(Path::new(&recent)); }
+                    // With no recent budgets there is no list to set apart: one separator, not two stacked.
+                    if !self.cfg.recent_file.is_empty() {
+                        for recent in self.cfg.recent_file.clone() {
+                            if ui.button(file_name(Path::new(&recent))).on_hover_text(&recent).clicked() { ui.close_menu(); self.open(Path::new(&recent)); }
+                        }
+                        ui.separator();
                     }
-                    ui.separator();
                     if ui.button("Close app").clicked() { ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close); }
                 });
                 ui.menu_button("Edit", |ui| {
@@ -1231,7 +1262,7 @@ impl App {
         let open = self.db.is_some();
         ui.add_space(if compact { SP1 } else { SP3 });
         ui.add_enabled_ui(open, |ui| {
-            let previous = icon_button(ui, ph::CARET_LEFT).on_hover_text("Previous month (PgUp)\nHold a dragged payment here to move to this month");
+            let previous = icon_button(ui, ph::CARET_LEFT, "Previous month").on_hover_text("Previous month (PgUp)\nHold a dragged payment here to move to this month");
             if previous.clicked() { self.go(-1); }
             self.drag_month_navigation(ui.ctx(), &previous, -1);
             ui.menu_button(RichText::new(format!("{} {}  {}", MONTHS_LONG[self.cur.month() as usize], self.cur.year(), ph::CARET_DOWN))
@@ -1248,7 +1279,7 @@ impl App {
                     }
                 });
             });
-            let next = icon_button(ui, ph::CARET_RIGHT).on_hover_text("Next month (PgDn)\nHold a dragged payment here to move to this month");
+            let next = icon_button(ui, ph::CARET_RIGHT, "Next month").on_hover_text("Next month (PgDn)\nHold a dragged payment here to move to this month");
             if next.clicked() { self.go(1); }
             self.drag_month_navigation(ui.ctx(), &next, 1);
         });
@@ -1266,8 +1297,9 @@ impl App {
         }
     }
 
-    /// "Showing 7 of 20 · cat:Auto ×": the active search above the grid, with a × that clears it.
-    fn filter_chip(&mut self, ui: &mut egui::Ui, t: &Tokens, shown: usize, total: usize) {
+    /// "Showing 7 of 20 · cat:Auto  Total −312.50 ×": the active search above the grid, what its
+    /// matches add up to this month, and a × that clears it.
+    fn filter_chip(&mut self, ui: &mut egui::Ui, t: &Tokens, shown: usize, total: usize, sum: f64) {
         let mut clear = false;
         let chip = tint(t.surface, t.accent, 0.12);
         Frame::new().fill(chip).stroke(Stroke::new(1.0_f32, t.accent))
@@ -1275,6 +1307,10 @@ impl App {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = SP2;
                     ui.label(RichText::new(format!("Showing {shown} of {total} · {}", self.filter_text.trim())).text_style(ts(CAPTION)).color(t.text));
+                    if shown > 0 {
+                        ui.label(RichText::new(format!("Total {}", money(sum, true))).text_style(ts(CAPTION)).strong().color(theme::legible(sign_colour(t, sum, true), chip)))
+                            .on_hover_text("What the matching transactions add up to this month");
+                    }
                     if ui.add(Button::new(RichText::new("×").color(theme::legible(t.accent, chip))).frame(false)).on_hover_text("Clear the search").clicked() { clear = true; }
                 });
             });
@@ -1291,12 +1327,15 @@ impl App {
                 ui.label(RichText::new(ph::MAGNIFYING_GLASS).text_style(ts(ICON)).color(t.text_muted));
                 let r = ui.add(TextEdit::singleline(&mut self.filter_text).id_source("transaction_search").frame(false)
                     .hint_text("Search transactions").desired_width(width - 62.0));
+                accessible_name(ui.ctx(), &r, "Search transactions");
                 note_text_focus(ui.ctx(), &r);
                 if self.focus_filter { r.request_focus(); self.focus_filter = false; }
                 if r.changed() { self.set_filter(); }
                 r.on_hover_text("Search descriptions, categories or amounts. Advanced filters such as cat:Auto and <-100 also work.");
-                if active && ui.add(Button::new(RichText::new(ph::X).text_style(ts(ICON)).color(t.text_muted)).frame(false)).on_hover_text("Clear search").clicked() {
-                    self.filter_text.clear(); self.set_filter();
+                if active {
+                    let clear = ui.add(Button::new(RichText::new(ph::X).text_style(ts(ICON)).color(t.text_muted)).frame(false));
+                    accessible_name(ui.ctx(), &clear, "Clear search");
+                    if clear.on_hover_text("Clear search").clicked() { self.filter_text.clear(); self.set_filter(); }
                 }
             });
         });
@@ -1560,7 +1599,7 @@ impl App {
     /// First-run card shown over the calendar while the budget has no payments.
     fn onboarding_card(&mut self, ctx: &egui::Context, area: egui::Rect) {
         let t = self.t.clone();
-        let mut add = false;
+        let (mut add, mut balance) = (false, false);
         egui::Area::new(egui::Id::new("onboarding")).order(egui::Order::Middle).pivot(Align2::CENTER_CENTER)
             .fixed_pos(area.center()).show(ctx, |ui| {
                 t.card().inner_margin(SP4).shadow(ctx.style().visuals.popup_shadow).show(ui, |ui| {
@@ -1570,14 +1609,17 @@ impl App {
                         ui.painter().circle_filled(circle.center(), 28.0, tint(t.surface, t.accent, 0.16));
                         ui.painter().text(circle.center(), Align2::CENTER_CENTER, ph::PLUS_CIRCLE, egui::FontId::new(30.0, egui::FontFamily::Proportional), t.accent);
                         ui.label(RichText::new("Add your first payment").text_style(ts(TITLE)));
-                        ui.add(egui::Label::new(RichText::new("Enter your salary and recurring bills once. Budget Calendar projects every future date and balance for you.").color(t.text_muted)).wrap());
+                        ui.add(egui::Label::new(RichText::new("Start from what your bank shows today, then enter your salary and recurring bills once. Budget Calendar projects every future date and balance for you.").color(t.text_muted)).wrap());
                         ui.add_space(SP1);
-                        // The card only shows over an open budget, so its one action is to add a payment.
+                        // The card only shows over an open budget: add a payment, or first set the real balance,
+                        // otherwise every forecast counts from zero.
                         if theme::primary_button(ui, format!("{}  New payment (Ctrl+N)", ph::PLUS), &t).clicked() { add = true; }
+                        if theme::secondary_button(ui, format!("{}  Set today's balance…", ph::BANK), &t)
+                            .on_hover_text("Enter the balance your bank shows today; forecasts start from it").clicked() { balance = true; }
                     });
                     ui.add_space(SP2);
                     ui.separator();
-                    for (n, text) in ["Add your salary", "Add recurring bills and loans", "Watch the balance day by day"].iter().enumerate() {
+                    for (n, text) in ["Set today's balance to match your bank", "Add your salary, recurring bills and loans", "Watch the balance day by day"].iter().enumerate() {
                         ui.horizontal(|ui| {
                             let (c, _) = ui.allocate_exact_size(Vec2::splat(20.0), Sense::hover());
                             let disc = tint(t.surface, t.accent, 0.14);
@@ -1589,6 +1631,7 @@ impl App {
                 });
             });
         if add { self.new_payment(self.today); }
+        if balance { self.edit_balance(self.today); }
     }
 
     fn banner(&mut self, ui: &mut egui::Ui) {
@@ -1955,6 +1998,24 @@ impl App {
         }
     }
 
+    /// Mark one occurrence paid (or unpaid) straight from a menu, keeping its amount and note.
+    fn set_transaction_flag(&mut self, id: i32, date: i32, amount: f64, flag: char) {
+        if !self.shared_editable() || self.has_draft() { return; }
+        let name = self.payment_name(id);
+        let Some(db) = &mut self.db else { return };
+        let Some(i) = db.get_by_id(id) else { return };
+        let note = db.payments[i].get_note(date).unwrap_or_default();
+        if document::transaction_unchanged(db, id, date, amount, &note, flag) { return; }
+        match document::change_transaction(db, id, date, amount, &note, flag) {
+            Ok(()) => {
+                let paid = flag == budget_core::FLAG_PAID;
+                self.changed_as(format!("mark {name} {}", if paid { "paid" } else { "unpaid" }));
+                self.notify(format!("{name} marked {} for {}. Press Ctrl+S to save.", if paid { "paid" } else { "unpaid" }, names::long_date(date)));
+            }
+            Err(error) => self.fail(error),
+        }
+    }
+
     /// The name of a payment, for the Undo item of an edit to it.
     fn payment_name(&self, id: i32) -> String {
         self.db.as_ref().and_then(|db| db.get_by_id(id).map(|i| db.payments[i].description.clone())).unwrap_or_default()
@@ -2037,6 +2098,7 @@ impl App {
             calendar::Action::EditPayment(id) => self.edit_payment(id, None),
             calendar::Action::EditPaymentFrom { id, date } => self.edit_payment(id, Some(date)),
             calendar::Action::EditTransaction { id, date, amount } => self.edit_transaction(id, date, amount),
+            calendar::Action::SetFlag { id, date, amount, flag } => self.set_transaction_flag(id, date, amount, flag),
             calendar::Action::DeletePayment(id) => self.dialogs.confirm_delete = Some(DeleteTarget { id, date: None }),
             calendar::Action::DeleteTransaction { id, date } => self.dialogs.confirm_delete = Some(DeleteTarget { id, date: Some(date) }),
             calendar::Action::EditBalance(date) => self.edit_balance(date),
@@ -2124,6 +2186,8 @@ impl App {
                                 // Runs only while the menu is shown (egui 0.31 returns the menu's
                                 // inner response only on the frame it closes).
                                 menu_open = true;
+                                let (label, flag) = calendar::paid_toggle(p.get_flag(date));
+                                if ui.button(label).clicked() { action = Some(calendar::Action::SetFlag { id:p.id, date, amount:tr.amount, flag }); ui.close_menu(); }
                                 if ui.button("Edit whole payment").clicked() { action = Some(calendar::Action::EditPaymentFrom { id:p.id, date }); ui.close_menu(); }
                                 if ui.button(RichText::new("Delete transaction").color(t.negative)).clicked() { action = Some(calendar::Action::DeleteTransaction { id:p.id, date }); ui.close_menu(); }
                             });
@@ -2516,8 +2580,10 @@ fn file_name(p: &Path) -> String { p.file_name().map(|n| n.to_string_lossy().int
 fn menu_btn(label: &str, shortcut: &str) -> Button<'static> { Button::new(label.to_string()).shortcut_text(shortcut.to_string()) }
 fn menu_item(ui: &mut egui::Ui, label: &str, shortcut: &str) -> egui::Response { ui.add(menu_btn(label, shortcut)) }
 
-fn icon_button(ui: &mut egui::Ui, icon: &str) -> egui::Response {
-    ui.add(Button::new(RichText::new(icon).text_style(ts(ICON))).min_size(Vec2::new(28.0, 28.0)))
+fn icon_button(ui: &mut egui::Ui, icon: &str, name: &str) -> egui::Response {
+    let response = ui.add(Button::new(RichText::new(icon).text_style(ts(ICON))).min_size(Vec2::new(28.0, 28.0)));
+    accessible_name(ui.ctx(), &response, name);
+    response
 }
 
 impl App {
@@ -2622,7 +2688,7 @@ impl App {
             let Some(view) = self.view.take() else { return };
             let balance_action = self.stats(ui, &view);
             // A search hides rows, so the chip says how many are shown and offers to clear the search.
-            if view.filtered { self.filter_chip(ui, &t, view.shown, view.total); }
+            if view.filtered { self.filter_chip(ui, &t, view.shown, view.total, view.shown_sum); }
             let grid_top = ui.cursor().min.y;
             let clicked = calendar::show(ui, &view, &t, self.cfg.first_day_of_week_is_sunday, self.today, self.cfg.show_decimals_in_cv);
             let grid_area = egui::Rect::from_min_max(egui::pos2(ui.max_rect().min.x, grid_top), ui.max_rect().max);
@@ -2762,7 +2828,7 @@ mod banner_tests {
     #[test]
     fn load_failure_reads_as_a_sentence_and_keeps_the_log_as_details() {
         let log = "(23): Invalid data for 'frequency'\nException: NumberFormatException: \"\"\nfailed";
-        assert_eq!(load_error_summary(log), "Line 23: Invalid data for 'frequency'");
+        assert_eq!(load_error_summary(log), "Line 23: a payment's repeat frequency could not be read");
         let b = Banner::load_failure(Path::new("target/x/Home.bgt"), log);
         assert_eq!(b.title.as_deref(), Some("Couldn't open Home.bgt"));
         assert_eq!(b.details.as_deref(), Some(log));
@@ -2773,7 +2839,10 @@ mod banner_tests {
     fn load_failure_summary_handles_warnings_and_generic_heads() {
         // An earlier range warning is not the cause; the line before the exception is.
         let log = "(5): frequency 9 out of range, using 1\n(23): Invalid data for 'amount'\nException: NumberFormatException: abc\nfailed";
-        assert_eq!(load_error_summary(log), "Line 23: Invalid data for 'amount'");
+        assert_eq!(load_error_summary(log), "Line 23: a payment's amount could not be read");
+        assert_eq!(load_error_summary("(4): Invalid data for 'end_date'
+Exception: bad
+failed"), "Line 4: a payment's end date could not be read");
         assert_eq!(load_error_summary("unable to open file.\nException: wrong password\nfailed"), "Unable to open file: wrong password");
         assert_eq!(load_error_summary("Exception: java.io.IOException: disk error\nfailed"), "Disk error");
         for damaged in ["mismatched number of read lines! line_no=3, file_line_no=4\nfailed", "misformed end-of-data line: line_no=3, text:'x'\nfailed"] {
@@ -4510,6 +4579,87 @@ mod lifecycle_tests {
         let last_day = texts.iter().find(|(t, _)| t.galley.job.text == "31").map(|(t, _)| ink(t)).expect("the 31st is drawn");
         assert!(last_day.max.y <= 600.0 - 30.0, "the 31st sits above the footer: {last_day:?}");
         std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn marking_a_date_paid_from_a_menu_keeps_its_amount_and_note_and_undoes() {
+        let (mut app, dir) = fixture();
+        let db = app.db.as_mut().unwrap();
+        let id = db.payments[0].id;
+        db.payments[0].start_date = 20260927;
+        db.payments[0].amount = -150.0;
+        db.payments[0].set_end_mode(budget_core::END_MODE_INDEFINITE);
+        db.rebuild_db(&app.cur, 12, false);
+        document::change_transaction(db, id, 20261027, -175.0, "Cheque 12", budget_core::FLAG_NONE).unwrap();
+        app.changed_as("set up");
+        app.dirty = false;
+        app.calendar_action(calendar::Action::SetFlag { id, date: 20261027, amount: -175.0, flag: budget_core::FLAG_PAID });
+        assert!(app.dirty);
+        let payment = |app: &App| { let db = app.db.as_ref().unwrap(); db.payments[db.get_by_id(id).unwrap()].clone() };
+        let p = payment(&app);
+        assert_eq!((p.get_flag(20261027), p.get_note(20261027).as_deref()), (budget_core::FLAG_PAID, Some("Cheque 12")));
+        assert_ne!(p.get_flag(20261127), budget_core::FLAG_PAID, "only the clicked date is marked");
+        assert_eq!(app.db.as_mut().unwrap().get_day(&Cal::from_int(20261027)).unwrap().transactions[0].amount, -175.0, "the amount is kept");
+        assert!(app.history_item(true).0.ends_with("paid"), "{}", app.history_item(true).0);
+        app.step_history(true);
+        assert_ne!(payment(&app).get_flag(20261027), budget_core::FLAG_PAID, "Undo clears the mark");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn the_first_payment_card_offers_to_set_todays_balance() {
+        let (mut app, dir) = fixture();
+        app.db = Some(BudgetDb::new(&app.cur, 12, false));
+        app.dirty = false;
+        let ctx = gui(&app);
+        for _ in 0..3 { frame(&mut app, &ctx, vec![], false); }
+        let texts = rendered_text(&frame(&mut app, &ctx, vec![], false));
+        assert!(shown(&texts, "Set today's balance to match your bank"), "the first step is the real balance");
+        let button = text_center(&texts, |s| s.ends_with("Set today's balance\u{2026}")).expect("the card's balance button");
+        click_at(&mut app, &ctx, button);
+        assert!(app.dialogs.balance_editor.is_some(), "the button opens the balance editor for today");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn icon_buttons_and_search_boxes_have_names_for_screen_readers() {
+        let (mut app, dir) = fixture();
+        app.dirty = false;
+        let ctx = gui(&app);
+        ctx.enable_accesskit();
+        let mut names = Vec::new();
+        for _ in 0..3 {
+            let output = frame(&mut app, &ctx, vec![], false);
+            if let Some(update) = output.platform_output.accesskit_update {
+                names.extend(update.nodes.iter().filter_map(|(_, node)| node.label().map(str::to_string)));
+            }
+        }
+        for name in ["Previous month", "Next month", "Search transactions"] {
+            assert!(names.iter().any(|n| n == name), "{name} must be named: {names:?}");
+        }
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn the_file_menu_sets_recent_budgets_apart_only_when_there_are_some() {
+        for recent in [false, true] {
+            let (mut app, dir) = fixture();
+            app.dirty = false;
+            app.cfg.recent_file = if recent { vec![dir.join("Home.bgt").display().to_string()] } else { Vec::new() };
+            let ctx = gui(&app);
+            for _ in 0..2 { frame(&mut app, &ctx, vec![], false); }
+            let file = text_center(&rendered_text(&frame(&mut app, &ctx, vec![], false)), |s| s == "File").expect("the File menu");
+            click_at(&mut app, &ctx, file);
+            let output = frame(&mut app, &ctx, vec![], false);
+            let texts = rendered_text(&output);
+            let (close, quit) = (text_center(&texts, |s| s == "Close budget").unwrap(), text_center(&texts, |s| s == "Close app").unwrap());
+            // Separators are horizontal lines spanning the menu (not the wider calendar grid lines behind it).
+            let lines = output.shapes.iter().filter(|s| matches!(&s.shape, egui::Shape::LineSegment { points, .. }
+                if (points[0].y - points[1].y).abs() < 0.5 && points[0].y > close.y && points[0].y < quit.y
+                    && (100.0..400.0).contains(&(points[1].x - points[0].x).abs()) && points[0].x.min(points[1].x) <= close.x && close.x <= points[0].x.max(points[1].x))).count();
+            assert_eq!(lines, if recent { 2 } else { 1 }, "recent: {recent}");
+            std::fs::remove_dir_all(dir).unwrap();
+        }
     }
 
     #[test]

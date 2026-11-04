@@ -179,6 +179,8 @@ pub struct MonthView {
     pub quick: QuickStats,
     pub brief: Vec<BriefRow>,
     pub shown: usize,
+    /// The sum of the `shown` transactions: what a search for "gas" spent this month.
+    pub shown_sum: f64,
     pub total: usize,
     pub below_min: bool,
     /// Brief-summary shares are of total expenses (the month has no income), not of income.
@@ -332,21 +334,23 @@ pub fn month(db: &mut BudgetDb, cfg: &BudgetConfig, cur: &Cal, today: i32, key: 
 pub fn view(month: &Month, db: &mut BudgetDb, cur: &Cal, filter: Option<&Filter>, search: &str) -> MonthView {
     let key = ViewKey { month: month.key.clone(), search: search.to_string() };
     let Some(f) = filter else {
-        return MonthView { key, cells: month.cells.clone(), quick: month.quick.clone(), brief: month.brief.clone(), shown: month.total,
+        let shown_sum = month.cells.iter().flat_map(|cell| &cell.rows).map(|row| row.value).sum();
+        return MonthView { key, cells: month.cells.clone(), quick: month.quick.clone(), brief: month.brief.clone(), shown: month.total, shown_sum,
             total: month.total, below_min: month.below_min, shares_of_expenses: month.shares_of_expenses, filtered: false };
     };
-    let mut shown = 0;
+    let (mut shown, mut shown_sum) = (0, 0.0);
     let cells = month.cells.iter().zip(&month.sources).map(|(cell, source)| {
         let rows: Vec<Rc<TranRow>> = cell.rows.iter().zip(source)
             .filter(|(row, &pi)| f.is_match(&db.payments[pi], row.value, row.date))
             .map(|(row, _)| row.clone()).collect();
         shown += rows.len();
+        shown_sum += rows.iter().map(|row| row.value).sum::<f64>();
         CellData { day: cell.day, date: cell.date, in_month: cell.in_month, is_today: cell.is_today, weekend: cell.weekend, rows,
             balance: cell.balance.clone(), note: cell.note.clone(), restorable: cell.restorable.clone() }
     }).collect();
     let st = stats::calc_statistics(db, cur, 1, false, Some(f));
     let (brief, shares_of_expenses) = brief(&st);
-    MonthView { key, cells, quick: month.quick.clone(), brief, shown, total: month.total, below_min: month.below_min, shares_of_expenses, filtered: true }
+    MonthView { key, cells, quick: month.quick.clone(), brief, shown, shown_sum, total: month.total, below_min: month.below_min, shares_of_expenses, filtered: true }
 }
 
 /// The brief summary of `st` and whether its shares are of expenses (the month has no income).
@@ -462,6 +466,7 @@ mod build_tests {
         let f = Filter::new("<-100", 20261027).unwrap();
         let narrowed = view(&base, &mut db, &cur, Some(&f), "<-100");
         assert_eq!((narrowed.shown, narrowed.total, narrowed.filtered), (2, 4, true));
+        assert_eq!((narrowed.shown_sum, all.shown_sum), (-720.0, 240.0), "the matches' sum answers \"how much on this?\"");
         assert_eq!(cell(&narrowed, 20261005).rows.iter().map(|r| r.text.as_str()).collect::<Vec<_>>(), ["Rent"]);
         assert!(cell(&narrowed, 20261001).rows.is_empty() && cell(&narrowed, 20261001).balance.is_some());
         // The tiles reconcile with the unfiltered balances; the summary totals the matches only.
@@ -688,7 +693,7 @@ mod money_tests {
         // The arithmetic test must answer exactly what the string it replaces answered: every
         // rounding boundary of both formatters, the non-finite values, and a deterministic sweep.
         let string_based = |v: f64, decimals: bool| money(v, decimals).starts_with('\u{2212}');
-        let mut edges: Vec<f64> = vec![
+        let edges: Vec<f64> = vec![
             0.0, -0.0, -1e-13, -2.7e-17, -0.004, -0.004999999999999999, -0.005, -0.006, -0.01,
             -0.02, -0.49, -0.49999999999999994, -0.5, -0.51, -0.7, -1.0, -1.2, -62.5, -145.5,
             -1234.5, -5613.5, f64::NEG_INFINITY, f64::INFINITY, f64::NAN,

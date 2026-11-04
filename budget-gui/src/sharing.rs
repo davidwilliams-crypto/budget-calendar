@@ -1289,7 +1289,7 @@ mod tests {
         candidate.connection.server = origin;
         app.sharing.persist_creation(&candidate).unwrap();
         let stored: CreationCandidate = client::load_protected(&app.sharing.creation_path()).unwrap();
-        let (document, warning) = submit_creation(stored).unwrap();
+        let (_document, warning) = submit_creation(stored).unwrap();
         let warning = warning.expect("the household opens but the failure is named");
         assert!(warning.contains("fixture refused") && warning.contains("set its passcode from Shared budget"), "{warning}");
         assert!(stored_slot.recv_timeout(Duration::from_secs(5)).is_ok(), "the slot was still sent");

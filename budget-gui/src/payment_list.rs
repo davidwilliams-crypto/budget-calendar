@@ -205,6 +205,7 @@ impl PaymentList {
                     .hint_text("Search description or category")
                     .margin(Vec2::new(10.0, 7.0)),
             );
+            crate::accessible_name(ui.ctx(), &search, "Search payments");
             crate::note_text_focus(ui.ctx(), &search);
             if self.focus_search {
                 search.request_focus();

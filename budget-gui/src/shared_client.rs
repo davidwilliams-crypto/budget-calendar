@@ -496,7 +496,7 @@ pub fn load_protected<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T, 
         assert!(unlock_with_passcode(&slot,"copper river latern",&s.id).unwrap_err().contains("incorrect passcode"));
         assert!(wrap_key_with_passcode(&key,"12345678",&s.id).is_err(),"policy is checked before any upload");
         // The unwrapped text opens the household exactly like the original key does.
-        let mut document=SharedDocument::open(connection(),key.clone(),remote(&s,&key,1)).unwrap();
+        let document=SharedDocument::open(connection(),key.clone(),remote(&s,&key,1)).unwrap();
         assert_eq!(document.recovery_key,key);
     }
     #[cfg(windows)]#[test]fn device_cache_is_protected_and_reopens(){let s=fixture();let key=generate_recovery_key();let d=SharedDocument::open(connection(),key.clone(),remote(&s,&key,1)).unwrap();let dir=std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).parent().unwrap().join("target/shared-device-tests").join(uuid::Uuid::new_v4().to_string());let path=dir.join("state.enc");save_device(&path,&d).unwrap();assert_eq!(load_device(&path).unwrap().working,s);assert!(!String::from_utf8_lossy(&std::fs::read(&path).unwrap()).contains("fixture-session"));save_device(&path,&d).unwrap();}

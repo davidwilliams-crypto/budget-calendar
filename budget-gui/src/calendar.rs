@@ -264,6 +264,8 @@ pub enum Action {
     /// so an amount or schedule change can apply from that date onward.
     EditPaymentFrom { id: i32, date: i32 },
     EditTransaction { id: i32, date: i32, amount: f64 },
+    /// Mark one occurrence paid, or clear its status, without opening the transaction dialog.
+    SetFlag { id: i32, date: i32, amount: f64, flag: char },
     DeleteTransaction { id: i32, date: i32 },
     MoveTransaction { id: i32, from: i32, to: i32, amount: f64 },
     EditBalance(i32),
@@ -553,6 +555,19 @@ fn amount_width(measured: f32, text_w: f32) -> f32 {
     natural.min(limit.max(0.0))
 }
 
+/// The right-click status item for an occurrence: a paid one can be marked unpaid, any other paid.
+pub fn paid_toggle(flag: char) -> (&'static str, char) {
+    if flag == budget_core::FLAG_PAID { ("Mark as unpaid", budget_core::FLAG_NONE) } else { ("Mark as paid", budget_core::FLAG_PAID) }
+}
+
+/// What assistive technology reads for a row: the date and status a sighted user gets from the cell
+/// and the coloured dot, besides the name and amount.
+fn row_name(row: &TranRow) -> String {
+    let status = match row.flag { budget_core::FLAG_PAID => ", paid", budget_core::FLAG_IMPORTANT => ", important", _ => "" };
+    format!("{} {} on {}{status}{}. Click to edit; drag to move transaction",
+        row.text, row.amount, crate::names::long_date(row.date), if row.tip.note.is_some() { ", has a note" } else { "" })
+}
+
 fn draw_row(ui: &mut Ui, p: &Painter, row: &TranRow, rr: Rect, t: &Tokens, fill: Color32, decimals: bool) -> Option<Action> {
     let p = p.with_clip_rect(rr);
     let resp = ui.interact(rr, ui.id().with(("row", row.date, row.payment_id)), Sense::click_and_drag());
@@ -560,13 +575,14 @@ fn draw_row(ui: &mut Ui, p: &Painter, row: &TranRow, rr: Rect, t: &Tokens, fill:
     if resp.drag_started() {
         ui.ctx().data_mut(|d| d.insert_temp(egui::Id::new("calendar-drag-name"), row.text.clone()));
     }
-    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, format!("{} {}{}. Click to edit; drag to move transaction",
-        row.text, row.amount, if row.tip.note.is_some() { ", has a note" } else { "" })));
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, row_name(row)));
     let mut action = None;
     // A right-click during a transaction drag cancels the drag (egui ends it on any release); it must not
     // also open the menu of whatever row lies under the pointer.
     if !egui::DragAndDrop::has_payload_of_type::<DraggedTransaction>(ui.ctx()) { resp.context_menu(|ui| {
         if ui.button("Edit transaction (this date)").clicked() { action = Some(Action::EditTransaction { id:row.payment_id, date:row.date, amount:row.value }); ui.close_menu(); }
+        let (label, flag) = paid_toggle(row.flag);
+        if ui.button(label).clicked() { action = Some(Action::SetFlag { id:row.payment_id, date:row.date, amount:row.value, flag }); ui.close_menu(); }
         if ui.button("Edit whole payment").clicked() { action = Some(Action::EditPaymentFrom { id:row.payment_id, date:row.date }); ui.close_menu(); }
         if ui.button("Filter this payment").clicked() { action = Some(Action::Filter(row.filter.clone())); ui.close_menu(); }
         ui.separator();
@@ -788,7 +804,7 @@ mod tests {
                 balance: Some(Balance { text: format!("B{}", date.get()), value: 1000.0, kind: BalKind::Normal, adjusted: false, adjustment: 0.0 }),
             }
         }).collect();
-        MonthView { key: Default::default(), cells, shown: payments * weeks * 7,
+        MonthView { key: Default::default(), cells, shown: payments * weeks * 7, shown_sum: 0.0,
             total: payments * weeks * 7, brief: Vec::new(), below_min: false, shares_of_expenses: false, filtered: false,
             quick: QuickStats { opening: 0.0, closing: 0.0, min: 0.0, max: 0.0, avg: 0.0, income: 0.0, expenses: 0.0, corrections: 0.0, starting_balance: 0.0 } }
     }
@@ -1283,6 +1299,33 @@ mod tests {
         let view = fixture(4, 1);
         let output = right_click_menu(&ctx, &t, &view, Pos2::new(25.0, 59.0));
         assert!(matches!(click_text(&ctx, &t, &view, &output, "Edit whole payment"), Some(Action::EditPaymentFrom { id: 10, date: 20261001 })));
+    }
+
+    #[test]
+    fn a_row_is_marked_paid_or_unpaid_from_its_menu_without_the_dialog() {
+        let (ctx, t) = context();
+        let mut view = fixture(4, 1);
+        let output = right_click_menu(&ctx, &t, &view, Pos2::new(25.0, 59.0));
+        assert!(matches!(click_text(&ctx, &t, &view, &output, "Mark as paid"),
+            Some(Action::SetFlag { id: 10, date: 20261001, flag: budget_core::FLAG_PAID, .. })));
+        std::rc::Rc::make_mut(&mut view.cells[0].rows[0]).flag = budget_core::FLAG_PAID;
+        let (ctx, t) = context();
+        let output = right_click_menu(&ctx, &t, &view, Pos2::new(25.0, 59.0));
+        assert!(!text_shapes(&output).iter().any(|(s, _)| s.galley.job.text == "Mark as paid"), "a paid row offers the reverse");
+        assert!(matches!(click_text(&ctx, &t, &view, &output, "Mark as unpaid"),
+            Some(Action::SetFlag { id: 10, date: 20261001, flag: budget_core::FLAG_NONE, .. })));
+    }
+
+    #[test]
+    fn a_row_tells_assistive_technology_its_date_and_status() {
+        let mut view = fixture(4, 1);
+        let row = std::rc::Rc::make_mut(&mut view.cells[0].rows[0]);
+        assert!(super::row_name(row).contains(" on October 1, 2026. "), "{}", super::row_name(row));
+        row.flag = budget_core::FLAG_PAID;
+        assert!(super::row_name(row).contains("October 1, 2026, paid."), "{}", super::row_name(row));
+        row.flag = budget_core::FLAG_IMPORTANT;
+        row.tip.note = Some("Cheque".into());
+        assert!(super::row_name(row).contains(", important, has a note."), "{}", super::row_name(row));
     }
 
     #[test]
