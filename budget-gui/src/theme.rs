@@ -21,7 +21,6 @@ pub const RADIUS: u8 = 10;
 pub const TITLE: &str = "title";
 pub const SECTION: &str = "section";
 pub const CAPTION: &str = "caption";
-pub const VALUE: &str = "value";
 pub const DAY: &str = "day";
 pub const SEMI: &str = "semi";
 pub const ICON: &str = "icon";
@@ -295,26 +294,37 @@ impl Tokens {
     }
 }
 
-/// Segoe UI (regular / semibold / bold) when present, else egui's bundled fonts; Phosphor icons as fallback everywhere.
+/// The Windows fonts the app uses, in priority order: the two Segoe UI faces, then fallbacks for CJK,
+/// symbols and emoji so user-entered names never render as empty boxes. Each is optional.
+const SYSTEM_FONTS: [(&str, &str); 7] = [
+    ("ui", "segoeui.ttf"), ("ui-semi", "seguisb.ttf"),
+    ("fallback-0", "msyh.ttc"), ("fallback-1", "YuGothR.ttc"), ("fallback-2", "malgun.ttf"),
+    ("fallback-3", "seguisym.ttf"), ("fallback-4", "seguiemj.ttf"),
+];
+
+/// The font files that exist, read once per process and kept for its lifetime. egui copies owned font
+/// bytes again for every display scale it lays text out at, while borrowed bytes are shared: the CJK
+/// and emoji fallbacks are tens of megabytes, so they are held once instead of twice or more.
+fn system_fonts() -> &'static [(&'static str, &'static [u8])] {
+    static FONTS: std::sync::OnceLock<Vec<(&'static str, &'static [u8])>> = std::sync::OnceLock::new();
+    FONTS.get_or_init(|| {
+        let win = std::env::var_os("WINDIR").map(std::path::PathBuf::from).unwrap_or_else(|| "C:\\Windows".into()).join("Fonts");
+        SYSTEM_FONTS.iter().filter_map(|(key, file)| {
+            let bytes: &'static [u8] = Box::leak(std::fs::read(win.join(file)).ok()?.into_boxed_slice());
+            Some((*key, bytes))
+        }).collect()
+    })
+}
+
+/// Segoe UI (regular / semibold) when present, else egui's bundled fonts; Phosphor icons as fallback everywhere.
 pub fn install_fonts(ctx: &egui::Context) {
     let mut fonts = FontDefinitions::default();
     egui_phosphor::add_to_fonts(&mut fonts, egui_phosphor::Variant::Regular);
-    let win = std::env::var_os("WINDIR").map(std::path::PathBuf::from).unwrap_or_else(|| "C:\\Windows".into()).join("Fonts");
-    let mut load = |key: &str, file: &str| -> bool {
-        match std::fs::read(win.join(file)) {
-            Ok(bytes) => { fonts.font_data.insert(key.into(), Arc::new(FontData::from_owned(bytes))); true }
-            Err(_) => false,
-        }
-    };
-    let regular = load("ui", "segoeui.ttf");
-    let semi = load("ui-semi", "seguisb.ttf");
-    let bold = load("ui-bold", "segoeuib.ttf");
     let mut base: Vec<String> = fonts.families[&FontFamily::Proportional].clone();
-    // Fallbacks for CJK, symbols and emoji so user-entered names never render as empty boxes.
-    // Each entry is optional: a missing file is skipped.
-    for (i, file) in ["msyh.ttc", "YuGothR.ttc", "malgun.ttf", "seguisym.ttf", "seguiemj.ttf"].iter().enumerate() {
-        let key = format!("fallback-{i}");
-        if load(&key, file) { base.push(key); }
+    let (mut regular, mut semi) = (false, false);
+    for (key, bytes) in system_fonts() {
+        fonts.font_data.insert((*key).into(), Arc::new(FontData::from_static(bytes)));
+        match *key { "ui" => regular = true, "ui-semi" => semi = true, fallback => base.push(fallback.into()) }
     }
     let family = |first: Option<&str>| -> Vec<String> {
         let mut v = base.clone();
@@ -323,7 +333,6 @@ pub fn install_fonts(ctx: &egui::Context) {
     };
     fonts.families.insert(FontFamily::Proportional, family(regular.then_some("ui")));
     fonts.families.insert(FontFamily::Name("semi".into()), family(semi.then_some("ui-semi").or(regular.then_some("ui"))));
-    fonts.families.insert(FontFamily::Name("bold".into()), family(bold.then_some("ui-bold").or(regular.then_some("ui"))));
     ctx.set_fonts(fonts);
 }
 
@@ -341,7 +350,6 @@ pub fn apply(ctx: &egui::Context, t: &Tokens) {
             (ts(TITLE), FontId::new(24.0, semi.clone())),
             (ts(SECTION), FontId::new(15.0, semi.clone())),
             (ts(CAPTION), FontId::new(12.0, prop.clone())),
-            (ts(VALUE), FontId::new(25.0, semi.clone())),
             (ts(DAY), FontId::new(14.0, semi.clone())),
             (ts(SEMI), FontId::new(14.0, semi.clone())),
             (ts(ICON), FontId::new(17.0, prop.clone())),

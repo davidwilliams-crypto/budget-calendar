@@ -333,9 +333,11 @@ fn amount(v: &Value, key: &str) -> Result<f64, String> {
         Err("Amount exceeds +/-1,000,000,000,000.".into())
     }
 }
-fn snapshot(v: &Value) -> Result<Snapshot, String> {
-    serde_json::from_value(required(v, "snapshot")?.clone())
-        .map_err(|e| format!("Invalid snapshot: {e}"))
+/// The request's snapshot, moved out of the request instead of copied: it is nearly all of every
+/// request, and nothing reads it from the request afterwards.
+fn snapshot(v: &mut Value) -> Result<Snapshot, String> {
+    let taken = v.get_mut("snapshot").map(Value::take).ok_or("Missing snapshot.")?;
+    serde_json::from_value(taken).map_err(|e| format!("Invalid snapshot: {e}"))
 }
 fn flag(v: &Value) -> Result<char, String> {
     let s = string(v, "flag")?;
@@ -509,8 +511,9 @@ pub fn apply_command(
     snapshot_from_db_with_operation(&db, &s.id, &name, &s.time_zone, Some(s), operation_id)
 }
 
-fn dispatch(v: Value) -> Result<Value, String> {
-    match string(&v, "action")? {
+fn dispatch(mut v: Value) -> Result<Value, String> {
+    let action = string(&v, "action")?.to_string();
+    match action.as_str() {
         "new" => {
             let today = integer(&v, "today")?;
             check_date(today)?;
@@ -525,7 +528,7 @@ fn dispatch(v: Value) -> Result<Value, String> {
             .unwrap())
         }
         "validate" => {
-            validate_snapshot(&snapshot(&v)?)?;
+            validate_snapshot(&snapshot(&mut v)?)?;
             Ok(json!({"valid":true}))
         }
         "import" => {
@@ -559,7 +562,7 @@ fn dispatch(v: Value) -> Result<Value, String> {
             .unwrap())
         }
         "export" => {
-            let s = snapshot(&v)?;
+            let s = snapshot(&mut v)?;
             validate_snapshot(&s)?;
             check_date(integer(&v, "today")?)?;
             let payments: Vec<_> = s.payments.iter().map(|r| r.payment.clone()).collect();
@@ -578,19 +581,14 @@ fn dispatch(v: Value) -> Result<Value, String> {
             };
             Ok(json!({"text":text}))
         }
-        "forecast" => forecast(
-            &snapshot(&v)?,
-            integer(&v, "today")?,
-            integer(&v, "from")?,
-            integer(&v, "to")?,
-        ),
-        "apply" => Ok(serde_json::to_value(apply_command(
-            &snapshot(&v)?,
-            integer(&v, "today")?,
-            required(&v, "command")?,
-            string(&v, "operationId")?,
-        )?)
-        .unwrap()),
+        "forecast" => {
+            let s = snapshot(&mut v)?;
+            forecast(&s, integer(&v, "today")?, integer(&v, "from")?, integer(&v, "to")?)
+        }
+        "apply" => {
+            let s = snapshot(&mut v)?;
+            Ok(serde_json::to_value(apply_command(&s, integer(&v, "today")?, required(&v, "command")?, string(&v, "operationId")?)?).unwrap())
+        }
         "passcode_wrap" => {
             let entropy: crate::passcode::WrapEntropy =
                 serde_json::from_value(required(&v, "entropy")?.clone())

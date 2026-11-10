@@ -49,13 +49,24 @@ pub fn normalize_server(server:&str)->Result<String,String>{
     Ok(url.as_str().trim_end_matches('/').into())
 }
 pub fn same_server(left:&str,right:&str)->bool{matches!((normalize_server(left),normalize_server(right)),(Ok(left),Ok(right)) if left==right)}
+/// One HTTP client for the whole process. Building one starts a runtime thread and loads the
+/// certificate roots, which an idle household used to pay again for every five-second poll. A shared
+/// client also resumes its TLS session instead of doing the full handshake each time. Idle connections
+/// are dropped after two seconds, well inside a server's keep-alive time, so a poll never writes into
+/// a connection the service is closing; requests made back to back still share one.
+fn http_client()->Result<reqwest::blocking::Client,ServiceError>{
+    static CLIENT:std::sync::OnceLock<reqwest::blocking::Client>=std::sync::OnceLock::new();
+    if let Some(client)=CLIENT.get(){return Ok(client.clone())}
+    let client=reqwest::blocking::Client::builder().timeout(Duration::from_secs(20)).connect_timeout(Duration::from_secs(8))
+        .pool_idle_timeout(Duration::from_secs(2))
+        .redirect(reqwest::redirect::Policy::none()).build().map_err(|_|local_error("Unable to initialize secure networking."))?;
+    Ok(CLIENT.get_or_init(||client).clone())
+}
 pub struct Api { connection: Connection, client:reqwest::blocking::Client }
 impl Api {
     pub fn new(connection:Connection)->Result<Self,ServiceError>{
         let mut connection=connection;connection.server=normalize_server(&connection.server).map_err(local_error)?;
-        let client=reqwest::blocking::Client::builder().timeout(Duration::from_secs(20)).connect_timeout(Duration::from_secs(8))
-            .redirect(reqwest::redirect::Policy::none()).build().map_err(|_|local_error("Unable to initialize secure networking."))?;
-        Ok(Self{connection,client})
+        Ok(Self{connection,client:http_client()?})
     }
     pub fn request(&self,method:&str,path:&str,body:Option<Value>)->Result<Value,ServiceError>{
         if !path.starts_with("/api/")||path.contains("..")||path.contains('?')||path.contains('#'){return Err(local_error("Invalid service request."))}
@@ -67,7 +78,13 @@ impl Api {
         let status=response.status().as_u16();
         let mut bytes=Vec::new();response.take(12*1024*1024+1).read_to_end(&mut bytes).map_err(|_|local_error("Could not read the sync response."))?;
         if bytes.len()>12*1024*1024{return Err(local_error("The service response exceeds the supported limit."))}
-        let value:Value=serde_json::from_slice(&bytes).map_err(|_|local_error("The sync service returned an unreadable response."))?;
+        let value:Value=match serde_json::from_slice(&bytes){
+            Ok(value)=>value,
+            // An error page from a proxy in front of the service is not JSON. Keep its status, so an
+            // expired session is still recognised and the message says the service answered.
+            Err(_) if !(200..300).contains(&status)=>return Err(ServiceError{status,message:format!("The sync service answered with an error ({status}). Try again shortly."),current:None}),
+            Err(_)=>return Err(local_error("The sync service returned an unreadable response.")),
+        };
         if !(200..300).contains(&status){return Err(ServiceError{status,message:value.pointer("/error/message").and_then(Value::as_str).unwrap_or("The sync request failed.").chars().take(500).collect(),current:value.get("current").and_then(|v|serde_json::from_value(v.clone()).ok())})}
         Ok(value)
     }
@@ -80,6 +97,14 @@ impl Api {
     pub fn remote(&self,id:&str)->Result<Remote,ServiceError>{
         validate_budget_id(id).map_err(local_error)?;
         serde_json::from_value(self.request("GET",&format!("/api/budgets/{id}"),None)?).map_err(|_|local_error("Invalid shared-budget response."))
+    }
+    /// The household's current revision from the budget list, which carries no budget contents.
+    /// `None` when this account no longer sees the household.
+    pub fn revision(&self,id:&str)->Result<Option<u64>,ServiceError>{
+        validate_budget_id(id).map_err(local_error)?;
+        let list=self.request("GET","/api/budgets",None)?;
+        let budgets=list["budgets"].as_array().ok_or_else(||local_error("Invalid shared-budget response."))?;
+        Ok(budgets.iter().find(|budget|budget["id"].as_str()==Some(id)).and_then(|budget|budget["revision"].as_u64()))
     }
     /// The household's passcode wrap, or `None` when it has no passcode yet.
     pub fn passcode_slot(&self,id:&str)->Result<Option<budget_core::passcode::PasscodeSlot>,ServiceError>{
@@ -281,9 +306,14 @@ fn merge_adjustments(base: &budget_core::Payment, local: &budget_core::Payment, 
 }
 
 /// Windows protects the complete offline document and session using the current user's DPAPI key.
-pub fn save_device(path:&Path,document:&SharedDocument)->Result<(),String>{
+#[cfg(all(test,windows))]
+fn save_device(path:&Path,document:&SharedDocument)->Result<(),String>{save_device_copies(&[path],document)}
+/// Writes the same protected document to each path, in order, stopping at the first failure. The
+/// document is encoded and protected once however many copies are kept.
+pub fn save_device_copies(paths:&[&Path],document:&SharedDocument)->Result<(),String>{
     let bytes=serde_json::to_vec(document).map_err(|_|"Unable to encode device state.")?;let encrypted=protect(&bytes,false)?;
-    write_protected_bytes(path,&encrypted,MAX_DEVICE_BYTES).map_err(|e|format!("Changes could not be saved to this device: {e}"))
+    for path in paths{write_protected_bytes(path,&encrypted,MAX_DEVICE_BYTES).map_err(|e|format!("Changes could not be saved to this device: {e}"))?}
+    Ok(())
 }
 pub fn load_device(path:&Path)->Result<SharedDocument,String>{let bytes=std::fs::read(path).map_err(|e|format!("Unable to read the shared device cache: {e}"))?;if bytes.len()>MAX_DEVICE_BYTES{return Err("Shared device cache exceeds the supported limit.".into())}let plaintext=protect(&bytes,true)?;let mut doc:SharedDocument=serde_json::from_slice(&plaintext).map_err(|_|"The shared device cache is damaged.")?;budget_core::sharing::validate_snapshot(&doc.working)?;budget_core::sharing::validate_snapshot(&doc.baseline)?;doc.connection.server=normalize_server(&doc.connection.server)?;key_bytes(&doc.recovery_key)?;Ok(doc)}
 #[cfg(windows)]

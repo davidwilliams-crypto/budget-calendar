@@ -863,7 +863,8 @@ pub fn align_end_date(p: &mut Payment) {
 }
 
 pub fn validate_schedule_bounds(p: &Payment) -> Result<(), String> {
-    if p.frequency <= 0 || p.frequency > max_frequency(p) {
+    let span = period_span(p);
+    if p.frequency <= 0 || p.frequency > span.max(1) {
         return Err("Frequency would exceed the supported calendar range (through year 9999).".into());
     }
     if p.frequency > MAX_STORED_FREQUENCY {
@@ -871,7 +872,7 @@ pub fn validate_schedule_bounds(p: &Payment) -> Result<(), String> {
     }
     // The engine's numbered-weekday recurrence is monthly regardless of its stored interval.
     let frequency = if p.freq_type == 'W' { 1 } else { p.frequency };
-    let max_count = period_span(p) / frequency + 1;
+    let max_count = span / frequency + 1;
     match p.end_mode() {
         END_MODE_N_PAYS if p.n_pays <= 0 || p.n_pays > max_count => {
             return Err("Number of payments would extend beyond year 9999.".into());

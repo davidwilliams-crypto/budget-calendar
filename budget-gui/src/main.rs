@@ -122,11 +122,6 @@ impl Banner {
     }
 }
 
-/// One readable sentence from a loader log such as
-/// `(23): Invalid data for 'frequency'\nException: NumberFormatException: ""\nfailed`.
-/// The line that caused the failure (the one before the first `Exception:`, or else
-/// the first line) is used; `(N):` becomes `Line N:`, a field's internal name becomes plain words,
-/// Java exception prefixes and the lone trailing `failed` are dropped.
 /// Plain words for a field named in a loader log.
 fn field_words(field: &str) -> String {
     let part = match field {
@@ -143,6 +138,11 @@ fn field_words(field: &str) -> String {
     format!("a payment's {part}")
 }
 
+/// One readable sentence from a loader log such as
+/// `(23): Invalid data for 'frequency'\nException: NumberFormatException: ""\nfailed`.
+/// The line that caused the failure (the one before the first `Exception:`, or else
+/// the first line) is used; `(N):` becomes `Line N:`, a field's internal name becomes plain words,
+/// Java exception prefixes and the lone trailing `failed` are dropped.
 fn load_error_summary(log: &str) -> String {
     if log.contains("mismatched number of read lines") || log.contains("misformed end-of-data line") {
         return "Part of this budget file is missing, so it may have been damaged.".into();
@@ -515,7 +515,10 @@ impl App {
         // A simulated today also decides the month first shown (`--month=` still wins below).
         let mut cur = cli.today.map_or_else(Cal::today, Cal::from_int);
         cur.set_day_one();
-        let t = Tokens::new(&cfg.colors, cli.dark);
+        // `--dark` is for one run (captures); the View menu's choice is the one remembered.
+        let dark = cli.dark || cfg.dark_appearance;
+        let show_summary = cfg.show_monthly_breakdown;
+        let t = Tokens::new(&cfg.colors, dark);
         let mut app = App {
             sharing: sharing::SharedUi::default(),
             date_watch: if cli.today.is_some() { DateWatch::fixed() } else { DateWatch::system() },
@@ -526,7 +529,7 @@ impl App {
             show_payments: false, payment_list: payment_list::PaymentList::default(), allow_close: false,
             filter_text: String::new(), filter: None, filter_error: None, generation: 0, month: None, view: None, haystacks: None,
             toast: None, banner: None,
-            screenshot: cli.screenshot, frames: 0, dark: cli.dark, show_summary: true, focus_filter: false, title_dirty: true, brand_texture: None, t,
+            screenshot: cli.screenshot, frames: 0, dark, show_summary, focus_filter: false, title_dirty: true, brand_texture: None, t,
         };
         if app.screenshot.is_none() { app.journal.register(); }
         if let Some(m) = cli.month { app.cur = Cal::from_int(m); app.cur.set_day_one(); }
@@ -1000,6 +1003,7 @@ impl App {
     fn save_config(&mut self) {
         if self.screenshot.is_some() { return; }
         if let Some(f) = &self.file { self.cfg.last_file_name = Some(f.display().to_string()); }
+        self.cfg.show_monthly_breakdown = self.show_summary;
         let _ = self.cfg.save(&self.rc_path);
     }
 
@@ -1075,10 +1079,13 @@ impl App {
         self.set_filter();
     }
 
+    /// The View menu's choice, remembered for the next start (a `--dark` run alone changes nothing saved).
     fn set_dark(&mut self, ctx: &egui::Context, dark: bool) {
         self.dark = dark;
         self.t = Tokens::new(&self.cfg.colors, dark);
         theme::apply(ctx, &self.t);
+        self.cfg.dark_appearance = dark;
+        self.save_config();
     }
 
     /// Brings the month view up to date. A keystroke in the search box reuses the month and the
@@ -1140,12 +1147,15 @@ impl App {
                     }
                 }
                 if self.db.is_some() {
-                    let (text, dot) = if self.dirty { ("Unsaved changes", t.important) }
-                        else if self.sharing.document.as_ref().is_some_and(|d| d.conflict.is_some()) { ("Sync conflict", t.important) }
-                        else if self.sharing.document.as_ref().is_some_and(|d| !d.pending.is_empty()) { ("Saved on device", t.important) }
-                        else { ("Saved", t.positive) };
-                    theme::status_pill(ui, text, dot, self.dirty, &t)
-                        .on_hover_text(if self.dirty { "Press Ctrl+S to save your changes" } else { "Everything is saved to disk" });
+                    // Each state explains itself on hover: a shared budget's are not "saved to disk".
+                    let shared = self.sharing.document.as_ref();
+                    let (text, dot, hint) = if self.dirty && shared.is_some() { ("Unsaved changes", t.important, "This change is not saved on this device yet. Open File > Shared budget… to see why") }
+                        else if self.dirty { ("Unsaved changes", t.important, "Press Ctrl+S to save your changes") }
+                        else if shared.is_some_and(|d| d.conflict.is_some()) { ("Sync conflict", t.important, "Someone else changed this budget too. Open File > Shared budget… to review both versions") }
+                        else if shared.is_some_and(|d| !d.pending.is_empty()) { ("Saved on device", t.important, "Saved on this device and waiting to sync with the household") }
+                        else if shared.is_some() { ("Saved", t.positive, "Saved on this device and synced with the household") }
+                        else { ("Saved", t.positive, "Everything is saved to disk") };
+                    theme::status_pill(ui, text, dot, self.dirty, &t).on_hover_text(hint);
                 }
             });
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -1195,7 +1205,7 @@ impl App {
                 ui.menu_button("View", |ui| {
                     let mut dark = self.dark;
                     if ui.checkbox(&mut dark, "Dark appearance").clicked() { ui.close_menu(); self.set_dark(ui.ctx(), dark); }
-                    ui.checkbox(&mut self.show_summary, "Monthly breakdown on wide screens");
+                    if ui.checkbox(&mut self.show_summary, "Monthly breakdown on wide screens").clicked() { self.save_config(); }
                     if ui.checkbox(&mut self.cfg.show_decimals_in_cv, "Show cents in calendar").clicked() { self.view = None; self.save_config(); }
                     ui.separator();
                     if ui.button("Calendar legend…").clicked() { self.dialogs.legend = true; ui.close_menu(); }
@@ -1311,7 +1321,9 @@ impl App {
                         ui.label(RichText::new(format!("Total {}", money(sum, true))).text_style(ts(CAPTION)).strong().color(theme::legible(sign_colour(t, sum, true), chip)))
                             .on_hover_text("What the matching transactions add up to this month");
                     }
-                    if ui.add(Button::new(RichText::new("×").color(theme::legible(t.accent, chip))).frame(false)).on_hover_text("Clear the search").clicked() { clear = true; }
+                    let clear_button = ui.add(Button::new(RichText::new("×").color(theme::legible(t.accent, chip))).frame(false)).on_hover_text("Clear the search");
+                    accessible_name(ui.ctx(), &clear_button, "Clear search");
+                    if clear_button.clicked() { clear = true; }
                 });
             });
         if clear { self.filter_text.clear(); self.set_filter(); }
@@ -1661,7 +1673,9 @@ impl App {
                     }
                 });
                 ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
-                    if ui.add(Button::new(RichText::new(ph::X).text_style(ts(ICON)).color(t.text_muted)).frame(false)).on_hover_text("Dismiss").clicked() { dismiss = true; }
+                    let dismiss_button = ui.add(Button::new(RichText::new(ph::X).text_style(ts(ICON)).color(t.text_muted)).frame(false)).on_hover_text("Dismiss");
+                    accessible_name(ui.ctx(), &dismiss_button, "Dismiss message");
+                    if dismiss_button.clicked() { dismiss = true; }
                 });
             });
         });
@@ -1742,6 +1756,10 @@ impl App {
             ui.label(RichText::new(line).color(t.text_muted));
             ui.add_space(SP2);
             let r = ui.add_enabled(!busy, TextEdit::singleline(pw).password(true).desired_width(f32::INFINITY).hint_text("Password"));
+            // The typed text is masked and the hint is not a name, so say what the box is for.
+            accessible_name(ctx, &r, "Password");
+            // Nothing typed is nothing to try: Unlock and Enter wait for a password.
+            let ready = !busy && !pw.is_empty();
             let enter = (r.has_focus() || r.lost_focus()) && ui.input(|i| i.key_pressed(Key::Enter));
             // Enter gives up focus; take it back whenever nothing else holds it.
             if !busy && ctx.memory(|m| m.focused()).is_none() { r.request_focus(); }
@@ -1750,13 +1768,13 @@ impl App {
             if offer_restore && theme::secondary_button(ui, "Restore previous version…", t).clicked() { restore = true; }
             ui.add_space(SP2);
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                if ui.add_enabled_ui(!busy, |ui| theme::primary_button(ui, "Unlock", t)).inner.clicked() || (!busy && enter) { done = Some(Some(pw.clone())); }
-                if ui.button("Cancel").clicked() || ui.input(|i| i.key_pressed(Key::Escape)) { done = Some(None); }
+                if ui.add_enabled_ui(ready, |ui| theme::primary_button(ui, "Unlock", t)).inner.clicked() || (ready && enter) { done = Some(Some(pw.clone())); }
+                if theme::secondary_button(ui, "Cancel", t).clicked() || ui.input(|i| i.key_pressed(Key::Escape)) { done = Some(None); }
             });
         });
         match done {
             Some(Some(p)) => {
-                if p.is_empty() { err.clear(); err.push_str("Empty password!"); return; }
+                if p.is_empty() { return; }
                 pw.clear();
                 err.clear();
                 // Keep the captured bytes for retries. The worker authenticates and builds once;
@@ -2391,11 +2409,14 @@ impl App {
             if dropped.is_some() { self.warn("Close the open dialog first, then drop the budget again."); }
             return;
         }
-        // F1 toggles the shortcuts sheet; "?" opens it when no text box has focus.
+        // F1 toggles the shortcuts sheet; "?" opens it when no text box has focus. Neither acts over
+        // another dialog. The Shared budget panel counts as one: a "?" typed into its server address,
+        // password or passcode boxes used to open the sheet behind it.
         let dragging = egui::DragAndDrop::payload::<calendar::DraggedTransaction>(ctx).is_some();
         let help = ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::F1))
             || (!text_input_has_focus(ctx) && ctx.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Text(s) if s == "?"))));
-        if help && !dragging && !self.dialogs.any_but_shortcuts() { self.dialogs.shortcuts = !self.dialogs.shortcuts; }
+        let over_dialog = self.dialogs.any_but_shortcuts() || self.sharing.open || self.restoring_copy();
+        if help && !dragging && !over_dialog { self.dialogs.shortcuts = !self.dialogs.shortcuts; }
         if self.has_modal() {
             // Dialogs keep their place (and any draft); say why the dropped budget did not open.
             if dropped.is_some() { self.warn("Close the open dialog first, then drop the budget again."); }
@@ -3622,9 +3643,14 @@ mod lifecycle_tests {
         app.dirty = false;
         app.cfg.show_decimals_in_cv = true;
         let ctx = gui(&app);
+        // The appearance is saved when it is chosen, the breakdown's visibility at the latest on closing.
+        app.set_dark(&ctx, true);
+        assert!(BudgetConfig::load(&app.rc_path).dark_appearance, "Dark appearance must survive a restart");
+        app.show_summary = false;
         frame(&mut app, &ctx, vec![], true);
         let saved = BudgetConfig::load(&app.rc_path);
         assert!(saved.show_decimals_in_cv);
+        assert!(saved.dark_appearance && !saved.show_monthly_breakdown, "the View menu's choices are remembered");
         assert_eq!(saved.last_file_name.as_deref(), Some(app.file.as_ref().unwrap().display().to_string().as_str()));
         std::fs::remove_dir_all(dir).unwrap();
     }
@@ -4637,6 +4663,26 @@ mod lifecycle_tests {
         for name in ["Previous month", "Next month", "Search transactions"] {
             assert!(names.iter().any(|n| n == name), "{name} must be named: {names:?}");
         }
+        // The search chip's clear button, a message's dismiss button and a payment row's menu show only a glyph.
+        app.apply_filter("Fixture");
+        app.warn("Fixture message");
+        let collect = |app: &mut App| {
+            let mut names = Vec::new();
+            for _ in 0..3 {
+                if let Some(update) = frame(app, &ctx, vec![], false).platform_output.accesskit_update {
+                    names.extend(update.nodes.iter().filter_map(|(_, node)| node.label().map(str::to_string)));
+                }
+            }
+            names
+        };
+        let names = collect(&mut app);
+        assert!(names.iter().any(|n| n == "Clear search"), "the search chip's clear button must be named: {names:?}");
+        app.fail("Fixture failure");
+        let names = collect(&mut app);
+        assert!(names.iter().any(|n| n == "Dismiss message"), "a message's dismiss button must be named: {names:?}");
+        app.show_payments = true;
+        let names = collect(&mut app);
+        assert!(names.iter().any(|n| n == "More actions for Fixture payment"), "a payment row's menu must say whose it is: {names:?}");
         std::fs::remove_dir_all(dir).unwrap();
     }
 

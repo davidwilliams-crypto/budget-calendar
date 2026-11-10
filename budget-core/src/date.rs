@@ -214,16 +214,10 @@ impl Cal {
     pub fn is_weekend(&self) -> bool { matches!(self.day_of_week(), SUNDAY | SATURDAY) }
     pub fn is_last_weekday(&self) -> bool { self.d > self.max_day() - 7 }
 
-    /// Days from `a` to `b` (negative when `a > b`).
-    pub fn diff(a: &Cal, b: &Cal) -> i32 {
-        let (a, b, sign) = if a.order_key() <= b.order_key() { (a, b, 1) } else { (b, a, -1) };
-        let da = a.day_of_year();
-        let db = b.day_of_year();
-        if a.y == b.y { return (db - da) * sign; }
-        let mut n = a.max_day_of_year() - da + db;
-        for y in (a.y + 1)..b.y { n += if is_leap(y) { 366 } else { 365 }; }
-        n * sign
-    }
+    /// Days from `a` to `b` (negative when `a > b`), in constant time: validating a daily or weekly
+    /// payment measures from its start to the year 9999, which used to walk every year in between.
+    pub fn diff(a: &Cal, b: &Cal) -> i32 { (b.day_number() - a.day_number()) as i32 }
+    fn day_number(&self) -> i64 { days_from_civil(self.y as i64, self.m as i64 + 1, self.d as i64) }
     pub fn diff_int(a: i32, b: i32) -> i32 { Cal::diff(&Cal::from_int(a), &Cal::from_int(b)) }
     pub fn months_diff(a: &Cal, b: &Cal) -> i32 { (b.y * 12 + b.m) - (a.y * 12 + a.m) }
 
@@ -375,6 +369,27 @@ mod tests {
                 assert_eq!(Cal::diff(&Cal::from_int(start), &fast), n);
             }
         }
+    }
+
+    #[test]
+    fn day_differences_match_a_year_by_year_count() {
+        // The walk `diff` used before it became arithmetic.
+        fn walked(a: &Cal, b: &Cal) -> i32 {
+            let (a, b, sign) = if a.order_key() <= b.order_key() { (a, b, 1) } else { (b, a, -1) };
+            if a.y == b.y { return (b.day_of_year() - a.day_of_year()) * sign; }
+            let mut n = a.max_day_of_year() - a.day_of_year() + b.day_of_year();
+            for y in (a.y + 1)..b.y { n += if is_leap(y) { 366 } else { 365 }; }
+            n * sign
+        }
+        let dates = [DATE_MIN, 10000228, 15821015, 18991231, 19000228, 19000301, 19991231, 20000229, 20000301, 20231231,
+            20240101, 20240229, 20240301, 20241231, 20260315, 20261110, 21000228, 21000301, 24000229, 99990101, DATE_MAX];
+        for a in dates {
+            for b in dates {
+                let (a, b) = (Cal::from_int(a), Cal::from_int(b));
+                assert_eq!(Cal::diff(&a, &b), walked(&a, &b), "{} to {}", a.get(), b.get());
+            }
+        }
+        assert_eq!(Cal::diff_int(DATE_MIN, DATE_MAX), 3_287_181);
     }
 
     #[test]

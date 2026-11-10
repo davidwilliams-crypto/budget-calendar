@@ -467,7 +467,7 @@ impl PaymentList {
                 action = Some(Action::EditPayment(payment.id));
             }
         }
-        actions_ui
+        let more = actions_ui
             .menu_button(ph::DOTS_THREE, |ui| {
                 if ui.button(RichText::new("Delete payment…").color(t.negative)).clicked() {
                     self.selected = Some(payment.id);
@@ -477,6 +477,8 @@ impl PaymentList {
             })
             .response
             .on_hover_text("More payment actions");
+        // The button shows only an icon glyph; a screen reader needs to hear which payment it belongs to.
+        crate::accessible_name(actions_ui.ctx(), &more, &format!("More actions for {}", payment.description));
         action
     }
 }

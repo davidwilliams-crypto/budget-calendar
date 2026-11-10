@@ -8,6 +8,8 @@ use std::sync::mpsc::{self, Receiver};
 mod panel;
 
 const POLL_INTERVAL: Duration = Duration::from_secs(5);
+/// The longest wait between sync attempts while the service keeps failing.
+const POLL_INTERVAL_MAX: Duration = Duration::from_secs(40);
 /// Discarded copies kept per household. The oldest goes first, which also bounds their size.
 const DISCARDED_KEPT: usize = 5;
 
@@ -37,6 +39,9 @@ pub(crate) struct SharedUi {
     creating: bool,
     job: Option<Receiver<Event>>,
     last_poll: Instant,
+    /// Sync attempts that failed in a row. Each one doubles the wait before the next, so a laptop
+    /// that is offline or signed out does not retry (and re-upload a queued change) every five seconds.
+    failures: u32,
     deferred: Option<Remote>,
     staged: Option<SharedDocument>,
     preview: Option<panel::ConflictPreview>,
@@ -69,6 +74,8 @@ enum Event {
     Opened(Result<(SharedDocument, Option<String>), String>),
     Passcode(Result<String, String>),
     Sync { id: String, operation: Option<String>, result: Result<Remote, client::ServiceError> },
+    /// The idle check found the revision this device already has, so nothing was downloaded.
+    Unchanged { id: String },
 }
 
 /// A creation is a durable operation before it is a shared document. Keep its exact encrypted
@@ -134,7 +141,7 @@ impl Default for SharedUi {
         cache: home_dir().join(".budget-calendar/shared.enc"), cache_lock: None, server: String::new(), username: String::new(), password: String::new(),
         connection: None, budgets: vec![], key: String::new(), unlock_passcode: String::new(), unlock_use_key: false,
         passcode_a: String::new(), passcode_b: String::new(), passcode_dialog: false, name: "Household".into(), zone: "America/Halifax".into(),
-        saved_key: false, creating: false, job: None, last_poll: Instant::now(), deferred: None, staged: None, preview: None,
+        saved_key: false, creating: false, job: None, last_poll: Instant::now(), failures: 0, deferred: None, staged: None, preview: None,
         confirm_discard: None, discarded: vec![], discarded_for: None, recover: None,
     } }
 }
@@ -169,6 +176,7 @@ impl SharedUi {
     }
     pub fn disconnect(&mut self) {
         self.document = None; self.job = None; self.deferred = None; self.staged = None; self.preview = None; self.open = false; self.passcode_dialog = false;
+        self.failures = 0;
         self.confirm_discard = None; self.discarded.clear(); self.discarded_for = None; self.recover = None;
     }
     pub fn status(&self, dirty: bool) -> Option<String> {
@@ -199,9 +207,10 @@ impl SharedUi {
         self.ensure_cache_lock()?;
         let id = uuid::Uuid::parse_str(&document.working.id).map_err(|_| "Invalid shared budget identity.")?;
         let sibling = self.cache.with_file_name(format!("shared-{id}.enc"));
-        client::save_device(&sibling, document)?;
-        client::save_device(&self.cache, document)
+        client::save_device_copies(&[&sibling, &self.cache], document)
     }
+    /// How long to wait between sync attempts: five seconds, doubled for each failure in a row.
+    fn poll_interval(&self) -> Duration { (POLL_INTERVAL * 2u32.pow(self.failures.min(3))).min(POLL_INTERVAL_MAX) }
     fn creation_path(&self) -> PathBuf { self.cache.with_file_name("shared-creation.enc") }
     /// One file per discard, oldest first: a damaged copy cannot take the others with it.
     fn discarded_files(&self, id: &str) -> Vec<PathBuf> {
@@ -351,6 +360,8 @@ impl App {
                 self.sharing.server = doc.connection.server.clone(); self.sharing.username = doc.connection.user.username.clone();
                 self.sharing.connection = Some(doc.connection.clone()); self.sharing.document = Some(doc);
                 self.sharing.key.clear(); self.sharing.password.clear(); self.sharing.saved_key = false; self.sharing.creating = false;
+                // The typed passcodes have done their work; they are not kept in the closed panel.
+                self.sharing.unlock_passcode.clear(); self.sharing.passcode_a.clear(); self.sharing.passcode_b.clear();
                 self.sharing.error = None;
                 self.file = None; self.saved_bytes = None; self.password = None;
                 self.cfg.last_file_name = None;
@@ -401,6 +412,7 @@ impl App {
                             }
                         }
                         self.sharing.connection = Some(connection); self.sharing.budgets = budgets;
+                        self.sharing.failures = 0;
                     }
                     Err(e) => self.sharing.error = Some(e),
                 },
@@ -415,8 +427,14 @@ impl App {
                     Ok(message) => { self.sharing.error = None; self.notify(message); }
                     Err(e) => self.sharing.error = Some(e),
                 },
+                Event::Unchanged { id } => {
+                    if self.sharing.document.as_ref().is_some_and(|d| d.working.id == id) { self.sharing.error = None; self.sharing.failures = 0; }
+                }
                 Event::Sync { id, operation, result } => {
                     if self.sharing.document.as_ref().is_some_and(|d| d.working.id == id) {
+                        // An answer that carries the current shared version is the service working (a
+                        // conflict to review), not a failed attempt.
+                        self.sharing.failures = match &result { Err(e) if e.current.is_none() => self.sharing.failures.saturating_add(1), _ => 0 };
                         match result {
                             Ok(remote) => {
                                 if let Some(operation) = operation {
@@ -473,9 +491,11 @@ impl App {
         if self.sharing.job.is_some() || self.dirty { return; }
         let Some(current) = self.sharing.document.as_ref() else { return };
         if current.conflict.is_some() { return; }
-        let remaining = POLL_INTERVAL.saturating_sub(self.sharing.last_poll.elapsed());
+        let remaining = self.sharing.poll_interval().saturating_sub(self.sharing.last_poll.elapsed());
         if !remaining.is_zero() { ctx.request_repaint_after(remaining); return; }
         let id = current.working.id.clone(); let connection = current.connection.clone();
+        // The newest revision this device already holds, applied or waiting for a dialog to close.
+        let known = self.sharing.deferred.as_ref().map_or(current.revision, |remote| remote.revision.max(current.revision));
         let prepared = if let Some(first) = current.pending.first() {
             if let Some(request) = &first.request {
                 // A saved immutable request may be retried without re-encryption or another flush.
@@ -494,10 +514,20 @@ impl App {
         self.sharing.last_poll = Instant::now();
         self.sharing.spawn(ctx, move || {
             let operation = prepared.as_ref().and_then(|v| v["operationId"].as_str()).map(str::to_string);
-            let result = Api::new(connection).and_then(|api| if let Some(body) = prepared {
-                api.request("POST", &format!("/api/budgets/{id}/commits"), Some(body)).and_then(|v| serde_json::from_value(v).map_err(|_| client::ServiceError { status: 0, message: "Invalid commit receipt.".into(), current: None }))
-            } else { api.remote(&id) });
-            Event::Sync { id, operation, result }
+            let api = match Api::new(connection) { Ok(api) => api, Err(e) => return Event::Sync { id, operation, result: Err(e) } };
+            if let Some(body) = prepared {
+                let result = api.request("POST", &format!("/api/budgets/{id}/commits"), Some(body)).and_then(|v| serde_json::from_value(v).map_err(|_| client::ServiceError { status: 0, message: "Invalid commit receipt.".into(), current: None }));
+                return Event::Sync { id, operation, result };
+            }
+            // The idle check asks only for the revision number. The whole encrypted budget used to be
+            // downloaded and parsed every five seconds just to find that nothing had changed.
+            match api.revision(&id) {
+                Ok(Some(revision)) if revision <= known => Event::Unchanged { id },
+                // Newer, or no longer listed for this account: the budget's own request returns the
+                // new contents, or the service's reason.
+                Ok(_) => Event::Sync { result: api.remote(&id), id, operation: None },
+                Err(e) => Event::Sync { id, operation: None, result: Err(e) },
+            }
         });
     }
     pub(super) fn shared_panel(&mut self, ctx: &egui::Context) {
@@ -584,37 +614,37 @@ impl App {
                     Err(e) => self.sharing.error = Some(e),
                 }
             }
-            Some("passcode-cancel") => {}
+            Some("passcode-cancel") => { self.sharing.passcode_a.clear(); self.sharing.passcode_b.clear(); }
             Some("passcode-open") => {
                 self.sharing.passcode_a.clear(); self.sharing.passcode_b.clear(); self.sharing.passcode_dialog = true;
             }
             Some("passcode-save") => {
                 self.sharing.passcode_dialog = false;
-                let Some(doc) = self.sharing.document.clone() else { return };
+                let Some(doc) = &self.sharing.document else { return };
                 let passcode = self.sharing.passcode_a.trim().to_string();
                 if passcode != self.sharing.passcode_b.trim() { self.sharing.error = Some("The two passcodes do not match.".into()); return; }
-                match budget_core::passcode::check_passcode(&passcode).and_then(|()| client::wrap_key_with_passcode(&doc.recovery_key, &passcode, &doc.working.id)) {
-                    Ok(slot) => {
-                        let id = doc.working.id.clone();
-                        self.sharing.spawn(ctx, move || Event::Passcode((|| {
-                            Api::new(doc.connection.clone()).map_err(|e| e.to_string())?
-                                .set_passcode(&id, &slot).map_err(|e| e.to_string())?;
-                            Ok("Household passcode saved. Members can unlock new devices with it.".to_string())
-                        })()));
-                    }
-                    Err(e) => self.sharing.error = Some(e),
-                }
+                if let Err(e) = budget_core::passcode::check_passcode(&passcode) { self.sharing.error = Some(e); return; }
+                // Stretching the passcode takes about a second by design, so it runs with the upload
+                // instead of freezing the window. The worker takes only what it needs, not the budget.
+                let (key, id, connection) = (doc.recovery_key.clone(), doc.working.id.clone(), doc.connection.clone());
+                self.sharing.passcode_a.clear(); self.sharing.passcode_b.clear();
+                self.sharing.spawn(ctx, move || Event::Passcode((|| {
+                    let slot = client::wrap_key_with_passcode(&key, &passcode, &id)?;
+                    Api::new(connection).map_err(|e| e.to_string())?
+                        .set_passcode(&id, &slot).map_err(|e| e.to_string())?;
+                    Ok("Household passcode saved. Members can unlock new devices with it.".to_string())
+                })()));
             }
             Some("passcode-remove") => {
-                let Some(doc) = self.sharing.document.clone() else { return };
-                let id = doc.working.id.clone();
+                let Some(doc) = &self.sharing.document else { return };
+                let (id, connection) = (doc.working.id.clone(), doc.connection.clone());
                 self.sharing.spawn(ctx, move || Event::Passcode((|| {
-                    Api::new(doc.connection.clone()).map_err(|e| e.to_string())?
+                    Api::new(connection).map_err(|e| e.to_string())?
                         .remove_passcode(&id).map_err(|e| e.to_string())?;
                     Ok("Household passcode removed. Keep the recovery key safe.".to_string())
                 })()));
             }
-            Some("sync") => self.sharing.last_poll = Instant::now() - Duration::from_secs(5),
+            Some("sync") => { self.sharing.failures = 0; self.sharing.last_poll = Instant::now() - Duration::from_secs(5); }
             Some("export") => { self.export_shared_copy(); }
             Some(choice @ ("mine" | "theirs")) => self.resolve_shared(choice == "mine"),
             Some("discard") => self.discard_shared(),
@@ -1357,5 +1387,84 @@ mod tests {
         assert!(first_warning.is_none() && second_warning.is_none());
         assert_eq!(first.working.id, candidate.snapshot.id); assert_eq!(second.working.id, first.working.id);
         assert_eq!(first.recovery_key, second.recovery_key); assert_eq!(first.revision, 1); assert_eq!(second.revision, 1);
+    }
+
+    /// Answers each request from `responses` (path prefix, body) and records the request lines.
+    fn recording_server(responses: Vec<(&'static str, String)>, requests: usize) -> (String, std::sync::mpsc::Receiver<String>) {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let origin = format!("http://{}", listener.local_addr().unwrap());
+        let (send, received) = mpsc::channel();
+        std::thread::spawn(move || {
+            for _ in 0..requests {
+                let (mut stream, _) = listener.accept().unwrap();
+                stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+                let mut bytes = Vec::new(); let mut buffer = [0u8; 4096];
+                while !bytes.windows(4).any(|v| v == b"\r\n\r\n") { let count = stream.read(&mut buffer).unwrap(); assert!(count > 0); bytes.extend_from_slice(&buffer[..count]); }
+                let line = String::from_utf8_lossy(&bytes).lines().next().unwrap_or_default().to_string();
+                let path = line.split(' ').nth(1).unwrap_or_default().to_string();
+                // The longest matching prefix answers, so the list and one budget can both be served.
+                let body = responses.iter().filter(|(prefix, _)| path.starts_with(prefix)).max_by_key(|(prefix, _)| prefix.len())
+                    .map(|(_, body)| body.clone()).unwrap_or_else(|| panic!("unexpected request: {line}"));
+                let _ = send.send(line);
+                write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
+            }
+        });
+        (origin, received)
+    }
+    /// Starts the idle check now and waits for its answer to be handled.
+    fn idle_check(app: &mut App) {
+        let ctx = egui::Context::default();
+        app.sharing.last_poll = Instant::now() - Duration::from_secs(6);
+        app.poll_shared(&ctx);
+        assert!(app.sharing.job.is_some(), "the idle check must start");
+        let deadline = Instant::now() + Duration::from_secs(15);
+        while app.sharing.job.is_some() && Instant::now() < deadline { std::thread::sleep(Duration::from_millis(10)); app.poll_shared(&ctx); }
+        assert!(app.sharing.job.is_none(), "the idle check must finish");
+    }
+    #[test]
+    fn an_idle_check_downloads_the_budget_only_when_its_revision_moved() {
+        let (mut app, _dir) = setup();
+        app.dirty = false;
+        let (id, key, working) = { let doc = app.sharing.document.as_ref().unwrap(); (doc.working.id.clone(), doc.recovery_key.clone(), doc.working.clone()) };
+        let list = |revision: u64| json!({"budgets":[{"id":"00000000-0000-4000-8000-000000000000","name":"Another household","revision":99,"role":"editor","updatedAt":"fixture"},
+            {"id":id,"name":"Fixture household","revision":revision,"role":"owner","updatedAt":"fixture"}]}).to_string();
+
+        // Nothing new: one small request, and the budget itself is never asked for.
+        let (origin, requests) = recording_server(vec![("/api/budgets", list(1))], 1);
+        app.sharing.document.as_mut().unwrap().connection.server = origin;
+        idle_check(&mut app);
+        assert_eq!(requests.try_iter().collect::<Vec<_>>(), ["GET /api/budgets HTTP/1.1"]);
+        assert!(app.sharing.error.is_none() && app.sharing.deferred.is_none());
+        assert_eq!(app.sharing.document.as_ref().unwrap().revision, 1);
+
+        // A partner saved revision 2: now the budget is fetched, and applied.
+        let mut next = working.clone(); next.notes = "From the other device".into();
+        let (origin, requests) = recording_server(vec![("/api/budgets", list(2)), ("/api/budgets/", serde_json::to_string(&remote(&next, &key, 2)).unwrap())], 2);
+        app.sharing.document.as_mut().unwrap().connection.server = origin;
+        idle_check(&mut app);
+        assert_eq!(requests.try_iter().collect::<Vec<_>>(), ["GET /api/budgets HTTP/1.1".to_string(), format!("GET /api/budgets/{id} HTTP/1.1")]);
+        assert!(app.sharing.error.is_none(), "{:?}", app.sharing.error);
+        let current = app.sharing.document.as_ref().unwrap();
+        assert_eq!((current.revision, current.working.notes.as_str()), (2, "From the other device"));
+    }
+    #[test]
+    fn failed_syncs_wait_longer_each_time_until_one_succeeds() {
+        let (mut app, _dir) = setup();
+        let id = app.sharing.document.as_ref().unwrap().working.id.clone();
+        let offline = || client::ServiceError { status: 0, message: "Could not reach the sync service.".into(), current: None };
+        assert_eq!(app.sharing.poll_interval(), Duration::from_secs(5));
+        for seconds in [10, 20, 40, 40] {
+            deliver(&mut app, Event::Sync { id: id.clone(), operation: None, result: Err(offline()) });
+            assert_eq!(app.sharing.poll_interval(), Duration::from_secs(seconds));
+            assert!(app.sharing.error.is_some());
+        }
+        deliver(&mut app, Event::Unchanged { id: id.clone() });
+        assert_eq!(app.sharing.poll_interval(), Duration::from_secs(5), "the service answered, so checks return to normal");
+        assert!(app.sharing.error.is_none());
+        // Another household's late answer changes nothing here.
+        deliver(&mut app, Event::Sync { id: uuid::Uuid::new_v4().to_string(), operation: None, result: Err(offline()) });
+        assert_eq!(app.sharing.poll_interval(), Duration::from_secs(5));
+        assert!(app.sharing.error.is_none());
     }
 }
