@@ -28,5 +28,7 @@ try{
  await openTyped();await page.locator('[name=amount]').fill('130');await page.getByRole('button',{name:'Save changes on this device'}).click();await page.waitForFunction(()=>!document.querySelector('#sheet').open);
  await openTyped();await page.locator('[name=scope]').selectOption('all');await page.locator('[name=amount]').fill('130');await page.getByRole('button',{name:'Save changes on this device'}).click();await page.waitForFunction(()=>!document.querySelector('#sheet').open);
  const shownMonth=await page.locator('#month-picker').inputValue(),[year,month]=shownMonth.split('-').map(Number),later=`${month===12?year+1:year}-${String(month===12?1:month+1).padStart(2,'0')}`;await page.locator('#month-picker').fill(later);await page.locator('.day.selected').waitFor({state:'detached'}).catch(()=>{});await page.locator('.day .dot').last().click();await page.locator('.entry',{hasText:'Typed series'}).waitFor();assert.ok((await page.locator('.entry',{hasText:'Typed series'}).innerText()).includes('130'),'the typed figure reaches later dates');
+ // An emptied month box used to break the Calendar until a reload: the month on screen stays instead.
+ await page.locator('#month-picker').evaluate(input=>{input.value='';input.dispatchEvent(new Event('change',{bubbles:true}))});assert.equal(await page.locator('#month-picker').inputValue(),later,'an emptied month box keeps the month on screen');assert.ok(await page.locator('.month-grid .day').count()>27,'and the calendar is still shown');
 }finally{await browser?.close();await service.close()}
 

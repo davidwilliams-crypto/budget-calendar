@@ -6,8 +6,11 @@ export async function loadEngine(url='./budget_engine.wasm'){
   const entropy={salt:[...crypto.getRandomValues(new Uint8Array(16))],nonce:[...crypto.getRandomValues(new Uint8Array(12))]};request={...request,entropy};
  }const bytes=encoder.encode(JSON.stringify(request));if(bytes.length>8*1024*1024)throw Error('Budget exceeds the engine limit.');const ptr=e.alloc(bytes.length);if(!ptr)throw Error('The engine could not allocate this budget.');let result;try{new Uint8Array(e.memory.buffer,ptr,bytes.length).set(bytes);e.request(ptr,bytes.length);result=JSON.parse(decoder.decode(new Uint8Array(e.memory.buffer,e.result_ptr(),e.result_len())))}finally{e.dealloc(ptr,bytes.length)}if(!result.ok)throw Error(result.error||'The engine rejected this change.');return result.result};
 }
+// One formatter per time zone: the calendar asks for today once per day cell, and building a formatter each time is slow on a phone.
+const zoneFormats=new Map();
 export function householdToday(timeZone,now=new Date()){
- const parts=new Intl.DateTimeFormat('en-CA',{timeZone,year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(now);const get=k=>parts.find(p=>p.type===k).value;return Number(get('year')+get('month')+get('day'));
+ let format=zoneFormats.get(timeZone);if(!format){format=new Intl.DateTimeFormat('en-CA',{timeZone,year:'numeric',month:'2-digit',day:'2-digit'});zoneFormats.set(timeZone,format)}
+ const parts=format.formatToParts(now);const get=k=>parts.find(p=>p.type===k).value;return Number(get('year')+get('month')+get('day'));
 }
 export function dateInput(value){const s=String(value);return `${s.slice(0,4)}-${s.slice(4,6)}-${s.slice(6,8)}`}
 export function dateNumber(value){return Number(value.replaceAll('-',''))}

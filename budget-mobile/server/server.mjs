@@ -249,8 +249,10 @@ export function createBudgetServer(options) {
         return { ...JSON.parse(receipt.result), role: budget.role };
       }
       if (budget.revision !== input.expectedRevision) fail(409, 'revision_conflict', 'Budget changed; review the current snapshot', snapshot(budget));
-      const used = sql('SELECT count(*) AS n,coalesce(sum(length(CAST(result AS BLOB))),0) AS bytes FROM operations WHERE budget_id=?').get(budgetId);
-      const allUsed = sql('SELECT coalesce(sum(length(CAST(result AS BLOB))),0) AS bytes FROM operations').get();
+      // octet_length reads each receipt's size from its row header. length(CAST(result AS BLOB)) gave the same
+      // byte count but loaded every stored receipt body, of this household and then of the whole service, on each commit.
+      const used = sql('SELECT count(*) AS n,coalesce(sum(octet_length(result)),0) AS bytes FROM operations WHERE budget_id=?').get(budgetId);
+      const allUsed = sql('SELECT coalesce(sum(octet_length(result)),0) AS bytes FROM operations').get();
       if (used.n >= 10000 || used.bytes + Buffer.byteLength(encoded) + 4096 >= 256 * 1024 * 1024 ||
         allUsed.bytes + Buffer.byteLength(encoded) + 4096 >= 1024 * 1024 * 1024) fail(507, 'storage_limit', 'Budget storage limit reached; contact the operator');
       const next = budget.revision + 1;

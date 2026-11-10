@@ -1,5 +1,5 @@
 // CACHE is written by scripts/stamp-mobile-worker.ps1 from a hash of public/. Never edit it by hand: a phone only finds a new build when these bytes change.
-const CACHE='budget-household-4f7ab8a75137f9fd';
+const CACHE='budget-household-d59178bad3555de7';
 const SHELL=['./','./index.html','./styles.css','./app.mjs','./backup.mjs','./api.mjs','./status.mjs','./engine.mjs','./editor-scope.mjs','./state.mjs','./storage.mjs','./writer-lock.mjs','./crypto.mjs','./budget_engine.wasm','./manifest.webmanifest','./icon-192.png','./icon-512.png'];
 const cached=request=>caches.open(CACHE).then(cache=>cache.match(request));
 // Pages from before stamped names have no update prompt, so a new worker cannot wait for them. Their code is already in memory, and an open form is unaffected.

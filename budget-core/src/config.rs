@@ -258,6 +258,12 @@ pub struct BudgetConfig {
     // adv
     pub single_instance: bool,
     pub port: i32,
+    // View choices of this port, which the original did not have. They are written after its keys;
+    // the original reports a key it does not know as skipped and carries on.
+    /// View > Dark appearance.
+    pub dark_appearance: bool,
+    /// View > Monthly breakdown on wide screens.
+    pub show_monthly_breakdown: bool,
     /// Keys read from the file that nothing claimed (reported like the original's `skipped: k=v`).
     pub skipped: Vec<(String, String)>,
 }
@@ -277,7 +283,7 @@ impl Default for BudgetConfig {
             future_n_months: 24, max_saving_n_months: 2, min_balance_4_max_saving: 100.0, graph_n_months: 6,
             currency_prefix: "$".into(), currency_suffix: String::new(),
             fonts: Default::default(), colors: Colors::theme(Theme::Light),
-            single_instance: false, port: 57778, skipped: Vec::new(),
+            single_instance: false, port: 57778, dark_appearance: false, show_monthly_breakdown: true, skipped: Vec::new(),
         }
     }
 }
@@ -376,6 +382,8 @@ impl BudgetConfig {
             "currencySuffix" => self.currency_suffix = v.to_string(),
             "singleInstance" => self.single_instance = conf_bool(v),
             "port" => self.port = int(self.port),
+            "darkAppearance" => self.dark_appearance = conf_bool(v),
+            "showMonthlyBreakdown" => self.show_monthly_breakdown = conf_bool(v),
             // legacy keys handled by BudgetConfig.lambda$new$1
             "firstDayOfWeek" => self.first_day_of_week_is_sunday = v == "1",
             _ => {
@@ -443,6 +451,8 @@ impl BudgetConfig {
         for (k, v) in self.colors.entries() { push(k, format!("{v:06x}")); }
         push("singleInstance", self.single_instance.to_string());
         push("port", self.port.to_string());
+        push("darkAppearance", self.dark_appearance.to_string());
+        push("showMonthlyBreakdown", self.show_monthly_breakdown.to_string());
         p
     }
 
@@ -516,6 +526,12 @@ mod tests {
         assert!(!props.iter().any(|(k, _)| k == "regkey"));
         let back = BudgetConfig::from_properties(&props);
         assert_eq!(back, c);
+        // This port's own view choices follow the original's keys, and an older file without them
+        // keeps the defaults: light, with the breakdown shown.
+        assert_eq!(props[props.len() - 2..], [("darkAppearance".to_string(), "false".to_string()), ("showMonthlyBreakdown".to_string(), "true".to_string())]);
+        let chosen = BudgetConfig::from_properties(&parse_properties("darkAppearance=true\nshowMonthlyBreakdown=false\n"));
+        assert!(chosen.dark_appearance && !chosen.show_monthly_breakdown && chosen.skipped.is_empty());
+        assert_eq!(BudgetConfig::from_properties(&chosen.to_properties()), chosen);
         let legacy = parse_properties("firstDayOfWeek=0\nrecentFile0=a.bgt\nrecentFile.2=c.bgt\nfutureNMonths=5\nunlimitedHistory=1\nbgColorCell=zz\ngraphMinBarColor=123456\nfoo=bar\nfontTran=1|Verdana|9.0|0|WINDOWS|1\n");
         let mut l = BudgetConfig::from_properties(&legacy);
         assert!(!l.first_day_of_week_is_sunday);

@@ -393,7 +393,8 @@ fn balance_changes(cells: impl Iterator<Item = (bool, Option<f64>)>) -> Vec<bool
     }).collect()
 }
 
-// Same parameter set as the sibling cell painters; a context struct would be used by this one only.
+// Paints one day cell (header, rows, balance strip) and returns what was clicked in it. Its
+// parameters are this frame's shared state; a context struct would be used by this function only.
 #[allow(clippy::too_many_arguments)]
 fn cell_filter(ui: &mut Ui, p: &Painter, cell: &CellData, rect: Rect, t: &Tokens, fill: Color32, today: i32, decimals: bool, resp: &egui::Response, changed: bool, filtered: bool) -> Option<Action> {
     let mut clicked = None;
@@ -741,7 +742,7 @@ fn draw_drag_preview(ui: &Ui, payload: &DraggedTransaction, view: &MonthView, t:
     truncated(&p, Pos2::new(rect.min.x + 9.0, rect.min.y + 36.0), &format!("{} · drop on a date", money(payload.amount, true)), font(ui, CAPTION), t.text_muted, rect.width() - 18.0);
 }
 
-/// Small RichText recipes shared with main.rs.
+/// Small RichText recipes for the calendar's hover cards.
 pub struct RichTextExt;
 impl RichTextExt {
     pub fn section(s: &str, _ui: &Ui) -> egui::RichText { egui::RichText::new(s).text_style(ts(SECTION)) }

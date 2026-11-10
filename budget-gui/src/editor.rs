@@ -413,7 +413,7 @@ impl PaymentEditor {
                 });
                 ui.add_space(SECTION_GAP);
                 form_section(ui, "Schedule", t, |ui| {
-                    enter |= date_field(ui, "Start date", "payment_start_date", &mut self.start_date, &mut self.start_picker, self.original.start_date, sunday_first, t);
+                    enter |= date_field(ui, "Start date", "payment_start_date", &mut self.start_date, &mut self.start_picker, self.original.start_date, sunday_first, today, t);
                     let mut recurrence = self.recurrence;
                     field(ui, "Repeat", t, |ui, label| {
                         ComboBox::from_id_salt("payment_recurrence").width(ui.available_width())
@@ -460,7 +460,7 @@ impl PaymentEditor {
                             }).response.labelled_by(label);
                         });
                         match self.end_mode {
-                            END_MODE_DATE => { enter |= date_field(ui, "End date", "payment_end_date", &mut self.end_date, &mut self.end_picker, self.original.end_date, sunday_first, t); }
+                            END_MODE_DATE => { enter |= date_field(ui, "End date", "payment_end_date", &mut self.end_date, &mut self.end_picker, self.original.end_date, sunday_first, today, t); }
                             END_MODE_N_PAYS => {
                                 let response = text_field(ui, "Number of payments", &mut self.count, "e.g. 12", t);
                                 enter |= submitted(ui, &response);
@@ -802,7 +802,7 @@ fn scope_choice(ui: &mut egui::Ui, scope: &mut ChangeScope, date: i32, t: &Token
         });
 }
 #[allow(clippy::too_many_arguments)]
-fn date_field(ui: &mut egui::Ui, label: &str, id: &str, value: &mut String, picker: &mut Option<DatePicker>, fallback: i32, sunday_first: bool, t: &Tokens) -> bool {
+fn date_field(ui: &mut egui::Ui, label: &str, id: &str, value: &mut String, picker: &mut Option<DatePicker>, fallback: i32, sunday_first: bool, today: i32, t: &Tokens) -> bool {
     let mut entered = false;
     let button = field(ui, label, t, |ui, label| ui.horizontal(|ui| {
         // The icon button is 36px wide, so the input lines up with full-width fields' right edge.
@@ -826,7 +826,7 @@ fn date_field(ui: &mut egui::Ui, label: &str, id: &str, value: &mut String, pick
     }
     egui::popup::popup_below_widget(ui, popup_id, &button, egui::PopupCloseBehavior::CloseOnClickOutside, |ui| {
         if let Some(picker) = picker {
-            if let Some(date) = date_picker(ui, picker, value, t) {
+            if let Some(date) = date_picker(ui, picker, value, today, t) {
                 *value = sdate(date);
                 ui.memory_mut(|memory| memory.close_popup());
             }
@@ -834,7 +834,9 @@ fn date_field(ui: &mut egui::Ui, label: &str, id: &str, value: &mut String, pick
     });
     entered
 }
-fn date_picker(ui: &mut egui::Ui, picker: &mut DatePicker, selected: &str, t: &Tokens) -> Option<i32> {
+/// `today` is the app's date, which is the household's for a shared budget (and `--today` when given):
+/// the Today button must agree with the calendar's today marker, not with this computer's clock.
+fn date_picker(ui: &mut egui::Ui, picker: &mut DatePicker, selected: &str, today: i32, t: &Tokens) -> Option<i32> {
     ui.set_width(266.0);
     ui.spacing_mut().item_spacing = egui::vec2(4.0, 5.0);
     let mut chosen = None;
@@ -863,7 +865,7 @@ fn date_picker(ui: &mut egui::Ui, picker: &mut DatePicker, selected: &str, t: &T
             if cell % 7 == 6 { ui.end_row(); }
         }
     });
-    if theme::secondary_button(ui, "Today", t).clicked() { chosen = Some(Cal::today().get()); }
+    if theme::secondary_button(ui, "Today", t).clicked() { chosen = Some(today); }
     chosen
 }
 fn end_label(mode: i32) -> &'static str {
@@ -1012,6 +1014,29 @@ mod tests {
             screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, size)), events, ..Default::default()
         }, |ctx| { action = editor.show(ctx, t); });
         (output, action)
+    }
+
+    #[test]
+    fn the_date_pickers_today_button_gives_the_apps_date_not_the_computers() {
+        let (ctx, t) = transaction_context();
+        // A household in another time zone, or `--today`: never this computer's own date.
+        let today = 20200229;
+        let mut picker = DatePicker::new("2026-10-15", 20261015, true);
+        let mut chosen = None;
+        let mut run = |events: Vec<egui::Event>| {
+            let mut picked = None;
+            let output = ctx.run(egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400.0, 500.0))), events, ..Default::default()
+            }, |ctx| { egui::CentralPanel::default().show(ctx, |ui| picked = date_picker(ui, &mut picker, "2026-10-15", today, &t)); });
+            (output, picked)
+        };
+        let pos = transaction_label(&run(Vec::new()).0, "Today").center();
+        run(vec![egui::Event::PointerMoved(pos)]);
+        for pressed in [true, false] {
+            let (_, picked) = run(vec![egui::Event::PointerButton { pos, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE }]);
+            chosen = chosen.or(picked);
+        }
+        assert_eq!(chosen, Some(today));
     }
 
     fn transaction_label(output: &egui::FullOutput, label: &str) -> egui::Rect {

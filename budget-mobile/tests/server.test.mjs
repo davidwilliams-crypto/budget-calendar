@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, readFile } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import { createHook } from 'node:async_hooks';
@@ -15,10 +16,13 @@ const setupToken = 'fixture-only-setup-token-123456789';
 const password = 'fixture password 123456';
 const ownerName = 'owner@example.invalid';
 const payload = { ciphertext: 'generated-fixture', iv: 'fixture' };
+// Anchored to the repository, like every other test here, so the working directory does not decide where
+// fixtures land: `npm test --prefix budget-mobile` used to leave them in budget-mobile/target, which Git does not ignore.
+const fixtures = resolve(fileURLToPath(new URL('../../', import.meta.url)), 'target/shared-server-tests');
 
 async function fixture(t, extra = {}) {
   assert.equal(typeof createBudgetServer, 'function', 'private HTTP service must be implemented');
-  const root = resolve('target/shared-server-tests');
+  const root = fixtures;
   await mkdir(root, { recursive: true });
   const dir = await mkdtemp(join(root, 'service-'));
   const publicDir = join(dir, 'public');
@@ -234,7 +238,7 @@ test('static delivery refuses hidden files, database files and traversal while a
 
 test('production refuses plaintext origins and credentials are throttled', async t => {
   assert.equal(typeof createBudgetServer, 'function');
-  assert.throws(() => createBudgetServer({ dataDir: 'target/shared-server-tests/invalid', setupToken,
+  assert.throws(() => createBudgetServer({ dataDir: join(fixtures, 'invalid'), setupToken,
     publicOrigin: 'http://example.invalid' }), /HTTPS/);
   const f = await fixture(t); await f.setup();
   for (let i = 0; i < 10; i++) {
@@ -269,7 +273,7 @@ test('forwarded headers are ignored by default instead of granting extra login a
 });
 
 test('Render trust requires explicit platform configuration and rejects missing or malformed client identity', async t => {
-  const options = { dataDir: 'target/shared-server-tests/invalid-proxy', setupToken, publicOrigin: 'https://example.invalid' };
+  const options = { dataDir: join(fixtures, 'invalid-proxy'), setupToken, publicOrigin: 'https://example.invalid' };
   assert.throws(() => createBudgetServer({ ...options, trustedProxy: 'render' }), /Render/);
   assert.throws(() => createBudgetServer({ ...options, trustedProxy: 'anything', renderEnvironment: true }), /proxy/i);
   const f = await fixture(t, { trustedProxy: 'render', renderEnvironment: true });

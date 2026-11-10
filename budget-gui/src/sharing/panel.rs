@@ -81,7 +81,14 @@ impl App {
                 // A static status has no animation repaint loop and always occupies the same row.
                 ui.add_sized([content_size.x, 24.0], egui::Label::new(status).truncate());
 
-                let body_height = (ui.available_height() - 58.0).max(1.0);
+                // An error is pinned between the scrolling body and Close, where it is seen whatever the
+                // body shows. At the end of the body it was usually below the fold, so a failed sign-in
+                // or a refused passcode looked like a click that did nothing. Its height is fixed (a
+                // longer message scrolls inside it), so neither the controls above nor Close move.
+                const ERROR_HEIGHT: f32 = 44.0;
+                let error = self.sharing.error.clone();
+                let error_space = if error.is_some() { ERROR_HEIGHT + ui.spacing().item_spacing.y } else { 0.0 };
+                let body_height = (ui.available_height() - 58.0 - error_space).max(1.0);
                 ui.spacing_mut().scroll = egui::style::ScrollStyle::solid();
                 egui::ScrollArea::vertical().id_salt("shared_budget_body")
                     .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible)
@@ -169,8 +176,10 @@ impl App {
                                 ui.label("Username");
                                 ui.add(egui::TextEdit::singleline(&mut self.sharing.username).desired_width(ui.available_width()));
                                 ui.label("Password");
-                                ui.add(egui::TextEdit::singleline(&mut self.sharing.password).password(true).desired_width(ui.available_width()));
-                                if ui.add_enabled(!busy, Button::new("Sign in / refresh session")).clicked() { command = Some("login"); }
+                                let password = ui.add(egui::TextEdit::singleline(&mut self.sharing.password).password(true).desired_width(ui.available_width()));
+                                // Enter in the password box signs in, as in the budget password prompt.
+                                let entered = !busy && password.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
+                                if ui.add_enabled(!busy, Button::new("Sign in / refresh session")).clicked() || entered { command = Some("login"); }
                                 if let Some(connection) = &self.sharing.connection {
                                     if let Ok(server) = client::normalize_server(&connection.server) {
                                         ui.hyperlink_to("Open mobile app to set up an account or accept an invitation", server);
@@ -221,11 +230,14 @@ impl App {
                         ui.separator();
                         if ui.add_enabled(!busy, Button::new("Open cached shared budget on this device")).clicked() { command = Some("cache"); }
                         if ui.add_enabled(!busy, Button::new("Resume pending household creation")).clicked() { command = Some("resume-create"); }
-                        if let Some(error) = &self.sharing.error {
-                            ui.separator();
-                            ui.colored_label(t.negative, error);
-                        }
                     });
+                if let Some(error) = &error {
+                    egui::ScrollArea::vertical().id_salt("shared_budget_error").auto_shrink([false, false])
+                        .min_scrolled_height(0.0).max_height(ERROR_HEIGHT).show(ui, |ui| {
+                            ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Wrap);
+                            ui.colored_label(t.negative, error);
+                        });
+                }
                 ui.separator();
                 if theme::secondary_button(ui, "Close", &t).clicked() || ui.input(|i| i.key_pressed(Key::Escape)) {
                     self.sharing.open = false;
@@ -257,11 +269,27 @@ impl App {
             let first = ui.add(egui::TextEdit::singleline(&mut self.sharing.passcode_a).password(true).hint_text("Three or more unrelated words").desired_width(ui.available_width()));
             ui.label("Confirm passcode");
             let second = ui.add(egui::TextEdit::singleline(&mut self.sharing.passcode_b).password(true).desired_width(ui.available_width()));
-            let entered = second.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) || first.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter));
-            ui.horizontal(|ui| {
-                if theme::secondary_button(ui, "Cancel", t).clicked() { action = Some("passcode-cancel"); }
-                if ui.button("Save passcode").clicked() || entered { action = Some("passcode-save"); }
+            let enter = ui.input(|i| i.key_pressed(Key::Enter));
+            // Enter in the first box goes on to the second; nothing is saved from a half-filled form.
+            if first.lost_focus() && enter { second.request_focus(); }
+            else if ctx.memory(|m| m.focused()).is_none() { first.request_focus(); }
+            // What is wrong is said here, while the boxes are still open, and Save waits until it is put
+            // right. The dialog used to close first and report the problem in the panel behind it.
+            let (passcode, repeat) = (self.sharing.passcode_a.trim(), self.sharing.passcode_b.trim());
+            let problem = if passcode.is_empty() { None }
+                else if let Err(e) = budget_core::passcode::check_passcode(passcode) { Some(e) }
+                else if !repeat.is_empty() && repeat != passcode { Some("The two passcodes do not match.".to_string()) }
+                else { None };
+            let ready = !passcode.is_empty() && passcode == repeat && problem.is_none();
+            ui.add_sized([ui.available_width(), 36.0], egui::Label::new(RichText::new(problem.unwrap_or_default()).color(t.negative)).wrap());
+            let (mut save, mut cancel) = (false, false);
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                save = ui.add_enabled_ui(ready, |ui| theme::primary_button(ui, "Save passcode", t)).inner.clicked();
+                cancel = theme::secondary_button(ui, "Cancel", t).clicked();
             });
+            if save || (ready && second.lost_focus() && enter) { action = Some("passcode-save"); }
+            // Escape closes this dialog only; the Shared budget panel behind it stays open.
+            else if cancel || crate::editor::dialog_escape(ctx) { action = Some("passcode-cancel"); }
         });
         if action.is_some() { self.sharing.passcode_dialog = false; }
         action
@@ -406,6 +434,45 @@ mod tests {
             }
         }
         drop(send);
+        drop(app); std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn an_error_is_shown_above_close_whatever_the_body_shows() {
+        let (mut app, dir) = fixture();
+        let ctx = context(&app);
+        for size in [Vec2::new(900.0, 600.0), Vec2::new(640.0, 400.0)] {
+            app.sharing.error = Some("The two passcodes do not match.".into());
+            let output = settled(&ctx, &mut app, size, 1.0);
+            let error = visible_text(&output, "The two passcodes do not match.").expect("the error must be visible without scrolling");
+            let close = visible_text(&output, "Close").expect("Close stays visible");
+            assert!(error.max.y <= close.min.y, "the error sits above Close at {size:?}: {error:?} {close:?}");
+            app.sharing.error = None;
+            let output = settled(&ctx, &mut app, size, 1.0);
+            assert_eq!(visible_text(&output, "Close").map(|r| r.min.y), Some(close.min.y), "Close does not move when the error clears");
+        }
+        drop(app); std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn the_passcode_dialog_says_what_is_wrong_and_escape_closes_only_it() {
+        let (mut app, dir) = fixture();
+        let ctx = context(&app); let size = Vec2::new(900.0, 600.0);
+        app.sharing.passcode_dialog = true;
+        app.sharing.passcode_a = "maple orbit lantern".into(); app.sharing.passcode_b = "maple orbit lamp".into();
+        let output = settled(&ctx, &mut app, size, 1.0);
+        assert!(visible_text(&output, "The two passcodes do not match.").is_some(), "a mismatch is named in the dialog");
+        // Save is disabled, so clicking it changes nothing and the typed text is kept.
+        click(&ctx, &mut app, size, visible_text(&output, "Save passcode").unwrap().center());
+        assert!(app.sharing.passcode_dialog && app.sharing.job.is_none() && app.sharing.passcode_a == "maple orbit lantern");
+        app.sharing.passcode_a = "12345678".into(); app.sharing.passcode_b.clear();
+        let output = settled(&ctx, &mut app, size, 1.0);
+        let weak = budget_core::passcode::check_passcode("12345678").unwrap_err();
+        assert!(visible_text(&output, &weak).is_some(), "a weak passcode is refused before it is confirmed: {weak}");
+        frame(&ctx, &mut app, size, 1.0, vec![egui::Event::Key { key: Key::Escape, physical_key: None, pressed: true, repeat: false, modifiers: Modifiers::NONE }]);
+        assert!(!app.sharing.passcode_dialog, "Escape closes the passcode dialog");
+        assert!(app.sharing.open, "and leaves the Shared budget panel open");
+        assert!(app.sharing.passcode_a.is_empty() && app.sharing.passcode_b.is_empty(), "the abandoned passcode is not kept");
         drop(app); std::fs::remove_dir_all(dir).unwrap();
     }
 

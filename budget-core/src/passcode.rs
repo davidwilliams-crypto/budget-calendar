@@ -11,7 +11,7 @@ use aes_gcm::{Aes256Gcm, KeyInit, Nonce, aead::{Aead, Payload}};
 use argon2::{Algorithm, Argon2, Params, Version};
 use base64::{Engine, engine::general_purpose::STANDARD};
 use serde::{Deserialize, Serialize};
-use zeroize::{Zeroize, Zeroizing};
+use zeroize::Zeroizing;
 
 pub const SLOT_VERSION: u32 = 1;
 pub const KDF_NAME: &str = "argon2id";
@@ -139,11 +139,12 @@ pub fn unwrap_key(slot: &PasscodeSlot, passcode: &str, budget_id: &str) -> Resul
     let wrapped = STANDARD.decode(&slot.wrapped_key).map_err(|_| AUTH_ERROR)?;
     let ke = derive(passcode, &salt)?;
     let cipher = Aes256Gcm::new_from_slice(ke.as_ref()).map_err(|_| AUTH_ERROR)?;
-    let mut plain = cipher
+    // The decrypted bytes are the household key: wiped when dropped, on success as on failure.
+    let plain = Zeroizing::new(cipher
         .decrypt(Nonce::from_slice(&nonce), Payload { msg: &wrapped, aad: &aad(budget_id)? })
-        .map_err(|_| AUTH_ERROR)?;
+        .map_err(|_| AUTH_ERROR)?);
     let mut key = Zeroizing::new([0u8; 32]);
-    if plain.len() != 32 { plain.zeroize(); return Err(AUTH_ERROR.into()); }
+    if plain.len() != 32 { return Err(AUTH_ERROR.into()); }
     key.copy_from_slice(&plain);
     Ok(key)
 }

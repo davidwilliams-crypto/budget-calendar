@@ -3,10 +3,13 @@ export class OfflineError extends Error{constructor(){super('You are offline. Re
 // False once a request cannot reach the service, even if the phone believes it has a connection. Any reply sets it back.
 export const connection={reachable:true};
 export const isOffline=()=>navigator.onLine===false||!connection.reachable;
+// A request that gets no answer is given up after this long, so a stalled connection cannot leave the app loading or syncing forever.
+const REQUEST_TIMEOUT_MS=45000;
 export async function api(path,body,method=body===undefined?'GET':'POST'){
  if(navigator.onLine===false)throw new OfflineError();
- let response;try{response=await fetch(`/api${path}`,{method,credentials:'same-origin',cache:'no-store',headers:body===undefined?{}:{'Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body)})}catch{connection.reachable=false;throw new OfflineError()}
+ const signal=AbortSignal.timeout(REQUEST_TIMEOUT_MS);
+ let response;try{response=await fetch(`/api${path}`,{method,credentials:'same-origin',cache:'no-store',signal,headers:body===undefined?{}:{'Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body)})}catch{connection.reachable=false;throw new OfflineError()}
  connection.reachable=true;
- let data;try{data=await response.json()}catch{throw Error('The service returned an unreadable response. Your pending edits remain on this device.')}
+ let data;try{data=await response.json()}catch{if(signal.aborted){connection.reachable=false;throw new OfflineError()}throw Error('The service returned an unreadable response. Your pending edits remain on this device.')}
  if(!response.ok)throw new ApiError(response.status,data);return data;
 }

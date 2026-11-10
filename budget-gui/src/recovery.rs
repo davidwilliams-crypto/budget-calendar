@@ -165,6 +165,9 @@ impl Shared {
         result.is_err()
     }
     fn newest(&self) -> Option<Job> { self.latest.lock().ok().and_then(|job| job.clone()) }
+    /// The edit count of the newest edit, read in place: `tick` asks on every frame, and cloning the
+    /// job to answer would copy every payment of the budget each time.
+    fn newest_edits(&self) -> Option<u64> { self.latest.lock().ok()?.as_ref().map(|job| job.edits) }
 }
 
 enum Command { Flush, Remove(PathBuf) }
@@ -275,7 +278,7 @@ impl Journal {
             self.sent = None; self.failure = true; self.hold_until = Some(now + self.retry);
             self.first_unwritten.get_or_insert(now);
         }
-        let latest = self.shared.newest()?.edits;
+        let latest = self.shared.newest_edits()?;
         if self.shared.written.load(Ordering::SeqCst) == latest || self.sent == Some(latest) { return None; }
         if let Some(until) = self.hold_until.filter(|until| *until > now) { return Some(until - now); }
         let due = self.first_unwritten.unwrap_or(now) + self.delay;
