@@ -1,11 +1,20 @@
 name: CI
 
+# One gate run per change: pull requests, and pushes to master. A push to any other branch used to run
+# the gate a second time beside its pull request, and a release tag ran it beside release.yml, which
+# runs the same gate itself.
 on:
   push:
+    branches: [master]
   pull_request:
 
 permissions:
   contents: read
+
+# A newer push to a pull request replaces the run for the older one. Runs on master are never cancelled.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   release-gate:
