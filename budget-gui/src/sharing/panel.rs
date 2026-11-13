@@ -58,7 +58,7 @@ impl App {
         } else { self.sharing.preview = None; }
 
         let t = self.t.clone();
-        let frame = t.card();
+        let frame = t.dialog();
         let bounds = ctx.screen_rect().shrink(16.0);
         let outer_size = Vec2::new(564.0_f32.min(bounds.width()), 684.0_f32.min(bounds.height()));
         let content_size = (outer_size - frame.total_margin().sum()).max(Vec2::splat(1.0));
@@ -249,7 +249,7 @@ impl App {
         let id = egui::Id::new("household-passcode");
         let width = (content_size.x * 0.9).min(420.0);
         let mut action = None;
-        egui::Modal::new(id).area(egui::Modal::default_area(id).default_size(Vec2::new(width, 0.0))).frame(t.card()).show(ctx, |ui| {
+        egui::Modal::new(id).area(egui::Modal::default_area(id).default_size(Vec2::new(width, 0.0))).frame(t.dialog()).show(ctx, |ui| {
             ui.set_width(width);
             ui.heading("Household passcode");
             ui.label("Every member types this to unlock the household on another device. It wraps the household key; the recovery key keeps working.");
@@ -339,7 +339,7 @@ mod tests {
             let modal = ctx.memory(|m| m.area_rect(egui::Id::new("shared-budget"))).unwrap();
             // The left edge of the body is outside the indented conflict comparison's nested
             // scroll area, so this exercises the outer scroll as a user can with its scrollbar.
-            let pos = egui::pos2(modal.min.x + 20.0, modal.min.y + 140.0);
+            let pos = egui::pos2(modal.min.x + crate::theme::SP4 + 6.0, modal.min.y + 140.0);
             frame(ctx, app, size, 1.0, vec![egui::Event::PointerMoved(pos), egui::Event::MouseWheel {
                 unit: egui::MouseWheelUnit::Point, delta: Vec2::new(0.0, -80.0), modifiers: Modifiers::NONE }]);
         }

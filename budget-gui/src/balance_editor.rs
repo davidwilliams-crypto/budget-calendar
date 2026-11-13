@@ -45,7 +45,7 @@ impl BalanceEditor {
         }
         let mut action = BalanceAction::None;
         let mut enter = false;
-        egui::Modal::new(egui::Id::new("balance_editor")).frame(t.card().inner_margin(24)).show(ctx, |ui| {
+        egui::Modal::new(egui::Id::new("balance_editor")).frame(t.dialog()).show(ctx, |ui| {
             ui.set_width(480.0_f32.min((ctx.screen_rect().width() - 96.0).max(240.0)));
             ui.spacing_mut().item_spacing = egui::vec2(8.0, 10.0);
             ui.heading("Edit balance");
@@ -55,7 +55,7 @@ impl BalanceEditor {
             });
             ui.label(RichText::new("Sets the closing balance for this date and updates following balances until the next balance adjustment.").color(t.text_muted));
             ui.add_space(2.0);
-            egui::Frame::new().fill(t.bg).corner_radius(8).inner_margin(16).show(ui, |ui| {
+            egui::Frame::new().fill(t.surface_hover).corner_radius(theme::RADIUS_MD).inner_margin(16).show(ui, |ui| {
                 ui.set_width(ui.available_width());
                 let label = ui.label(RichText::new("Closing balance").strong().color(t.text));
                 let mut output = TextEdit::singleline(&mut self.amount)
@@ -78,7 +78,7 @@ impl BalanceEditor {
                 ui.label(RichText::new("Use a minus sign for a negative balance.").color(t.text_muted));
             });
             if let Some(error) = &self.error {
-                egui::Frame::new().fill(theme::tint(t.surface, t.negative, 0.08)).corner_radius(6)
+                egui::Frame::new().fill(theme::tint(t.surface, t.negative, 0.08)).corner_radius(theme::RADIUS_SM)
                     .inner_margin(10).show(ui, |ui| {
                         egui::ScrollArea::vertical().id_salt("balance_error")
                             .max_height(90.0).show(ui, |ui| {

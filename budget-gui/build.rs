@@ -228,7 +228,7 @@ fn source_inputs(root: &Path) -> io::Result<Vec<PathBuf>> {
     .collect::<Vec<_>>();
     for (directory, extensions) in [
         ("budget-gui/src", &["rs"][..]),
-        ("budget-gui/assets", &["ico", "png", "svg"][..]),
+        ("budget-gui/assets", &["ico", "png", "svg", "ttf", "txt"][..]),
         ("budget-core/src", &["rs"][..]),
         ("budget-core/tests", &["rs"][..]),
         ("budget-engine/src", &["rs"][..]),

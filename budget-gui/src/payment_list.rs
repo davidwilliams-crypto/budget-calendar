@@ -158,10 +158,7 @@ impl PaymentList {
         }
         let count = self.visible(db, revision).len();
         heading(ui, db, t, count);
-        egui::Frame::new()
-            .fill(t.surface)
-            .stroke(Stroke::new(1.0_f32, t.border))
-            .corner_radius(theme::RADIUS)
+        t.card()
             .inner_margin(12.0)
             .show(ui, |ui| {
                 self.search_row(ui, t);
@@ -294,10 +291,7 @@ impl PaymentList {
     /// No payments at all, or none matching. Returns whether New payment was chosen.
     fn empty_state(&mut self, ui: &mut Ui, db: &BudgetDb, t: &Tokens) -> bool {
         let mut add_first = false;
-        egui::Frame::new()
-            .fill(t.surface)
-            .stroke(Stroke::new(1.0_f32, t.border))
-            .corner_radius(theme::RADIUS)
+        t.card()
             .inner_margin(32.0)
             .show(ui, |ui| {
                 ui.set_width(ui.available_width());
@@ -338,10 +332,7 @@ impl PaymentList {
     /// The column headings and the virtualised rows of `rows` (indices into `db.payments`).
     fn table(&mut self, ui: &mut Ui, db: &BudgetDb, t: &Tokens, today: i32, rows: &[usize]) -> Option<Action> {
         let mut action = None;
-        egui::Frame::new()
-            .fill(t.surface)
-            .stroke(Stroke::new(1.0_f32, t.border))
-            .corner_radius(theme::RADIUS)
+        t.card()
             .inner_margin(egui::Margin::symmetric(12, 4))
             .show(ui, |ui| {
                 // Reserve the vertical scrollbar's width in both header and body.

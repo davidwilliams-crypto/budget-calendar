@@ -121,7 +121,7 @@ function Get-SourceFiles {
     }
     foreach ($rule in @(
         @{ Directory = 'budget-gui/src'; Extensions = @('.rs') },
-        @{ Directory = 'budget-gui/assets'; Extensions = @('.ico', '.png', '.svg') },
+        @{ Directory = 'budget-gui/assets'; Extensions = @('.ico', '.png', '.svg', '.ttf', '.txt') },
         @{ Directory = 'budget-core/src'; Extensions = @('.rs') },
         @{ Directory = 'budget-core/tests'; Extensions = @('.rs') },
         @{ Directory = 'budget-engine/src'; Extensions = @('.rs') },

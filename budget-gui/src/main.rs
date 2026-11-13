@@ -900,7 +900,7 @@ impl App {
     }
 
     fn restoring_prompt(&mut self, ctx: &egui::Context) {
-        egui::Modal::new(egui::Id::new("restoring")).frame(self.t.card().inner_margin(24)).show(ctx, |ui| {
+        egui::Modal::new(egui::Id::new("restoring")).frame(self.t.dialog()).show(ctx, |ui| {
             ui.set_width(320.0);
             ui.horizontal(|ui| { ui.spinner(); ui.label("Restoring your unsaved work…"); });
         });
@@ -910,7 +910,7 @@ impl App {
         let Some(offer) = &self.dialogs.recovery else { return };
         let t = self.t.clone();
         let mut choice = None;
-        egui::Modal::new(egui::Id::new("recovery")).frame(t.card().inner_margin(24)).show(ctx, |ui| {
+        egui::Modal::new(egui::Id::new("recovery")).frame(t.dialog()).show(ctx, |ui| {
             ui.set_width(480.0);
             ui.heading("Unsaved work found");
             ui.add_space(SP2);
@@ -1107,6 +1107,9 @@ impl App {
     fn header(&mut self, ui: &mut egui::Ui) {
         let t = self.t.clone();
         ui.spacing_mut().item_spacing.y = SP1;
+        // The header's menus are quiet toolbar buttons: no outline at rest, the sunken ground on hover.
+        ui.visuals_mut().widgets.inactive.bg_stroke = Stroke::NONE;
+        ui.visuals_mut().widgets.hovered.bg_stroke = Stroke::NONE;
         // Room for the file name: what is left after the brand, the status pill and the right-hand actions.
         // The "Unsaved changes" pill is 61 px wider than "Saved".
         let name_w = (ui.available_width() - 925.0 - if self.dirty { 62.0 } else { 0.0 }).clamp(0.0, 300.0);
@@ -1217,8 +1220,9 @@ impl App {
         let compact = ui.available_width() < 960.0;
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = SP2;
-            Frame::new().fill(t.bg).corner_radius(8).inner_margin(3).show(ui, |ui| {
-                ui.spacing_mut().item_spacing.x = 2.0;
+            // Meridian `mr-segmented`: a `surface-sunken` track; the selected option is filled with the accent.
+            Frame::new().fill(t.surface_hover).corner_radius(theme::RADIUS_MD).inner_margin(SP1).show(ui, |ui| {
+                ui.spacing_mut().item_spacing.x = SP1;
                 let enabled = self.db.is_some();
                 for (payments, icon, label) in [(false, ph::CALENDAR_BLANK, "Calendar"), (true, ph::LIST_BULLETS, "Payments")] {
                     let selected = self.show_payments == payments;
@@ -1227,14 +1231,10 @@ impl App {
                     resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, enabled, selected, label));
                     let hovered = enabled && resp.hovered();
                     if selected {
-                        ui.painter().rect(rect, 6, t.surface, Stroke::new(1.0_f32, t.border), StrokeKind::Inside);
-                        // 2px accent underline marks the active segment.
-                        ui.painter().rect_filled(egui::Rect::from_min_max(egui::pos2(rect.min.x + 14.0, rect.max.y - 3.0), egui::pos2(rect.max.x - 14.0, rect.max.y - 1.0)), 1, t.accent);
-                    } else if hovered {
-                        ui.painter().rect_filled(rect, 6, t.surface_hover);
+                        ui.painter().rect_filled(rect, theme::RADIUS_SM, if enabled { t.accent } else { t.border });
                     }
-                    if resp.has_focus() { ui.painter().rect_stroke(rect.expand(1.0), 7, Stroke::new(2.0_f32, t.accent), StrokeKind::Outside); }
-                    let color = if !enabled { t.text_muted.gamma_multiply(0.6) } else if selected { t.accent } else if hovered { t.text } else { t.text_muted };
+                    if resp.has_focus() { ui.painter().rect_stroke(rect.expand(2.0), theme::RADIUS_SM + 2, Stroke::new(2.0_f32, t.focus), StrokeKind::Outside); }
+                    let color = if !enabled { t.text_muted.gamma_multiply(0.6) } else if selected { theme::on(t.accent) } else if hovered { t.text } else { t.text_muted };
                     ui.painter().text(rect.center() - Vec2::new(0.0, 1.0), Align2::CENTER_CENTER, format!("{icon}  {label}"), ts(SEMI).resolve(ui.style()), color);
                     if enabled && resp.clicked() {
                         self.show_payments = payments;
@@ -1260,6 +1260,8 @@ impl App {
     fn month_navigation(&mut self, ui: &mut egui::Ui, t: &Tokens, compact: bool) {
         // Months move only through a budget: without one the controls stay visible but inert.
         let open = self.db.is_some();
+        ui.visuals_mut().widgets.inactive.bg_stroke = Stroke::NONE;
+        ui.visuals_mut().widgets.hovered.bg_stroke = Stroke::NONE;
         ui.add_space(if compact { SP1 } else { SP3 });
         ui.add_enabled_ui(open, |ui| {
             let previous = icon_button(ui, ph::CARET_LEFT, "Previous month").on_hover_text("Previous month (PgUp)\nHold a dragged payment here to move to this month");
@@ -1301,9 +1303,10 @@ impl App {
     /// matches add up to this month, and a × that clears it.
     fn filter_chip(&mut self, ui: &mut egui::Ui, t: &Tokens, shown: usize, total: usize, sum: f64) {
         let mut clear = false;
-        let chip = tint(t.surface, t.accent, 0.12);
-        Frame::new().fill(chip).stroke(Stroke::new(1.0_f32, t.accent))
-            .corner_radius(theme::RADIUS).inner_margin(Margin::symmetric(10, 3)).show(ui, |ui| {
+        // Meridian `mr-badge--accent`: a `surface-tint` pill, no outline.
+        let chip = t.surface_tint;
+        Frame::new().fill(chip)
+            .corner_radius(theme::RADIUS_FULL).inner_margin(Margin::symmetric(10, 3)).show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = SP2;
                     ui.label(RichText::new(format!("Showing {shown} of {total} · {}", self.filter_text.trim())).text_style(ts(CAPTION)).color(t.text));
@@ -1319,8 +1322,9 @@ impl App {
 
     fn filter_box(&mut self, ui: &mut egui::Ui, t: &Tokens, width: f32) {
         let active = !self.filter_text.trim().is_empty();
-        let stroke = Stroke::new(1.0_f32, if self.filter_error.is_some() { t.negative } else if active { t.accent } else { t.border });
-        Frame::new().fill(t.bg).stroke(stroke).corner_radius(7).inner_margin(Margin::symmetric(10, 3)).show(ui, |ui| {
+        // Meridian `mr-input`: `surface` with a `border-strong` outline; accent while a search is active, danger on error.
+        let stroke = Stroke::new(1.0_f32, if self.filter_error.is_some() { t.negative } else if active { t.accent } else { t.border_strong });
+        Frame::new().fill(t.surface).stroke(stroke).corner_radius(theme::RADIUS_MD).inner_margin(Margin::symmetric(10, 3)).show(ui, |ui| {
             ui.set_width(width);
             ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
                 ui.spacing_mut().item_spacing.x = SP2;
@@ -1354,16 +1358,19 @@ impl App {
             ("Money out", q.expenses.abs(), t.negative),
             (if compact { "Closing" } else { "Closing balance" }, q.closing, t.text),
         ];
-        let width = ((ui.available_width() - SP2 * 3.0) / 4.0).floor();
+        // Meridian: `space-3` between cards.
+        let width = ((ui.available_width() - theme::GAP * 3.0) / 4.0).floor();
         ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = SP2;
+            ui.spacing_mut().item_spacing.x = theme::GAP;
             ui.spacing_mut().interact_size.y = 22.0;
             for (index, (label, value, color)) in tiles.iter().enumerate() {
-                // Closing balance is the hero tile: accent-tinted, accent border, larger value.
+                // Closing balance is the hero tile: Meridian's one dark panel per view (`surface-ink`), or the
+                // warning pair when the month ends below the minimum balance. Compact tiles take radius-md.
                 let hero = index == 3;
-                let card = if hero && v.below_min { t.card().stroke(Stroke::new(1.0_f32, t.low.1)) }
-                    else if hero { t.card().fill(tint(t.surface, t.accent, 0.06)).stroke(Stroke::new(1.0_f32, t.accent)) }
-                    else { t.card() };
+                let (ground, muted, color) = if hero && v.below_min { (t.low.0, t.low.1, &t.low.1) }
+                    else if hero { (t.surface_ink, t.on_ink_muted, &t.on_ink) }
+                    else { (t.surface, t.text_muted, color) };
+                let card = if hero { t.card().fill(ground).stroke(Stroke::NONE).shadow(egui::Shadow::NONE) } else { t.card() }.corner_radius(theme::RADIUS_MD);
                 let delta = q.closing - q.opening;
                 let response = card.inner_margin(Margin::symmetric(10, 5)).show(ui, |ui| {
                     let size = Vec2::new((width - 20.0 - 2.0 * card.stroke.width).max(80.0), 22.0);
@@ -1376,10 +1383,11 @@ impl App {
                     let amount_w = amount.size().x;
                     let amount_rect = egui::Rect::from_min_max(egui::pos2(rect.max.x - amount_w, rect.min.y), rect.max);
                     let mut name_right = (amount_rect.min.x - 8.0).max(rect.min.x);
-                    let label_w = p.layout_no_wrap((*label).to_string(), ts(CAPTION).resolve(ui.style()), t.text_muted).size().x;
+                    let label_w = p.layout_no_wrap((*label).to_string(), ts(CAPTION).resolve(ui.style()), muted).size().x;
                     // Net change since opening, as an arrow + amount, when it fits beside the label.
                     if hero && delta.abs() >= 0.005 {
                         let (icon, col) = if delta > 0.0 { (ph::ARROW_UP, t.positive) } else { (ph::ARROW_DOWN, t.negative) };
+                        let col = theme::legible(col, ground);
                         let g = p.layout_no_wrap(format!("{icon} {}", money(delta.abs(), true)), ts(CAPTION).resolve(ui.style()), col);
                         if label_w + 10.0 + g.size().x <= name_right - rect.min.x {
                             let left = name_right - g.size().x;
@@ -1388,22 +1396,18 @@ impl App {
                         }
                     }
                     let name_rect = egui::Rect::from_min_max(rect.min, egui::pos2(name_right, rect.max.y));
-                    let mut name = egui::text::LayoutJob::simple_singleline((*label).to_string(), ts(CAPTION).resolve(ui.style()), t.text_muted);
+                    let mut name = egui::text::LayoutJob::simple_singleline((*label).to_string(), ts(CAPTION).resolve(ui.style()), muted);
                     name.wrap = egui::text::TextWrapping::truncate_at_width(name_rect.width());
                     let name = p.layout_job(name);
-                    p.with_clip_rect(name_rect).galley(egui::pos2(name_rect.min.x, rect.center().y - name.size().y / 2.0), name, t.text_muted);
+                    p.with_clip_rect(name_rect).galley(egui::pos2(name_rect.min.x, rect.center().y - name.size().y / 2.0), name, muted);
                     p.with_clip_rect(amount_rect).galley(egui::pos2(rect.max.x - amount.size().x, rect.center().y - amount.size().y / 2.0), amount, *color);
                 });
-                if index == 1 || index == 2 {
-                    let r = response.response.rect;
-                    ui.painter().rect_filled(egui::Rect::from_min_max(egui::pos2(r.min.x, r.min.y + 6.0), egui::pos2(r.min.x + 3.0, r.max.y - 6.0)), 1.5, *color);
-                }
                 // Each tile is one Tab stop with its own id. Interacting through the frame's response
                 // instead registered it twice (hover, then the context menu's click), so the tile
                 // surrendered keyboard focus every frame and Tab restarted at the header.
                 let tile = ui.interact(response.response.rect, ui.id().with(("summary_tile", index)), Sense::click());
                 if tile.has_focus() {
-                    ui.painter().rect_stroke(tile.rect.expand(1.0), theme::RADIUS + 1, Stroke::new(2.0_f32, t.accent), StrokeKind::Outside);
+                    ui.painter().rect_stroke(tile.rect.expand(2.0), theme::RADIUS_MD + 2, Stroke::new(2.0_f32, t.focus), StrokeKind::Outside);
                 }
                 tile.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Label, true, format!("{label}: {}", money(*value, true))));
                 if index == 0 || index == 3 {
@@ -1530,14 +1534,17 @@ impl App {
             let width = 440.0_f32.min(ui.available_width() - SP3 * 2.0).max(240.0);
             let (zone, _) = ui.allocate_exact_size(Vec2::new(width, 280.0), Sense::hover());
             let hovering_file = ui.ctx().input(|i| !i.raw.hovered_files.is_empty());
-            ui.painter().rect_filled(zone, theme::RADIUS, tint(t.bg, t.accent, if hovering_file { 0.12 } else { 0.04 }));
-            let corners = [zone.left_top(), zone.right_top(), zone.right_bottom(), zone.left_bottom(), zone.left_top()];
-            for shape in egui::Shape::dashed_line(&corners, Stroke::new(1.5_f32, tint(t.bg, t.accent, 0.6)), 7.0, 5.0) { ui.painter().add(shape); }
+            // A Meridian card on the canvas; the dashed outline says a file can be dropped here.
+            ui.painter().add(t.card_shadow().as_shape(zone, theme::RADIUS));
+            ui.painter().rect_filled(zone, theme::RADIUS, if hovering_file { t.surface_tint } else { t.surface });
+            let dash = zone.shrink(theme::GAP);
+            let corners = [dash.left_top(), dash.right_top(), dash.right_bottom(), dash.left_bottom(), dash.left_top()];
+            for shape in egui::Shape::dashed_line(&corners, Stroke::new(1.5_f32, tint(t.surface, t.accent, 0.5)), 7.0, 5.0) { ui.painter().add(shape); }
             let mut inner = ui.new_child(egui::UiBuilder::new().max_rect(zone.shrink(SP3)).layout(Layout::top_down(Align::Center)));
             inner.add_space(SP1);
             let (circle, _) = inner.allocate_exact_size(Vec2::splat(56.0), Sense::hover());
-            inner.painter().circle_filled(circle.center(), 28.0, tint(t.bg, t.accent, 0.16));
-            inner.painter().text(circle.center(), Align2::CENTER_CENTER, ph::CALENDAR_DOTS, egui::FontId::new(30.0, egui::FontFamily::Proportional), t.accent);
+            inner.painter().circle_filled(circle.center(), 28.0, t.surface_tint);
+            inner.painter().text(circle.center(), Align2::CENTER_CENTER, ph::CALENDAR_DOTS, egui::FontId::new(30.0, egui::FontFamily::Proportional), t.accent_text);
             inner.label(RichText::new("Start or open a budget").text_style(ts(TITLE)));
             inner.label(RichText::new("Create a new budget, or drop a .bgt file here to open one.").color(t.text_muted));
             inner.add_space(SP1);
@@ -1549,7 +1556,7 @@ impl App {
             let recent: Vec<String> = self.cfg.recent_file.clone();
             if !recent.is_empty() {
                 ui.add_space(SP3);
-                ui.label(RichText::new("RECENT").text_style(ts(CAPTION)).color(t.text_muted));
+                ui.label(RichText::new("Recent").text_style(ts(theme::LABEL)).color(t.text_muted));
                 ui.add_space(SP1);
                 for r in recent.iter().take(6) {
                     let path = Path::new(r);
@@ -1638,7 +1645,7 @@ impl App {
         let Some(b) = self.banner.clone() else { return };
         let t = self.t.clone();
         let (mut dismiss, mut open, mut restore) = (false, false, false);
-        Frame::new().fill(tint(t.surface, t.negative, 0.1)).stroke(Stroke::new(1.0_f32, tint(t.surface, t.negative, 0.4))).corner_radius(theme::RADIUS).inner_margin(Margin::symmetric(12, 8)).show(ui, |ui| {
+        Frame::new().fill(tint(t.surface, t.negative, if t.dark { 0.16 } else { 0.1 })).corner_radius(theme::RADIUS_MD).inner_margin(Margin::symmetric(12, 8)).show(ui, |ui| {
             ui.horizontal_top(|ui| {
                 ui.label(RichText::new(ph::WARNING_CIRCLE).text_style(ts(ICON)).color(t.negative));
                 // Close button on the far right; the message column takes the rest.
@@ -1681,12 +1688,12 @@ impl App {
         if now >= toast.until { self.toast = None; return; }
         ctx.request_repaint_after(toast.until - now);
         let t = &self.t;
-        let (bg, fg) = if t.dark { (t.surface_hover, t.text) } else { (t.text, t.bg) };
+        let (bg, fg) = (t.surface_ink, t.on_ink);
         egui::Area::new(egui::Id::new("toast")).anchor(Align2::RIGHT_BOTTOM, Vec2::new(-SP3, -SP3)).order(egui::Order::Foreground).show(ctx, |ui| {
-            Frame::new().fill(bg).corner_radius(theme::RADIUS).inner_margin(Margin::symmetric(14, 10)).shadow(ctx.style().visuals.popup_shadow).show(ui, |ui| {
+            Frame::new().fill(bg).stroke(t.dialog().stroke).corner_radius(theme::RADIUS_MD).inner_margin(Margin::symmetric(14, 10)).shadow(t.pop_shadow()).show(ui, |ui| {
                 ui.horizontal(|ui| {
                     let icon = if toast.error { ph::WARNING_CIRCLE } else { ph::CHECK_CIRCLE };
-                    ui.label(RichText::new(icon).text_style(ts(ICON)).color(if toast.error { t.negative } else { t.positive }));
+                    ui.label(RichText::new(icon).text_style(ts(ICON)).color(theme::legible(if toast.error { t.negative } else { t.positive }, bg)));
                     ui.label(RichText::new(&toast.text).color(fg));
                 });
             });
@@ -1736,7 +1743,7 @@ impl App {
         let mut done: Option<Option<String>> = None;
         let mut restore = false;
         let line = encrypted_line(path, restore_to.as_deref());
-        egui::Modal::new(egui::Id::new("password")).frame(Frame::new().fill(t.surface).stroke(Stroke::new(1.0_f32, t.border)).corner_radius(theme::RADIUS).inner_margin(SP4).shadow(ctx.style().visuals.window_shadow)).show(ctx, |ui| {
+        egui::Modal::new(egui::Id::new("password")).frame(t.dialog()).show(ctx, |ui| {
             ui.set_width(320.0);
             ui.label(RichText::new("Password required").text_style(ts(TITLE)));
             ui.label(RichText::new(line).color(t.text_muted));
@@ -1782,7 +1789,7 @@ impl App {
         let t = self.t.clone();
         let (name, has_backup) = (file_name(&prompt.path), prompt.has_backup);
         let mut choice = None;
-        egui::Modal::new(egui::Id::new("incomplete")).frame(t.card().inner_margin(24)).show(ctx, |ui| {
+        egui::Modal::new(egui::Id::new("incomplete")).frame(t.dialog()).show(ctx, |ui| {
             ui.set_width(480.0);
             ui.heading("This budget may be incomplete");
             ui.add_space(SP2);
@@ -1821,7 +1828,7 @@ impl App {
         }
         let t = self.t.clone();
         let (mut close, mut picked) = (false, None);
-        egui::Modal::new(egui::Id::new("restore")).frame(t.card().inner_margin(24)).show(ctx, |ui| {
+        egui::Modal::new(egui::Id::new("restore")).frame(t.dialog()).show(ctx, |ui| {
             ui.set_width(460.0);
             ui.heading("Restore previous version");
             ui.add_space(SP2);
@@ -2163,7 +2170,7 @@ impl App {
         let mut menu_open = false;
         let mut open = true;
         let mut action = None;
-        let response = egui::Modal::new(egui::Id::new("day_transactions")).frame(t.card().inner_margin(24)).show(ctx, |ui| {
+        let response = egui::Modal::new(egui::Id::new("day_transactions")).frame(t.dialog()).show(ctx, |ui| {
             ui.set_width(560.0_f32.min(ctx.screen_rect().width() - 80.0));
             ui.heading(names::long_date(date));
             ui.label(RichText::new(summary).color(t.text_muted));
@@ -2316,7 +2323,7 @@ impl App {
         if let Some(action) = self.dialogs.pending.clone() {
             let draft = self.has_draft();
             let mut choice = None;
-            egui::Modal::new(egui::Id::new("unsaved")).frame(t.card().inner_margin(24)).show(ctx, |ui| {
+            egui::Modal::new(egui::Id::new("unsaved")).frame(t.dialog()).show(ctx, |ui| {
                 ui.set_width(460.0);
                 ui.heading(if draft { "Finish your edit" } else { "Unsaved changes" });
                 ui.add_space(SP2);
@@ -2362,7 +2369,7 @@ impl App {
             let description = payment.map(|p| p.description.clone()).unwrap_or_default();
             let loan = payment.is_some_and(|p| p.end_mode() == budget_core::END_MODE_LOAN_PAID);
             let mut choice = None;
-            egui::Modal::new(egui::Id::new("delete")).frame(t.card().inner_margin(24)).show(ctx, |ui| {
+            egui::Modal::new(egui::Id::new("delete")).frame(t.dialog()).show(ctx, |ui| {
                 ui.set_width(440.0);
                 ui.heading(if target.date.is_some() { "Delete transaction" } else { "Delete payment" });
                 ui.add_space(SP2);
@@ -2445,7 +2452,7 @@ impl App {
         if !self.dialogs.shortcuts { return; }
         let t = self.t.clone();
         let mut close = false;
-        let response = egui::Modal::new(egui::Id::new("shortcuts")).frame(t.card().inner_margin(SP4)).show(ctx, |ui| {
+        let response = egui::Modal::new(egui::Id::new("shortcuts")).frame(t.dialog()).show(ctx, |ui| {
             ui.set_width((ctx.screen_rect().width() - 64.0).clamp(280.0, 460.0));
             ui.label(RichText::new("Keyboard shortcuts").text_style(ts(TITLE)));
             ui.add_space(SP2);
@@ -2483,7 +2490,7 @@ impl App {
     fn legend(&mut self, ctx: &egui::Context) {
         let t = self.t.clone();
         let mut close = false;
-        let response = egui::Modal::new(egui::Id::new("legend")).frame(t.card().inner_margin(SP4)).show(ctx, |ui| {
+        let response = egui::Modal::new(egui::Id::new("legend")).frame(t.dialog()).show(ctx, |ui| {
             ui.set_width((ctx.screen_rect().width() - 64.0).clamp(280.0, 420.0));
             ui.label(RichText::new("Calendar legend").text_style(ts(TITLE)));
             ui.add_space(SP2);
@@ -2507,7 +2514,7 @@ impl App {
         if !self.dialogs.about { return; }
         let t = &self.t;
         let mut close = false;
-        let response = egui::Modal::new(egui::Id::new("version_history")).frame(t.card()).show(ctx, |ui| {
+        let response = egui::Modal::new(egui::Id::new("version_history")).frame(t.dialog()).show(ctx, |ui| {
             ui.set_width((ctx.screen_rect().width() - 64.0).clamp(280.0, 650.0));
             ui.spacing_mut().item_spacing.y = SP2;
             ui.heading("Budget Calendar");
@@ -4109,6 +4116,21 @@ mod lifecycle_tests {
 
     fn shown(texts: &Texts, s: &str) -> bool { texts.iter().any(|(t, _)| t.galley.job.text == s) }
 
+    /// Every painted rectangle except blurred shadows, including those inside a frame's shape group
+    /// (a frame with a shadow paints `Shape::Vec([shadow, background])`).
+    fn solid_rects(output: &egui::FullOutput) -> Vec<egui::epaint::RectShape> {
+        fn visit(shape: &egui::Shape, out: &mut Vec<egui::epaint::RectShape>) {
+            match shape {
+                egui::Shape::Rect(r) if r.blur_width == 0.0 => out.push(r.clone()),
+                egui::Shape::Vec(shapes) => for s in shapes { visit(s, out); },
+                _ => {}
+            }
+        }
+        let mut out = Vec::new();
+        for clipped in &output.shapes { visit(&clipped.shape, &mut out); }
+        out
+    }
+
     /// The painted extent of a rendered text.
     fn ink(text: &egui::epaint::TextShape) -> egui::Rect { text.galley.mesh_bounds.translate(text.pos.to_vec2()) }
 
@@ -4653,10 +4675,11 @@ mod lifecycle_tests {
             let output = frame(&mut app, &ctx, vec![], false);
             let texts = rendered_text(&output);
             let (close, quit) = (text_center(&texts, |s| s == "Close budget").unwrap(), text_center(&texts, |s| s == "Close app").unwrap());
-            // Separators are horizontal lines spanning the menu (not the wider calendar grid lines behind it).
+            // Separators are horizontal lines spanning the menu (at least 210 px wide less its margins), not the
+            // wider grid lines or the narrower day-cell lines of the calendar behind it.
             let lines = output.shapes.iter().filter(|s| matches!(&s.shape, egui::Shape::LineSegment { points, .. }
                 if (points[0].y - points[1].y).abs() < 0.5 && points[0].y > close.y && points[0].y < quit.y
-                    && (100.0..400.0).contains(&(points[1].x - points[0].x).abs()) && points[0].x.min(points[1].x) <= close.x && close.x <= points[0].x.max(points[1].x))).count();
+                    && (180.0..400.0).contains(&(points[1].x - points[0].x).abs()) && points[0].x.min(points[1].x) <= close.x && close.x <= points[0].x.max(points[1].x))).count();
             assert_eq!(lines, if recent { 2 } else { 1 }, "recent: {recent}");
             std::fs::remove_dir_all(dir).unwrap();
         }
@@ -4668,17 +4691,16 @@ mod lifecycle_tests {
         app.db = Some(BudgetDb::new(&app.cur, 12, false));
         app.dirty = false;
         let ctx = gui(&app);
+        // Settled: past the area's 0.12 s fade-in (each test frame advances egui's clock by 1/60 s).
         let mut output = frame(&mut app, &ctx, vec![], false);
-        for _ in 0..2 { output = frame(&mut app, &ctx, vec![], false); }
+        for _ in 0..12 { output = frame(&mut app, &ctx, vec![], false); }
         let texts = rendered_text(&output);
         let title = text_center(&texts, |s| s == "Add your first payment").expect("the first-payment card");
         assert!(!shown(&texts, "Open a budget"), "a budget is open, so the card does not offer to open one");
         let button = text_center(&texts, |s| s.ends_with("New payment (Ctrl+N)")).expect("the card's button");
         assert!((title.x - button.x).abs() < 2.0, "the button sits centred under the card's title: {title:?} {button:?}");
-        let card = output.shapes.iter().filter_map(|s| match &s.shape {
-            egui::Shape::Rect(r) if r.rect.contains(title) && r.rect.width() >= 300.0 => Some((r.rect, r.fill)),
-            _ => None,
-        }).min_by(|a, b| a.0.area().total_cmp(&b.0.area())).expect("the card background");
+        let card = solid_rects(&output).into_iter().filter(|r| r.rect.contains(title) && r.rect.width() >= 300.0)
+            .map(|r| (r.rect, r.fill)).min_by(|a, b| a.0.area().total_cmp(&b.0.area())).expect("the card background");
         assert_eq!(card.1.a(), 255, "the card is opaque in a settled frame: {:?}", card.1);
         std::fs::remove_dir_all(dir).unwrap();
     }
@@ -4718,10 +4740,8 @@ mod lifecycle_tests {
         let mut output = ctx.run(window(1600.0, 900.0), |ctx| app.render(ctx));
         for _ in 0..2 { output = ctx.run(window(1600.0, 900.0), |ctx| app.render(ctx)); }
         let title = text_center(&rendered_text(&output), |s| s == "Summary").expect("the summary card");
-        let card = output.shapes.iter().filter_map(|s| match &s.shape {
-            egui::Shape::Rect(r) if r.rect.contains(title) && r.rect.width() > 200.0 => Some(r.rect),
-            _ => None,
-        }).min_by(|a, b| a.area().total_cmp(&b.area())).expect("the card background");
+        let card = solid_rects(&output).into_iter().filter(|r| r.rect.contains(title) && r.rect.width() > 200.0)
+            .map(|r| r.rect).min_by(|a, b| a.area().total_cmp(&b.area())).expect("the card background");
         assert!(card.height() < 600.0, "the card wraps its content instead of filling the 900 px panel: {card:?}");
         std::fs::remove_dir_all(dir).unwrap();
     }
