@@ -967,8 +967,10 @@ mod tests {
 
     #[test]
     fn ordinary_signed_amounts_stay_complete_when_a_readable_name_also_fits() {
-        // A fixed half-width amount column needlessly truncates routine mortgage values.
-        for (width, value) in [(884.0, "−1,234.56"), (1176.0, "−123,456.78")] {
+        // A fixed half-width amount column needlessly truncates routine mortgage values. With Geist's tabular
+        // figures (every digit as wide as the widest) "−1,234.56" needs 63 px: at 928 px a half-width column
+        // (about 55 px) would still cut it, while the measured column keeps it whole and the name keeps 40 px.
+        for (width, value) in [(928.0, "−1,234.56"), (1176.0, "−123,456.78")] {
             let (ctx, t) = context();
             let mut view = fixture(5, 5);
             std::rc::Rc::make_mut(&mut view.cells[0].rows[0]).amount = value.into();
