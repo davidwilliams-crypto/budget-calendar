@@ -1,0 +1,11 @@
+Geist Tabular
+
+These fonts are a Modified Version of Geist 1.800 (Regular, Medium, SemiBold) by The Geist Project
+Authors, https://github.com/vercel/geist-font, commit ef2597cfc42f4797676df105517ccc0a1cfa6569.
+They are licensed under the SIL Open Font License 1.1 (OFL.txt in this folder).
+
+The only change: the digits 0-9 map straight to Geist's tabular figures (its "tnum" glyphs), because
+the app's text engine cannot switch OpenType features on, and money columns need figures of equal
+width. The family is renamed "Geist Tabular" so it is not mistaken for the original.
+
+Budget Calendar embeds them in its executable. The Meridian design system sets all text in Geist.

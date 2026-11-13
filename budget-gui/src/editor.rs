@@ -376,7 +376,7 @@ impl PaymentEditor {
         let mut action = PaymentAction::None;
         let mut enter = false;
         let mut apply = false;
-        egui::Modal::new(egui::Id::new("payment_editor")).frame(t.card()).show(ctx, |ui| {
+        egui::Modal::new(egui::Id::new("payment_editor")).frame(t.dialog()).show(ctx, |ui| {
             ui.set_width(560.0_f32.min((ctx.screen_rect().width() - 64.0).max(240.0)));
             ui.spacing_mut().item_spacing = egui::vec2(8.0, FIELD_GAP);
             ui.heading(if self.payment_id.is_some() { "Edit payment" } else { "Add payment" });
@@ -564,7 +564,7 @@ impl TransactionEditor {
         let mut apply = false;
         // A calendar row opens this editor on its first click; a double-click's second click is ignored.
         let (ignore_pointer, refocus) = self.guard.update(ctx);
-        egui::Modal::new(egui::Id::new("transaction_editor")).frame(t.card()).show(ctx, |ui| {
+        egui::Modal::new(egui::Id::new("transaction_editor")).frame(t.dialog()).show(ctx, |ui| {
             if ignore_pointer { ui.disable(); }
             ui.set_width(520.0_f32.min((ctx.screen_rect().width() - 64.0).max(240.0)));
             ui.spacing_mut().item_spacing = egui::vec2(8.0, FIELD_GAP);
@@ -635,7 +635,7 @@ impl TransactionEditor {
 }
 
 pub(crate) fn form_section(ui: &mut egui::Ui, title: &str, t: &Tokens, body: impl FnOnce(&mut egui::Ui)) {
-    egui::Frame::new().fill(t.bg).corner_radius(8).inner_margin(16).show(ui, |ui| {
+    egui::Frame::new().fill(t.surface_hover).corner_radius(theme::RADIUS_MD).inner_margin(16).show(ui, |ui| {
         ui.set_width(ui.available_width());
         ui.label(RichText::new(title).strong().color(t.text));
         ui.add_space(2.0);
@@ -666,8 +666,8 @@ pub(crate) fn dialog_footer(ui: &mut egui::Ui, primary: &str, destructive: Optio
     ui.horizontal(|ui| {
         if let Some(text) = destructive {
             let response = ui.add(egui::Button::new(RichText::new(destructive_label(text)).color(t.negative))
-                .fill(egui::Color32::TRANSPARENT).stroke(egui::Stroke::NONE).corner_radius(7)
-                .min_size(egui::vec2(0.0, 36.0)));
+                .fill(egui::Color32::TRANSPARENT).stroke(egui::Stroke::NONE).corner_radius(theme::RADIUS_MD)
+                .min_size(egui::vec2(0.0, theme::CONTROL_H)));
             theme::focus_ring(ui, &response, t);
             destroy = response.on_hover_cursor(egui::CursorIcon::PointingHand).clicked();
         }
@@ -732,9 +732,10 @@ fn kind_color(kind: AmountKind, t: &Tokens) -> egui::Color32 {
     match kind { AmountKind::Expense => t.negative, AmountKind::Income => t.positive }
 }
 
-/// Expense/Income as a two-segment control styled like the Calendar/Payments tabs.
+/// Expense/Income as a Meridian segmented control, like the Calendar/Payments switch: a sunken track with the
+/// selected option filled with the accent.
 fn polarity_control(ui: &mut egui::Ui, kind: &mut AmountKind, label: egui::Id, t: &Tokens) {
-    egui::Frame::new().fill(t.bg).stroke(egui::Stroke::new(1.0_f32, t.border)).corner_radius(8).inner_margin(3).show(ui, |ui| {
+    egui::Frame::new().fill(t.surface_hover).corner_radius(theme::RADIUS_MD).inner_margin(3).show(ui, |ui| {
         ui.spacing_mut().item_spacing.x = 2.0;
         for (candidate, text) in [(AmountKind::Expense, "Expense"), (AmountKind::Income, "Income")] {
             let selected = *kind == candidate;
@@ -746,14 +747,12 @@ fn polarity_control(ui: &mut egui::Ui, kind: &mut AmountKind, label: egui::Id, t
             let hovered = response.hovered();
             let painter = ui.painter();
             if selected {
-                painter.rect(rect, 6, t.surface, egui::Stroke::new(1.0_f32, t.border), egui::StrokeKind::Inside);
-            } else if hovered {
-                painter.rect_filled(rect, 6, t.surface_hover);
+                painter.rect_filled(rect, theme::RADIUS_SM, t.accent);
             }
             if response.has_focus() {
-                painter.rect_stroke(rect.expand(1.0), 7, egui::Stroke::new(2.0_f32, t.accent), egui::StrokeKind::Outside);
+                painter.rect_stroke(rect.expand(2.0), theme::RADIUS_SM + 2, egui::Stroke::new(2.0_f32, t.focus), egui::StrokeKind::Outside);
             }
-            let color = if selected { kind_color(candidate, t) } else if hovered { t.text } else { t.text_muted };
+            let color = if selected { theme::on(t.accent) } else if hovered { t.text } else { t.text_muted };
             let style = if selected { theme::ts(theme::SEMI) } else { egui::TextStyle::Body };
             painter.text(rect.center(), egui::Align2::CENTER_CENTER, text, style.resolve(ui.style()), color);
         }
@@ -775,20 +774,20 @@ fn amount_field(ui: &mut egui::Ui, amount: &mut String, kind: &mut AmountKind, t
     })
 }
 pub(crate) fn form_error(ui: &mut egui::Ui, error: &str, t: &Tokens) {
-    egui::Frame::new().fill(theme::tint(t.surface, t.negative, 0.08)).corner_radius(6)
+    egui::Frame::new().fill(theme::tint(t.surface, t.negative, 0.08)).corner_radius(theme::RADIUS_SM)
         .inner_margin(10).show(ui, |ui| {
             ui.label(RichText::new(error).color(t.negative));
         });
 }
 fn form_notice(ui: &mut egui::Ui, notice: &str, t: &Tokens) {
-    egui::Frame::new().fill(theme::tint(t.surface, t.text_muted, 0.10)).corner_radius(6)
+    egui::Frame::new().fill(theme::tint(t.surface, t.text_muted, 0.10)).corner_radius(theme::RADIUS_SM)
         .inner_margin(10).show(ui, |ui| {
             ui.label(RichText::new(notice).color(t.text));
         });
 }
 /// The original's "Payment's Amount Changed" choice (analysis/04 §2), pinned above the footer.
 fn scope_choice(ui: &mut egui::Ui, scope: &mut ChangeScope, date: i32, t: &Tokens) {
-    egui::Frame::new().fill(theme::tint(t.surface, t.text_muted, 0.10)).corner_radius(6)
+    egui::Frame::new().fill(theme::tint(t.surface, t.text_muted, 0.10)).corner_radius(theme::RADIUS_SM)
         .inner_margin(10).show(ui, |ui| {
             ui.set_width(ui.available_width());
             ui.spacing_mut().item_spacing.y = LABEL_GAP;
@@ -812,10 +811,8 @@ fn date_field(ui: &mut egui::Ui, label: &str, id: &str, value: &mut String, pick
             .min_size(egui::vec2(0.0, CONTROL_HEIGHT)).vertical_align(egui::Align::Center)).labelled_by(label);
         entered = submitted(ui, &response);
         let button = ui.add_sized([36.0, CONTROL_HEIGHT], egui::Button::new(RichText::new(ph::CALENDAR_BLANK).color(t.text))
-            .fill(t.surface).stroke(egui::Stroke::new(1.0_f32, t.border_strong)).corner_radius(7));
-        if button.has_focus() {
-            ui.painter().rect_stroke(button.rect.expand(1.0), 8, egui::Stroke::new(2.0_f32, t.accent), egui::StrokeKind::Outside);
-        }
+            .fill(t.surface).stroke(egui::Stroke::new(1.0_f32, t.border_strong)).corner_radius(theme::RADIUS_MD));
+        theme::focus_ring(ui, &button, t);
         button.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, "Pick date"));
         button.labelled_by(label).on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text("Pick date")
     }).inner);

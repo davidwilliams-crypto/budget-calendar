@@ -569,7 +569,7 @@ impl Draft {
         if dialog_escape(ctx) { return DraftAction::Cancel; }
         let mut action = DraftAction::None;
         let before = (self.from, self.to, self.other);
-        egui::Modal::new(egui::Id::new("report_range")).frame(t.card().inner_margin(24)).show(ctx, |ui| {
+        egui::Modal::new(egui::Id::new("report_range")).frame(t.dialog()).show(ctx, |ui| {
             ui.set_width(460.0_f32.min((ctx.screen_rect().width() - 96.0).max(260.0)));
             ui.spacing_mut().item_spacing = egui::vec2(8.0, 10.0);
             ui.heading(self.kind.title());

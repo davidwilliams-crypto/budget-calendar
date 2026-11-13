@@ -1,4 +1,5 @@
-//! Design tokens (colour roles, type scale, spacing) and egui style setup.
+//! Design tokens (colour roles, type scale, spacing) and egui style setup, following the Meridian
+//! design system: cards on a canvas, one accent, generous radii, a barely-there shadow, Geist type.
 //!
 //! Colours come from the user's `.budgetrc` palette. A colour that still has its stock value
 //! (light or dark default) is replaced by the modern tone of the same role; a colour the user
@@ -10,12 +11,29 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-/// 8-px spacing scale.
+/// Meridian spacing steps: SP1 = space-1 (4), SP2 = space-2 (8), SP3 = space-4 (16), SP4 = space-6 (24).
 pub const SP1: f32 = 4.0;
 pub const SP2: f32 = 8.0;
 pub const SP3: f32 = 16.0;
 pub const SP4: f32 = 24.0;
-pub const RADIUS: u8 = 10;
+/// Meridian space-3: the gap between cards.
+pub const GAP: f32 = 12.0;
+/// Meridian space-5: the padding inside a card.
+pub const CARD_PAD: f32 = 20.0;
+/// Meridian radius-lg: cards.
+pub const RADIUS: u8 = 20;
+/// Meridian radius-sm: small inner controls, chips inside controls, keycaps.
+pub const RADIUS_SM: u8 = 8;
+/// Meridian radius-md: buttons, inputs, menus, list rows, banners.
+pub const RADIUS_MD: u8 = 12;
+/// Meridian radius-xl: dialogs and other floating shells.
+pub const RADIUS_XL: u8 = 28;
+/// Meridian radius-full: badges, pills, toggles.
+pub const RADIUS_FULL: u8 = 255;
+/// Meridian control height: buttons and inputs line up at 40px.
+pub const CONTROL_H: f32 = 40.0;
+/// Meridian dense control height, for table rows, toolbars and the calendar's dense controls.
+pub const CONTROL_H_DENSE: f32 = 32.0;
 
 /// Named text styles beyond egui's built-ins (see `apply`).
 pub const TITLE: &str = "title";
@@ -25,6 +43,8 @@ pub const VALUE: &str = "value";
 pub const DAY: &str = "day";
 pub const SEMI: &str = "semi";
 pub const ICON: &str = "icon";
+/// Meridian `label`: 11px semibold eyebrows and column headers, sentence case.
+pub const LABEL: &str = "label";
 
 pub fn ts(name: &'static str) -> TextStyle { TextStyle::Name(name.into()) }
 pub fn font(ui: &egui::Ui, name: &'static str) -> FontId { ts(name).resolve(ui.style()) }
@@ -38,9 +58,9 @@ fn luminance(c: Color32) -> f32 {
     let f = |v: u8| { let v = v as f32 / 255.0; if v <= 0.03928 { v / 12.92 } else { ((v + 0.055) / 1.055).powf(2.4) } };
     0.2126 * f(c.r()) + 0.7152 * f(c.g()) + 0.0722 * f(c.b())
 }
-/// Readable text colour on an arbitrary background.
+/// Readable text colour on an arbitrary background: Meridian `ink` on light fills, white on dark ones.
 pub fn on(bg: Color32) -> Color32 {
-    let dark = rgb(0x172033);
+    let dark = rgb(0x0b1433);
     let best = if contrast(dark, bg) > contrast(Color32::WHITE, bg) { dark } else { Color32::WHITE };
     if contrast(best, bg) >= AA_TEXT { return best; }
     // Mid-tone fills where neither the soft ink nor white reaches AA: take pure black or white.
@@ -52,25 +72,25 @@ pub fn hover_shade(c: Color32, dark: bool) -> Color32 {
     if dark { c.lerp_to_gamma(Color32::WHITE, 0.12) } else { c.lerp_to_gamma(Color32::BLACK, 0.08) }
 }
 
-/// A keyboard-focus ring (2px accent) that every helper button paints, so focus is always visible.
+/// Meridian's keyboard-focus ring: 2px solid `focus`, 2px outside the control, on every helper button.
 pub fn focus_ring(ui: &egui::Ui, resp: &egui::Response, t: &Tokens) {
     if resp.has_focus() {
-        ui.painter().rect_stroke(resp.rect.expand(2.0), 9, Stroke::new(2.0_f32, t.accent), StrokeKind::Outside);
+        ui.painter().rect_stroke(resp.rect.expand(2.0), RADIUS_MD + 2, Stroke::new(2.0_f32, t.focus), StrokeKind::Outside);
     }
 }
 
 /// The same ring drawn inside the response's rectangle, for rows that fill their whole width.
 pub fn focus_ring_inside(ui: &egui::Ui, resp: &egui::Response, t: &Tokens) {
     if resp.has_focus() {
-        ui.painter().rect_stroke(resp.rect, 4, Stroke::new(2.0_f32, t.accent), StrokeKind::Inside);
+        ui.painter().rect_stroke(resp.rect, RADIUS_SM, Stroke::new(2.0_f32, t.focus), StrokeKind::Inside);
     }
 }
 
-/// A filled button whose fill brightens on hover/press. The fill is set through the widget visuals
-/// (not `Button::fill`, which would pin one colour for every state).
-fn filled_button(ui: &mut egui::Ui, text: egui::RichText, fill: Color32, t: &Tokens) -> egui::Response {
+/// A filled button (Meridian `mr-btn`) whose fill changes on hover/press. The fill is set through the
+/// widget visuals (not `Button::fill`, which would pin one colour for every state).
+fn filled_button(ui: &mut egui::Ui, text: egui::RichText, fill: Color32, hover: Color32, t: &Tokens) -> egui::Response {
     let resp = ui.scope(|ui| {
-        let (hover, pressed) = (hover_shade(fill, t.dark), hover_shade(hover_shade(fill, t.dark), t.dark));
+        let pressed = hover_shade(hover, t.dark);
         // `apply` sets an override text colour for every label, and an uncoloured `RichText` takes it
         // (egui bakes it into the galley), which would hide the per-state ink set below.
         ui.style_mut().visuals.override_text_color = None;
@@ -86,80 +106,82 @@ fn filled_button(ui: &mut egui::Ui, text: egui::RichText, fill: Color32, t: &Tok
         w.inactive.bg_stroke = Stroke::NONE;
         w.hovered.bg_stroke = Stroke::NONE;
         w.active.bg_stroke = Stroke::NONE;
-        let resp = ui.add(egui::Button::new(text).corner_radius(7).min_size(Vec2::new(0.0, 36.0)));
-        // 1px lighter top edge gives the primary action a subtle raised look.
-        let top = resp.rect.shrink2(Vec2::new(7.0, 0.0));
-        ui.painter().hline(top.x_range(), resp.rect.min.y + 0.5, Stroke::new(1.0_f32, alpha(Color32::WHITE, if t.dark { 26 } else { 46 })));
-        resp
+        // Meridian buttons are flat: no raised edge, gradient or glow.
+        ui.add(egui::Button::new(text).corner_radius(RADIUS_MD).min_size(Vec2::new(0.0, CONTROL_H)))
     }).inner;
     focus_ring(ui, &resp, t);
     resp.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
+/// Meridian `mr-btn`: the one primary action, filled with `accent`.
 pub fn primary_button(ui: &mut egui::Ui, label: impl Into<String>, t: &Tokens) -> egui::Response {
-    filled_button(ui, egui::RichText::new(label.into()).text_style(ts(SEMI)), t.accent, t)
+    filled_button(ui, egui::RichText::new(label.into()).text_style(ts(SEMI)), t.accent, t.accent_hover, t)
 }
 
+/// Meridian `mr-btn--ghost`: cancel, dismiss and other tertiary actions, outlined in `border-strong`.
 pub fn secondary_button(ui: &mut egui::Ui, label: impl Into<String>, t: &Tokens) -> egui::Response {
     let enabled = ui.is_enabled();
     // Disabled keeps readable text (muted, not faint) so a greyed "Save changes" is still legible.
     let color = if enabled { t.text } else { t.text_muted };
     let resp = ui.scope(|ui| {
         // Per-state visuals (not `Button::fill`/`stroke`, which pin one look for every state): the
-        // border turns accent on hover and press.
+        // ground sinks on hover and press; the outline stays `border-strong`.
         let w = &mut ui.style_mut().visuals.widgets;
         w.inactive.weak_bg_fill = t.surface;
-        w.hovered.weak_bg_fill = tint(t.surface, t.accent, 0.06);
-        w.active.weak_bg_fill = tint(t.surface, t.accent, 0.12);
+        w.hovered.weak_bg_fill = t.surface_hover;
+        w.active.weak_bg_fill = tint(t.surface_hover, t.border, 0.5);
         w.inactive.bg_stroke = Stroke::new(1.0_f32, t.border_strong);
-        w.hovered.bg_stroke = Stroke::new(1.0_f32, t.accent);
-        w.active.bg_stroke = Stroke::new(1.0_f32, t.accent);
-        ui.add(egui::Button::new(egui::RichText::new(label.into()).color(color)).corner_radius(7).min_size(Vec2::new(0.0, 36.0)))
+        w.hovered.bg_stroke = Stroke::new(1.0_f32, t.border_strong);
+        w.active.bg_stroke = Stroke::new(1.0_f32, t.border_strong);
+        ui.add(egui::Button::new(egui::RichText::new(label.into()).color(color)).corner_radius(RADIUS_MD).min_size(Vec2::new(0.0, CONTROL_H)))
     }).inner;
     focus_ring(ui, &resp, t);
     resp.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
-/// A secondary button raised to the accent (1px accent stroke, accent SEMI text):
-/// used for "Save changes" while there is something to save.
+/// Meridian `mr-btn--secondary`: a `surface-tint` fill with `accent-text`. Used for "Save changes"
+/// while there is something to save, beside the primary "New payment".
 pub fn accent_outline_button(ui: &mut egui::Ui, label: impl Into<String>, t: &Tokens) -> egui::Response {
     let resp = ui.scope(|ui| {
+        ui.style_mut().visuals.override_text_color = None;
         let w = &mut ui.style_mut().visuals.widgets;
-        // Tints stay at 9% or below: the accent label is 4.5:1 on them (10% already fails in the light theme),
-        // and a focused button keeps the pressed look.
-        w.inactive.weak_bg_fill = tint(t.surface, t.accent, 0.06);
-        w.hovered.weak_bg_fill = tint(t.surface, t.accent, 0.08);
-        w.active.weak_bg_fill = tint(t.surface, t.accent, 0.09);
-        w.inactive.bg_stroke = Stroke::new(1.0_f32, t.accent);
-        w.hovered.bg_stroke = Stroke::new(1.0_f32, t.accent);
-        w.active.bg_stroke = Stroke::new(1.0_f32, t.accent);
-        ui.add(egui::Button::new(egui::RichText::new(label.into()).color(t.accent).text_style(ts(SEMI))).corner_radius(7).min_size(Vec2::new(0.0, 36.0)))
+        // On hover the label turns `ink`, as Meridian's secondary button does; the fill stays the tint.
+        w.inactive.weak_bg_fill = t.surface_tint;
+        w.hovered.weak_bg_fill = t.surface_tint;
+        w.active.weak_bg_fill = t.surface_tint;
+        w.inactive.fg_stroke.color = t.accent_text;
+        w.hovered.fg_stroke.color = t.text;
+        w.active.fg_stroke.color = t.text;
+        w.inactive.bg_stroke = Stroke::NONE;
+        w.hovered.bg_stroke = Stroke::NONE;
+        w.active.bg_stroke = Stroke::NONE;
+        ui.add(egui::Button::new(egui::RichText::new(label.into()).text_style(ts(SEMI))).corner_radius(RADIUS_MD).min_size(Vec2::new(0.0, CONTROL_H)))
     }).inner;
     focus_ring(ui, &resp, t);
     resp.on_hover_cursor(egui::CursorIcon::PointingHand)
 }
 
 pub fn danger_button(ui: &mut egui::Ui, label: impl Into<String>, t: &Tokens) -> egui::Response {
-    filled_button(ui, egui::RichText::new(label.into()).text_style(ts(SEMI)), t.negative, t)
+    filled_button(ui, egui::RichText::new(label.into()).text_style(ts(SEMI)), t.negative, hover_shade(t.negative, t.dark), t)
 }
 
-/// A neutral pill (used for the version chip and similar small labels).
+/// Meridian `mr-badge--plain`: a short label on a quiet pill (the version chip and similar).
 pub fn badge(ui: &mut egui::Ui, text: &str, color: Color32, t: &Tokens) {
     egui::Frame::new().fill(tint(t.surface, color, if t.dark { 0.18 } else { 0.07 }))
-        .corner_radius(5).inner_margin(egui::Margin::symmetric(8, 3)).show(ui, |ui| {
+        .corner_radius(RADIUS_FULL).inner_margin(egui::Margin::symmetric(10, 3)).show(ui, |ui| {
             ui.add(egui::Label::new(egui::RichText::new(text).text_style(ts(CAPTION)).color(color)).selectable(false));
         });
 }
 
-/// A pill with a leading status dot (e.g. saved / unsaved).
+/// Meridian `mr-badge`: a pill with a leading status dot (e.g. saved / unsaved). The word carries the meaning.
 pub fn status_pill(ui: &mut egui::Ui, text: &str, dot: Color32, filled: bool, t: &Tokens) -> egui::Response {
-    let fill = if filled { tint(t.surface, dot, if t.dark { 0.22 } else { 0.14 }) } else { tint(t.surface, t.text_muted, 0.08) };
-    egui::Frame::new().fill(fill).corner_radius(10).inner_margin(egui::Margin::symmetric(9, 3)).show(ui, |ui| {
+    let fill = if filled { tint(t.surface, dot, if t.dark { 0.22 } else { 0.14 }) } else { t.surface_hover };
+    egui::Frame::new().fill(fill).corner_radius(RADIUS_FULL).inner_margin(egui::Margin::symmetric(10, 3)).show(ui, |ui| {
         ui.spacing_mut().interact_size.y = 14.0; // keep the pill compact (default row is 34px)
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 6.0;
-            let (r, _) = ui.allocate_exact_size(Vec2::splat(8.0), egui::Sense::hover());
-            ui.painter().circle_filled(r.center(), 4.0, dot);
+            let (r, _) = ui.allocate_exact_size(Vec2::splat(6.0), egui::Sense::hover());
+            ui.painter().circle_filled(r.center(), 3.0, dot);
             ui.label(egui::RichText::new(text).text_style(ts(CAPTION)).color(t.text));
         });
     }).response
@@ -167,7 +189,7 @@ pub fn status_pill(ui: &mut egui::Ui, text: &str, dot: Color32, filled: bool, t:
 
 /// A small keycap chip ("Ctrl", "S") used for shortcut hints. Returns its response.
 pub fn keycap(ui: &mut egui::Ui, key: &str, t: &Tokens) -> egui::Response {
-    egui::Frame::new().fill(t.surface_hover).stroke(Stroke::new(1.0_f32, t.border_strong)).corner_radius(4)
+    egui::Frame::new().fill(t.surface_hover).stroke(Stroke::new(1.0_f32, t.border_strong)).corner_radius(RADIUS_SM)
         .inner_margin(egui::Margin::symmetric(5, 0)).show(ui, |ui| {
             ui.label(egui::RichText::new(key).text_style(ts(CAPTION)).color(t.text_muted));
         }).response
@@ -211,7 +233,14 @@ pub struct Tokens {
     pub dark: bool,
     pub bg: Color32,
     pub surface: Color32,
+    /// Meridian `surface-sunken`: inset rows, tracks, hover grounds.
     pub surface_hover: Color32,
+    /// Meridian `surface-tint`: quiet accent fills (secondary buttons, selected chips).
+    pub surface_tint: Color32,
+    /// Meridian `surface-ink`: the one dark emphasis panel per view, with `on-ink` text on it.
+    pub surface_ink: Color32,
+    pub on_ink: Color32,
+    pub on_ink_muted: Color32,
     pub weekend: Color32,
     /// Day cells before today, and after it: the original's "BKG cell past" and "BKG cell future".
     pub past: Color32,
@@ -225,6 +254,12 @@ pub struct Tokens {
     pub text_muted: Color32,
     pub text_faint: Color32,
     pub accent: Color32,
+    /// Meridian `accent-hover`: hover and pressed fill of anything filled with the accent.
+    pub accent_hover: Color32,
+    /// Meridian `accent-text`: accent-coloured text and links (the accent itself is tuned for fills).
+    pub accent_text: Color32,
+    /// Meridian `focus`: the keyboard-focus ring.
+    pub focus: Color32,
     pub today: Color32,
     pub positive: Color32,
     pub negative: Color32,
@@ -255,49 +290,96 @@ impl Tokens {
         let strip = |key: Key, light: (u32, u32), night: (u32, u32)| {
             if customised(key) { let bg = rgb(key(c)); (bg, on(bg)) } else { (tone(light.0, night.0), tone(light.1, night.1)) }
         };
+        // A customised accent keeps its hue everywhere: its hover is shaded from it and its text is made legible.
+        let accent = user(|c| c.colorCurrentMonth, 0x2152e5, 0x7da2ff);
+        let surface = tone(0xffffff, 0x10172a);
+        let accent_custom = customised(|c| c.colorCurrentMonth);
         Tokens {
             dark,
+            // Meridian tokens: canvas, surface, surface-sunken, border, ink and the rest. The calendar's own tiers
+            // (weekend, past, other month) and faint text are blends of those tokens, chosen so each tier stays
+            // visibly distinct and every text role keeps 4.5:1 on every cell.
             //                         .budgetrc colour                    light      dark
-            bg:            user(|c| c.bgColorWindow,                   0xf4f6fa, 0x111722),
-            // Cards, dialogs and fields keep the modern surface whatever the day-cell colours are.
-            surface:       tone(                                       0xffffff, 0x1b1f27),
-            surface_hover: tone(                                       0xf0f3f8, 0x242935),
-            weekend:       tone(                                       0xf6f8fb, 0x222831),
+            bg:            user(|c| c.bgColorWindow,                   0xe8edf7, 0x070b16),
+            // Cards, dialogs and fields keep the Meridian surface whatever the day-cell colours are.
+            surface,
+            surface_hover: tone(                                       0xf2f5fb, 0x0a101f),
+            surface_tint:  tone(                                       0xdbe6fe, 0x1a2c5e),
+            surface_ink:   tone(                                       0x0b1433, 0x1c2540),
+            on_ink:        tone(                                       0xffffff, 0xeef2fb),
+            on_ink_muted:  tone(                                       0xa9b6d6, 0xa3afc9),
+            weekend:       tone(                                       0xf8fafd, 0x171f35),
             // The original's field names are swapped against its labels (analysis/05 §1.5): `bgColorCell`
             // ("BKG cell past") paints days before today, `bgColorCellPast` ("BKG cell future") the rest.
-            past:          user(|c| c.bgColorCell,                     0xe6ebf2, 0x151921),
-            future:        user(|c| c.bgColorCellPast,                 0xffffff, 0x1b1f27),
+            past:          user(|c| c.bgColorCell,                     0xf2f5fb, 0x0a101f),
+            future:        user(|c| c.bgColorCellPast,                 0xffffff, 0x10172a),
             custom_cells:  customised(|c| c.bgColorCell) || customised(|c| c.bgColorCellPast),
-            other_month:   user(|c| c.bgColorCellOtherMonths,          0xeef1f6, 0x0f131b),
-            border:        tone(                                       0xe2e8f0, 0x2b313d),
-            border_strong: tone(                                       0xcbd5e1, 0x3b4350),
-            text:          user(|c| c.colorDescText,                   0x1f2328, 0xe6e8eb),
-            text_muted:    tone(                                       0x475569, 0xa0aec0),
-            text_faint:    tone(                                       0x5b6779, 0x8b97aa),
-            accent:        user(|c| c.colorCurrentMonth,               0x2563eb, 0x60a5fa),
-            today:         user(|c| c.colorCalendarToday,              0x2563eb, 0x60a5fa),
-            positive:      user(|c| c.colorPositiveAmount,             0x15803d, 0x4ade80),
-            negative:      user(|c| c.colorNegativeAmount,             0xb91c1c, 0xf87171),
-            disabled:      user(|c| c.colorDisabledPayment,            0x6b7280, 0x7d8799),
-            paid:          user(|c| c.bgColorPaid,                     0x16a34a, 0x34d399),
-            important:     user(|c| c.bgColorImportant,                0xd97706, 0xfbbf24),
+            other_month:   user(|c| c.bgColorCellOtherMonths,          0xe2e8f4, 0x05080f),
+            border:        tone(                                       0xdbe2f0, 0x222b45),
+            border_strong: tone(                                       0x7b88a4, 0x66749a),
+            text:          user(|c| c.colorDescText,                   0x0b1433, 0xeef2fb),
+            text_muted:    tone(                                       0x4f5a73, 0x9aa6c1),
+            text_faint:    tone(                                       0x5d6882, 0x7986a8),
+            accent,
+            accent_hover:  if accent_custom { hover_shade(accent, dark) } else { tone(0x1a43c4, 0x9bb8ff) },
+            accent_text:   if accent_custom { legible(accent, surface) } else { tone(0x1c47cc, 0x9bb8ff) },
+            focus:         if accent_custom { accent } else { tone(0x2152e5, 0x9bb8ff) },
+            today:         user(|c| c.colorCalendarToday,              0x2152e5, 0x7da2ff),
+            positive:      user(|c| c.colorPositiveAmount,             0x0a6e55, 0x4fd1a5),
+            negative:      user(|c| c.colorNegativeAmount,             0xb42a18, 0xff8a73),
+            disabled:      user(|c| c.colorDisabledPayment,            0x5d6882, 0x7986a8),
+            paid:          user(|c| c.bgColorPaid,                     0x0a6e55, 0x4fd1a5),
+            important:     user(|c| c.bgColorImportant,                0x855000, 0xf2b84b),
+            // Not a Meridian token: Meridian has one accent, and this marker must never read as today.
             adjusted:      tone(                                       0x6d28d9, 0xa78bfa),
-            bal:           strip(|c| c.bgColorBalance,         (0xf3f4f6, 0x374151), (0x232833, 0xc9ced6)),
-            max:           strip(|c| c.bgColorMaxBalance,      (0xdcfce7, 0x166534), (0x123524, 0x86efac)),
-            // Neutral slate: the lowest day reads as information, not as the accent selection.
-            min:           strip(|c| c.bgColorMinBalance,      (0xe2e8f0, 0x334155), (0x2d3748, 0xe2e8f0)),
-            low:           strip(|c| c.bgColorBelowMinBalance, (0xfef3c7, 0x92400e), (0x4a3410, 0xfcd34d)),
+            // Balance strips use Meridian's sunken ground and its status pairs (`success` on `success-tint`, ...).
+            bal:           strip(|c| c.bgColorBalance,         (0xf2f5fb, 0x4f5a73), (0x0a101f, 0x9aa6c1)),
+            max:           strip(|c| c.bgColorMaxBalance,      (0xd7f2e8, 0x0a6e55), (0x0f2f29, 0x4fd1a5)),
+            // Neutral `border` ground: the lowest day reads as information, not as the accent selection.
+            min:           strip(|c| c.bgColorMinBalance,      (0xdbe2f0, 0x0b1433), (0x222b45, 0xeef2fb)),
+            low:           strip(|c| c.bgColorBelowMinBalance, (0xfdefd0, 0x855000), (0x33270d, 0xf2b84b)),
         }
     }
 
+    /// Meridian `shadow-card`: a barely-there shadow in light; in dark, a faint outline instead.
+    pub fn card_shadow(&self) -> Shadow {
+        if self.dark { Shadow::NONE } else { Shadow { offset: [0, 6], blur: 20, spread: 0, color: Color32::from_rgba_unmultiplied(11, 20, 51, 13) } }
+    }
+
+    /// Meridian `shadow-pop`: menus, popovers, dialogs and anything floating above cards.
+    pub fn pop_shadow(&self) -> Shadow {
+        if self.dark { Shadow { offset: [0, 16], blur: 40, spread: 0, color: Color32::from_black_alpha(128) } }
+        else { Shadow { offset: [0, 16], blur: 40, spread: 0, color: Color32::from_rgba_unmultiplied(11, 20, 51, 36) } }
+    }
+
+    /// The outline that stands in for a shadow in the dark theme (white at 5% for cards, 8% for floating shells).
+    fn dark_outline(&self, floating: bool) -> Stroke {
+        if self.dark { Stroke::new(1.0_f32, tint(self.surface, Color32::WHITE, if floating { 0.08 } else { 0.05 })) } else { Stroke::NONE }
+    }
+
+    /// Meridian `mr-card`: `surface`, `radius-lg`, `space-5` padding, `shadow-card`, no border.
     pub fn card(&self) -> egui::Frame {
-        egui::Frame::new().fill(self.surface).stroke(Stroke::new(1.0_f32, self.border)).corner_radius(RADIUS).inner_margin(SP3)
+        egui::Frame::new().fill(self.surface).stroke(self.dark_outline(false)).corner_radius(RADIUS).inner_margin(CARD_PAD).shadow(self.card_shadow())
+    }
+
+    /// A Meridian dialog: `surface`, `radius-xl`, `shadow-pop`.
+    pub fn dialog(&self) -> egui::Frame {
+        egui::Frame::new().fill(self.surface).stroke(self.dark_outline(true)).corner_radius(RADIUS_XL).inner_margin(SP4).shadow(self.pop_shadow())
     }
 }
 
-/// Segoe UI (regular / semibold / bold) when present, else egui's bundled fonts; Phosphor icons as fallback everywhere.
+/// Meridian's one family, Geist, for everything: embedded as "Geist Tabular" (Geist with its tabular figures as the
+/// default digits, see `assets/fonts/NOTICE.txt`) in the weights Meridian uses, 400, 500 and 600. Segoe UI, then
+/// egui's bundled fonts, cover characters Geist lacks; Phosphor icons and CJK/emoji fallbacks follow.
 pub fn install_fonts(ctx: &egui::Context) {
     let mut fonts = FontDefinitions::default();
+    for (key, bytes) in [
+        ("geist", &include_bytes!("../assets/fonts/GeistTabular-Regular.ttf")[..]),
+        ("geist-medium", &include_bytes!("../assets/fonts/GeistTabular-Medium.ttf")[..]),
+        ("geist-semi", &include_bytes!("../assets/fonts/GeistTabular-SemiBold.ttf")[..]),
+    ] {
+        fonts.font_data.insert(key.into(), Arc::new(FontData::from_static(bytes)));
+    }
     egui_phosphor::add_to_fonts(&mut fonts, egui_phosphor::Variant::Regular);
     let win = std::env::var_os("WINDIR").map(std::path::PathBuf::from).unwrap_or_else(|| "C:\\Windows".into()).join("Fonts");
     let mut load = |key: &str, file: &str| -> bool {
@@ -306,70 +388,82 @@ pub fn install_fonts(ctx: &egui::Context) {
             Err(_) => false,
         }
     };
-    let regular = load("ui", "segoeui.ttf");
-    let semi = load("ui-semi", "seguisb.ttf");
-    let bold = load("ui-bold", "segoeuib.ttf");
+    let segoe = load("ui", "segoeui.ttf");
     let mut base: Vec<String> = fonts.families[&FontFamily::Proportional].clone();
+    if segoe { base.insert(0, "ui".into()); }
     // Fallbacks for CJK, symbols and emoji so user-entered names never render as empty boxes.
     // Each entry is optional: a missing file is skipped.
     for (i, file) in ["msyh.ttc", "YuGothR.ttc", "malgun.ttf", "seguisym.ttf", "seguiemj.ttf"].iter().enumerate() {
         let key = format!("fallback-{i}");
         if load(&key, file) { base.push(key); }
     }
-    let family = |first: Option<&str>| -> Vec<String> {
+    let family = |first: &str| -> Vec<String> {
         let mut v = base.clone();
-        if let Some(f) = first { v.insert(0, f.into()); }
+        v.insert(0, first.into());
         v
     };
-    fonts.families.insert(FontFamily::Proportional, family(regular.then_some("ui")));
-    fonts.families.insert(FontFamily::Name("semi".into()), family(semi.then_some("ui-semi").or(regular.then_some("ui"))));
-    fonts.families.insert(FontFamily::Name("bold".into()), family(bold.then_some("ui-bold").or(regular.then_some("ui"))));
+    fonts.families.insert(FontFamily::Proportional, family("geist"));
+    fonts.families.insert(FontFamily::Name("medium".into()), family("geist-medium"));
+    fonts.families.insert(FontFamily::Name("semi".into()), family("geist-semi"));
+    // Meridian's weights stop at 600: "bold" is the semibold face.
+    fonts.families.insert(FontFamily::Name("bold".into()), family("geist-semi"));
     ctx.set_fonts(fonts);
 }
 
 /// Visuals + type scale for the current tokens.
 pub fn apply(ctx: &egui::Context, t: &Tokens) {
     let semi = FontFamily::Name("semi".into());
+    let medium = FontFamily::Name("medium".into());
     let prop = FontFamily::Proportional;
     ctx.style_mut(|s| {
+        // Meridian's type scale: body 14, small 12 (500), label 11 (600), h3 16, h2 20, metric 32.
         s.text_styles = [
-            (TextStyle::Small, FontId::new(12.0, prop.clone())),
+            (TextStyle::Small, FontId::new(12.0, medium.clone())),
             (TextStyle::Body, FontId::new(14.0, prop.clone())),
             (TextStyle::Button, FontId::new(14.0, prop.clone())),
-            (TextStyle::Heading, FontId::new(24.0, semi.clone())),
+            (TextStyle::Heading, FontId::new(20.0, semi.clone())),
             (TextStyle::Monospace, FontId::new(12.0, FontFamily::Monospace)),
-            (ts(TITLE), FontId::new(24.0, semi.clone())),
-            (ts(SECTION), FontId::new(15.0, semi.clone())),
-            (ts(CAPTION), FontId::new(12.0, prop.clone())),
-            (ts(VALUE), FontId::new(25.0, semi.clone())),
+            (ts(TITLE), FontId::new(20.0, semi.clone())),
+            (ts(SECTION), FontId::new(16.0, semi.clone())),
+            (ts(CAPTION), FontId::new(12.0, medium.clone())),
+            (ts(LABEL), FontId::new(11.0, semi.clone())),
+            (ts(VALUE), FontId::new(32.0, semi.clone())),
             (ts(DAY), FontId::new(14.0, semi.clone())),
             (ts(SEMI), FontId::new(14.0, semi.clone())),
-            (ts(ICON), FontId::new(17.0, prop.clone())),
+            (ts(ICON), FontId::new(16.0, prop.clone())),
         ].into();
         s.animation_time = 0.12;
         s.spacing.item_spacing = Vec2::new(SP2, SP2);
-        s.spacing.button_padding = Vec2::new(12.0, 7.0);
-        s.spacing.interact_size = Vec2::new(40.0, 34.0);
+        // Meridian: buttons pad `space-4` sideways. The calendar is a dense view, so egui's own controls
+        // (inputs, menu items, row buttons) take Meridian's dense 32px; the primary, secondary and ghost
+        // buttons above keep the full 40px.
+        s.spacing.button_padding = Vec2::new(SP3, 6.0);
+        s.spacing.interact_size = Vec2::new(40.0, CONTROL_H_DENSE);
+        s.spacing.icon_width = 18.0;
+        s.spacing.icon_width_inner = 10.0;
         s.spacing.menu_margin = SP2.into();
         s.spacing.window_margin = SP3.into();
         let mut v = if t.dark { egui::Visuals::dark() } else { egui::Visuals::light() };
         v.override_text_color = Some(t.text);
         v.panel_fill = t.bg;
         v.window_fill = t.surface;
-        v.window_stroke = Stroke::new(1.0_f32, t.border);
-        v.window_corner_radius = RADIUS.into();
-        v.window_shadow = Shadow { offset: [0, 8], blur: 24, spread: 0, color: Color32::from_black_alpha(if t.dark { 120 } else { 40 }) };
-        v.popup_shadow = Shadow { offset: [0, 4], blur: 12, spread: 0, color: Color32::from_black_alpha(if t.dark { 120 } else { 30 }) };
-        v.menu_corner_radius = RADIUS.into();
+        // Floating shells take `shadow-pop`; in dark a faint outline stands in for the shadow's edge.
+        v.window_stroke = t.dialog().stroke;
+        v.window_corner_radius = RADIUS_XL.into();
+        v.window_shadow = t.pop_shadow();
+        v.popup_shadow = t.pop_shadow();
+        v.menu_corner_radius = RADIUS_MD.into();
         v.extreme_bg_color = t.surface;
         v.faint_bg_color = t.surface_hover;
-        v.hyperlink_color = t.accent;
+        v.hyperlink_color = t.accent_text;
         v.warn_fg_color = t.important;
         v.error_fg_color = t.negative;
-        v.selection.bg_fill = tint(t.surface, t.accent, 0.3);
+        v.selection.bg_fill = t.surface_tint;
         v.selection.stroke = Stroke::new(2.0_f32, t.accent);
         let w = &mut v.widgets;
-        let cr: CornerRadius = 6.into();
+        // egui shares one radius between inputs, checkboxes and plain buttons: Meridian's radius-sm keeps an
+        // 18px checkbox square-ish while still softening inputs and menu items.
+        let cr: CornerRadius = RADIUS_SM.into();
         w.noninteractive.bg_fill = t.surface;
         w.noninteractive.weak_bg_fill = t.surface;
         w.noninteractive.bg_stroke = Stroke::new(1.0_f32, t.border);
@@ -377,17 +471,18 @@ pub fn apply(ctx: &egui::Context, t: &Tokens) {
         w.noninteractive.corner_radius = cr;
         w.inactive.bg_fill = t.surface;
         w.inactive.weak_bg_fill = t.surface;
-        w.inactive.bg_stroke = Stroke::new(1.0_f32, t.border);
+        // Inputs and checkboxes are outlines a person must see: `border-strong` (3:1 on every ground).
+        w.inactive.bg_stroke = Stroke::new(1.0_f32, t.border_strong);
         w.inactive.fg_stroke = Stroke::new(1.0_f32, t.text);
         w.inactive.corner_radius = cr;
         w.hovered.bg_fill = t.surface_hover;
         w.hovered.weak_bg_fill = t.surface_hover;
-        w.hovered.bg_stroke = Stroke::new(1.0_f32, tint(t.surface, t.accent, 0.6));
+        w.hovered.bg_stroke = Stroke::new(1.0_f32, t.border_strong);
         w.hovered.fg_stroke = Stroke::new(1.0_f32, t.text);
         w.hovered.corner_radius = cr;
         w.hovered.expansion = 0.0;
-        w.active.bg_fill = tint(t.surface, t.accent, 0.2);
-        w.active.weak_bg_fill = tint(t.surface, t.accent, 0.2);
+        w.active.bg_fill = t.surface_tint;
+        w.active.weak_bg_fill = t.surface_tint;
         w.active.bg_stroke = Stroke::new(1.0_f32, t.accent);
         w.active.fg_stroke = Stroke::new(1.0_f32, t.text);
         w.active.corner_radius = cr;
@@ -429,7 +524,7 @@ mod tests {
             h(t.paid), h(t.important), h(t.adjusted), pair(t.bal), pair(t.max), pair(t.min), pair(t.low)].join(" ")
     }
 
-    /// Every role keeps its exact value: the stock palettes map to the modern tones, and customised
+    /// Every role keeps its exact value: the stock palettes map to the Meridian tones, and customised
     /// `.budgetrc` colours are honoured with a derived readable foreground.
     #[test]
     fn every_colour_role_keeps_its_value_in_both_themes() {
@@ -442,18 +537,18 @@ mod tests {
             ..Colors::theme(Theme::Light)
         };
         let dark_stock = Colors::theme(Theme::Dark);
-        let light = "f4f6fa ffffff f0f3f8 f6f8fb e6ebf2 ffffff eef1f6 e2e8f0 cbd5e1 1f2328 475569 5b6779 2563eb 2563eb 15803d b91c1c \
-            6b7280 16a34a d97706 6d28d9 f3f4f6/374151 dcfce7/166534 e2e8f0/334155 fef3c7/92400e";
+        let light = "e8edf7 ffffff f2f5fb f8fafd f2f5fb ffffff e2e8f4 dbe2f0 7b88a4 0b1433 4f5a73 5d6882 2152e5 2152e5 0a6e55 b42a18 \
+            5d6882 0a6e55 855000 6d28d9 f2f5fb/4f5a73 d7f2e8/0a6e55 dbe2f0/0b1433 fdefd0/855000";
         let cases = [
             (&stock, false, light),
-            (&stock, true, "111722 1b1f27 242935 222831 151921 1b1f27 0f131b 2b313d 3b4350 e6e8eb a0aec0 8b97aa 60a5fa 60a5fa 4ade80 \
-                f87171 7d8799 34d399 fbbf24 a78bfa 232833/c9ced6 123524/86efac 2d3748/e2e8f0 4a3410/fcd34d"),
+            (&stock, true, "070b16 10172a 0a101f 171f35 0a101f 10172a 05080f 222b45 66749a eef2fb 9aa6c1 7986a8 7da2ff 7da2ff 4fd1a5 \
+                ff8a73 7986a8 4fd1a5 f2b84b a78bfa 0a101f/9aa6c1 0f2f29/4fd1a5 222b45/eef2fb 33270d/f2b84b"),
             // The stock dark palette counts as stock in the light theme too.
             (&dark_stock, false, light),
-            (&custom, false, "101112 ffffff f0f3f8 f6f8fb 202122 303132 404142 e2e8f0 cbd5e1 505152 475569 5b6779 606162 707172 808182 \
-                909192 a0a1a2 b0b1b2 c0c1c2 6d28d9 d0d1d2/172033 e0e1e2/172033 f0f1f2/172033 0a0b0c/ffffff"),
-            (&custom, true, "101112 1b1f27 242935 222831 202122 303132 404142 2b313d 3b4350 505152 a0aec0 8b97aa 606162 707172 808182 \
-                909192 a0a1a2 b0b1b2 c0c1c2 a78bfa d0d1d2/172033 e0e1e2/172033 f0f1f2/172033 0a0b0c/ffffff"),
+            (&custom, false, "101112 ffffff f2f5fb f8fafd 202122 303132 404142 dbe2f0 7b88a4 505152 4f5a73 5d6882 606162 707172 808182 \
+                909192 a0a1a2 b0b1b2 c0c1c2 6d28d9 d0d1d2/0b1433 e0e1e2/0b1433 f0f1f2/0b1433 0a0b0c/ffffff"),
+            (&custom, true, "101112 10172a 0a101f 171f35 202122 303132 404142 222b45 66749a 505152 9aa6c1 7986a8 606162 707172 808182 \
+                909192 a0a1a2 b0b1b2 c0c1c2 a78bfa d0d1d2/0b1433 e0e1e2/0b1433 f0f1f2/0b1433 0a0b0c/ffffff"),
         ];
         for (colors, dark, expected) in cases {
             assert_eq!(dump(&Tokens::new(colors, dark)), expected, "dark={dark}");
@@ -483,8 +578,8 @@ mod tests {
             let bg = Color32::from_rgb(g, g, g);
             assert!(contrast(on(bg), bg) >= AA_TEXT, "grey {g}: {:.2}:1", contrast(on(bg), bg));
         }
-        // stock behaviour is unchanged: soft ink on light fills, white on dark ones
-        assert_eq!(on(rgb(0xf3f4f6)), rgb(0x172033));
+        // Meridian `ink` on light fills, white on dark ones
+        assert_eq!(on(rgb(0xf3f4f6)), rgb(0x0b1433));
         assert_eq!(on(rgb(0x2563eb)), Color32::WHITE);
     }
 
@@ -519,7 +614,7 @@ mod tests {
             };
             run(Vec::new());
             let rest = run(Vec::new());
-            for (label, fill) in [("PrimaryLabel", t.accent), ("DangerLabel", t.negative)] {
+            for (label, fill, hover) in [("PrimaryLabel", t.accent, t.accent_hover), ("DangerLabel", t.negative, hover_shade(t.negative, dark))] {
                 let (pos, colour) = painted(&rest, label);
                 let ratio = contrast(colour, fill);
                 assert!(ratio >= AA_TEXT, "{label} at rest in the {} theme is {ratio:.2}:1 ({colour:?} on {fill:?})", if dark { "dark" } else { "light" });
@@ -528,8 +623,7 @@ mod tests {
                 run(vec![egui::Event::PointerMoved(over)]);
                 let hovered = run(vec![egui::Event::PointerMoved(over)]);
                 let (_, colour) = painted(&hovered, label);
-                let shaded = hover_shade(fill, dark);
-                let ratio = contrast(colour, shaded);
+                let ratio = contrast(colour, hover);
                 assert!(ratio >= AA_TEXT, "{label} hovered in the {} theme is {ratio:.2}:1", if dark { "dark" } else { "light" });
             }
         }
@@ -575,6 +669,23 @@ mod tests {
             assert!(spread(t.min.0) <= 40 && spread(t.min.1) <= 40, "min band is not neutral in the {mode} theme");
             assert_ne!(t.min.0, t.accent);
             assert!(contrast(t.min.1, t.min.0) >= 4.5);
+        }
+    }
+
+    /// Meridian sets figures tabular everywhere: the embedded Geist gives every digit one width in every weight,
+    /// so amounts and balances line up in their columns.
+    #[test]
+    fn geist_is_the_ui_font_and_its_digits_are_tabular() {
+        let ctx = egui::Context::default();
+        install_fonts(&ctx);
+        apply(&ctx, &Tokens::new(&budget_core::config::BudgetConfig::default().colors, false));
+        let _ = ctx.run(egui::RawInput::default(), |_| {});
+        for family in [FontFamily::Proportional, FontFamily::Name("medium".into()), FontFamily::Name("semi".into())] {
+            let id = FontId::new(14.0, family.clone());
+            let widths: Vec<f32> = ctx.fonts(|f| ('0'..='9').map(|c| f.glyph_width(&id, c)).collect());
+            assert!(widths.iter().all(|w| (w - widths[0]).abs() < 0.01), "{family:?} digits differ in width: {widths:?}");
+            // Proportional letters prove it is Geist and not a monospaced fallback.
+            assert!(ctx.fonts(|f| f.glyph_width(&id, 'i') < f.glyph_width(&id, 'W')));
         }
     }
 

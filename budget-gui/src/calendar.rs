@@ -282,19 +282,20 @@ pub fn show(ui: &mut Ui, view: &MonthView, t: &Tokens, sunday_first: bool, today
     let layout = MonthLayout::new(outer, &demand);
     let p = ui.painter().with_clip_rect(ui.clip_rect().intersect(outer));
     let mut clicked = None;
-    p.rect(outer, theme::RADIUS, t.surface, Stroke::new(1.0_f32, t.border), StrokeKind::Inside);
+    // The month is a Meridian card: `surface`, radius-lg, `shadow-card`, no border (a faint outline in dark).
+    ui.painter().add(t.card_shadow().as_shape(outer, theme::RADIUS));
+    p.rect(outer, theme::RADIUS, t.surface, t.card().stroke, StrokeKind::Inside);
     let cw = layout.grid.width() / 7.0;
     let hair = Stroke::new(1.0_f32, tint(t.surface, t.border, 0.8));
     for c in 0..7 {
         let w = if sunday_first { c } else { (c + 1) % 7 };
-        // Full names when there is room, otherwise the 3-letter abbreviation; always small caps-style.
-        let name = (if cw >= 120.0 { WEEKDAYS[w] } else { &WEEKDAYS[w][..3] }).to_uppercase();
+        // Full names when there is room, otherwise the 3-letter abbreviation. Meridian `label`: sentence case, never caps.
+        let name = (if cw >= 120.0 { WEEKDAYS[w] } else { &WEEKDAYS[w][..3] }).to_string();
         let weekend = w == 0 || w == 6;
         let header_cell = Rect::from_min_size(Pos2::new(layout.inner.min.x + cw * c as f32, layout.header.min.y), Vec2::new(cw, layout.header.height()));
-        let mut hfont = font(ui, SEMI);
-        hfont.size = 11.5;
+        let hfont = font(ui, theme::LABEL);
         let mut job = LayoutJob::simple_singleline(name, hfont, if weekend { t.text_muted } else { t.text });
-        job.sections[0].format.extra_letter_spacing = 0.6;
+        job.sections[0].format.extra_letter_spacing = 0.44;
         job.wrap = TextWrapping::truncate_at_width((cw - PAD * 2.0).max(0.0));
         let hp = p.with_clip_rect(header_cell);
         let g = hp.layout_job(job);
@@ -718,7 +719,7 @@ fn draw_row(ui: &mut Ui, p: &Painter, row: &TranRow, rr: Rect, t: &Tokens, fill:
 /// A compact rounded status badge: legible text on a faint tint of the same colour.
 fn pill(ui: &mut Ui, text: &str, color: Color32, t: &Tokens) {
     let (fill, fg) = pill_colors(t, color);
-    egui::Frame::new().fill(fill).corner_radius(8).inner_margin(egui::Margin::symmetric(6, 1)).show(ui, |ui| {
+    egui::Frame::new().fill(fill).corner_radius(theme::RADIUS_FULL).inner_margin(egui::Margin::symmetric(8, 1)).show(ui, |ui| {
         ui.label(egui::RichText::new(text).text_style(ts(CAPTION)).color(fg).strong());
     });
 }
@@ -966,8 +967,10 @@ mod tests {
 
     #[test]
     fn ordinary_signed_amounts_stay_complete_when_a_readable_name_also_fits() {
-        // A fixed half-width amount column needlessly truncates routine mortgage values.
-        for (width, value) in [(884.0, "−1,234.56"), (1176.0, "−123,456.78")] {
+        // A fixed half-width amount column needlessly truncates routine mortgage values. With Geist's tabular
+        // figures (every digit as wide as the widest) "−1,234.56" needs 63 px: at 928 px a half-width column
+        // (about 55 px) would still cut it, while the measured column keeps it whole and the name keeps 40 px.
+        for (width, value) in [(928.0, "−1,234.56"), (1176.0, "−123,456.78")] {
             let (ctx, t) = context();
             let mut view = fixture(5, 5);
             std::rc::Rc::make_mut(&mut view.cells[0].rows[0]).amount = value.into();
