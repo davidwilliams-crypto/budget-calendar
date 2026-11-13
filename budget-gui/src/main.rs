@@ -2523,6 +2523,7 @@ impl App {
                 ui.label(RichText::new(format!("Build {}", version::BUILD_ID)).text_style(ts(CAPTION)).color(t.text_muted));
             });
             ui.label(RichText::new("The version identifies this release. The build ID identifies the source used to build it.").color(t.text_muted));
+            ui.label(RichText::new("Text is set in Geist, used under the SIL Open Font License 1.1.").text_style(ts(CAPTION)).color(t.text_muted));
             ui.separator();
             ui.label(RichText::new("Version history").text_style(ts(SECTION)).color(t.text));
             egui::ScrollArea::vertical().id_salt("version_history_scroll")

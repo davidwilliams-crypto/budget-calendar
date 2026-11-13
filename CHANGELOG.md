@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.12.0] - 2026-11-13
+
+A new look: Budget Calendar now follows the Meridian design system on Windows and on the phone. Calmer surfaces, one clear accent, and figures that line up.
+
+- **Cards on a canvas:** the calendar, summary and tiles sit on soft white cards with generous corners and a barely-there shadow, on a pale blue-grey page, instead of bordered boxes. Dialogs are rounder and float above the window. The dark appearance uses Meridian's deep navy surfaces.
+- **One clear headline:** Closing balance is now the one dark panel on the screen, so the figure that matters stands out; it turns amber when the month ends below your minimum balance. Money in and Money out lose their coloured edge bars; the amount's colour already says which is which.
+- **New typeface:** all text is set in Geist, built into the app, so it looks the same on every PC. Every digit has the same width, so amounts and balances line up in their columns. Headings, labels and captions follow one size scale, and labels are sentence case ("Sunday", "Recent") instead of capitals.
+- **Calmer controls:** the File, Edit, View and Reports menus and the month arrows are quiet toolbar buttons with no outline. Calendar/Payments and Expense/Income are segmented switches with the selected option filled blue. The main buttons are 40px tall with 12px corners and no raised edge; Save changes is a soft blue button while there is something to save. Inputs and checkboxes keep a clearly visible outline, and keyboard focus shows a 2px ring just outside the control.
+- **Accessible colours:** every text colour still meets WCAG AA (4.5:1) on every surface it appears on, in both appearances, including the new calendar shading for past days, weekends and other months. Colours you customised in your settings are still honoured.
+- **Phone app:** the household app takes the same palette, cards, controls and sentence-case labels, and switches to the dark appearance with the phone. Its headline balance card is the flat dark panel instead of a green gradient. It uses Geist only where the phone has it installed, and the phone's own font otherwise.
+- **Credits:** Geist is used under the SIL Open Font License 1.1; the licence and a note on the one change (tabular digits by default) are in `budget-gui/assets/fonts`, and the About box names it.
+
 ## [0.11.1] - 2026-11-04
 
 A polish pass: the monthly chores take fewer clicks, searches answer "how much?", and a first budget starts from your real balance.
