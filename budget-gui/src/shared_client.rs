@@ -16,6 +16,9 @@ pub struct Connection { pub server: String, pub token: String, pub user: User }
 #[derive(Clone, Serialize, Deserialize, Debug)]
 #[serde(rename_all="camelCase")]
 pub struct Remote { pub id: String, pub name: String, pub revision: u64, pub payload: Value, pub updated_at: String, pub role: String, pub summary: String }
+#[derive(Clone, Deserialize, Debug, PartialEq)]
+#[serde(rename_all="camelCase")]
+pub struct RevisionInfo { pub id: String, pub revision: u64, pub updated_at: String }
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Pending { pub operation_id: String, pub snapshot: Snapshot, pub request: Option<Value> }
 #[derive(Clone, Serialize, Deserialize)]
@@ -81,6 +84,15 @@ impl Api {
         validate_budget_id(id).map_err(local_error)?;
         serde_json::from_value(self.request("GET",&format!("/api/budgets/{id}"),None)?).map_err(|_|local_error("Invalid shared-budget response."))
     }
+    /// The household's current revision without its encrypted snapshot.
+    pub fn revision(&self,id:&str)->Result<RevisionInfo,ServiceError>{
+        validate_budget_id(id).map_err(local_error)?;
+        serde_json::from_value(self.request("GET",&format!("/api/budgets/{id}/revision"),None)?).map_err(|_|local_error("Invalid shared-budget revision response."))
+    }
+    /// The full snapshot when the service's revision differs from `known`; `None` when it is the same.
+    pub fn remote_if_changed(&self,id:&str,known:u64)->Result<Option<Remote>,ServiceError>{
+        if snapshot_needed(id,known,self.revision(id))?{self.remote(id).map(Some)}else{Ok(None)}
+    }
     /// The household's passcode wrap, or `None` when it has no passcode yet.
     pub fn passcode_slot(&self,id:&str)->Result<Option<budget_core::passcode::PasscodeSlot>,ServiceError>{
         validate_budget_id(id).map_err(local_error)?;
@@ -101,6 +113,12 @@ impl Api {
         // The service reads and checks a JSON body on every write route, deletion included.
         self.request("DELETE",&format!("/api/budgets/{id}/passcode"),Some(json!({}))).map(|_|())
     }
+}
+/// Whether a poll must download the full snapshot after asking for the revision alone. Only the
+/// same revision of the same household skips it. A failed probe falls back to the full fetch, as
+/// against a service without the revision route, except an expired session, which it reports.
+pub fn snapshot_needed(id:&str,known:u64,probe:Result<RevisionInfo,ServiceError>)->Result<bool,ServiceError>{
+    match probe{Ok(info)=>Ok(info.id!=id||info.revision!=known),Err(error) if error.status==401=>Err(error),Err(_)=>Ok(true)}
 }
 fn validate_budget_id(id:&str)->Result<(),String>{uuid::Uuid::parse_str(id).map(|_|()).map_err(|_|"Invalid shared budget identity.".into())}
 
@@ -499,6 +517,56 @@ pub fn load_protected<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T, 
         assert_eq!(merged.adjustments.get_note(20261030).as_deref(), Some("Keep this"));
     }
     #[test]
+    fn an_idle_poll_downloads_the_snapshot_only_when_the_revision_differs() {
+        let id = "94dc206f-8f43-4e28-941b-a9bd4c4847da";
+        let probe = |revision: u64| Ok(RevisionInfo { id: id.into(), revision, updated_at: "fixture".into() });
+        assert!(!snapshot_needed(id, 3, probe(3)).unwrap(), "the same revision needs no download");
+        assert!(snapshot_needed(id, 3, probe(4)).unwrap(), "a newer revision is downloaded");
+        assert!(snapshot_needed(id, 3, probe(2)).unwrap(), "an older revision is downloaded and judged as before");
+        let other = Ok(RevisionInfo { id: "0f7f4b52-5e2a-4b8c-9a39-2f4d2b8e7c11".into(), revision: 3, updated_at: "fixture".into() });
+        assert!(snapshot_needed(id, 3, other).unwrap(), "another household's revision proves nothing");
+        let failed = |status: u16| Err(ServiceError { status, message: "fixture".into(), current: None });
+        for status in [0, 404, 429, 500, 503] { assert!(snapshot_needed(id, 3, failed(status)).unwrap(), "{status} falls back to the full fetch"); }
+        assert_eq!(snapshot_needed(id, 3, failed(401)).unwrap_err().status, 401, "an expired session is reported as the full fetch reports it");
+    }
+    /// Answers each connection in turn with the next fixture response and returns the request lines.
+    fn fixture_service(responses: Vec<(&'static str, String)>) -> (String, std::thread::JoinHandle<Vec<String>>) {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let origin = format!("http://{}", listener.local_addr().unwrap());
+        let server = std::thread::spawn(move || responses.into_iter().map(|(status, body)| {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+            let mut bytes = Vec::new(); let mut buffer = [0u8; 4096];
+            while !bytes.windows(4).any(|v| v == b"\r\n\r\n") { let count = stream.read(&mut buffer).unwrap(); assert!(count > 0); bytes.extend_from_slice(&buffer[..count]); }
+            write!(stream, "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).unwrap();
+            String::from_utf8_lossy(&bytes).lines().next().unwrap().to_string()
+        }).collect());
+        (origin, server)
+    }
+    #[test]
+    fn remote_if_changed_asks_for_the_revision_first_and_falls_back_to_the_full_fetch() {
+        let s = fixture(); let key = generate_recovery_key(); let id = s.id.clone();
+        let revision = |n: u64| json!({"id": id, "revision": n, "updatedAt": "fixture"}).to_string();
+        let full = serde_json::to_string(&remote(&s, &key, 4)).unwrap();
+        let error = |code: &str| json!({"error": {"code": code, "message": "fixture refusal"}}).to_string();
+        let (origin, server) = fixture_service(vec![
+            ("200 OK", revision(3)),
+            ("200 OK", revision(4)), ("200 OK", full.clone()),
+            ("404 Not Found", error("not_found")), ("200 OK", full.clone()),
+            ("200 OK", "[]".into()), ("200 OK", full.clone()),
+            ("401 Unauthorized", error("unauthenticated")),
+        ]);
+        let mut connection = connection(); connection.server = origin;
+        let api = Api::new(connection).unwrap();
+        assert!(api.remote_if_changed(&id, 3).unwrap().is_none(), "an unchanged household downloads nothing");
+        assert_eq!(api.remote_if_changed(&id, 3).unwrap().unwrap().revision, 4);
+        assert_eq!(api.remote_if_changed(&id, 3).unwrap().unwrap().revision, 4, "a service without the route still syncs");
+        assert_eq!(api.remote_if_changed(&id, 3).unwrap().unwrap().revision, 4, "an unreadable revision still syncs");
+        assert_eq!(api.remote_if_changed(&id, 3).unwrap_err().status, 401);
+        let revision_line = format!("GET /api/budgets/{id}/revision HTTP/1.1"); let full_line = format!("GET /api/budgets/{id} HTTP/1.1");
+        assert_eq!(server.join().unwrap(), vec![revision_line.clone(), revision_line.clone(), full_line.clone(), revision_line.clone(), full_line.clone(), revision_line.clone(), full_line, revision_line]);
+    }
+    #[test]
     #[ignore="Run by the generated three-client HTTP integration fixture"]
     fn native_service_interoperation(){
         let server=std::env::var("BUDGET_TEST_ORIGIN").expect("isolated fixture server");
@@ -506,6 +574,8 @@ pub fn load_protected<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T, 
         let id=std::env::var("BUDGET_TEST_ID").unwrap();let key=std::env::var("BUDGET_TEST_KEY").unwrap();
         let connection=Api::login(&server,"fixture-owner","fixture-password-12345").unwrap();
         let api=Api::new(connection.clone()).unwrap();let remote=api.remote(&id).unwrap();
+        let same=|remote:&Remote|{let probe=api.revision(&id).unwrap();assert_eq!((probe.id.as_str(),probe.revision,probe.updated_at.as_str()),(remote.id.as_str(),remote.revision,remote.updated_at.as_str()));};
+        same(&remote);assert!(api.remote_if_changed(&id,remote.revision).unwrap().is_none());
         let mut document=SharedDocument::open(connection,key,remote).unwrap();
         assert!(document.working.payments.iter().any(|p|p.payment.description=="Offline A groceries"));
         assert!(document.working.payments.iter().any(|p|p.payment.description=="Online B pay"));
@@ -515,6 +585,9 @@ pub fn load_protected<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T, 
         document.acknowledge(remote,&operation).unwrap();assert!(document.pending.is_empty());
         let repeated:Remote=serde_json::from_value(api.request("POST",&format!("/api/budgets/{id}/commits"),Some(request)).unwrap()).unwrap();
         assert_eq!(repeated.revision,document.revision);assert_eq!(unlock(&api.remote(&id).unwrap(),&document.recovery_key).unwrap().notes,"Windows fixture edit");
+        let latest=api.remote(&id).unwrap();same(&latest);assert_eq!(latest.revision,document.revision);
+        assert!(api.remote_if_changed(&id,document.revision).unwrap().is_none());
+        assert_eq!(api.remote_if_changed(&id,document.revision-1).unwrap().unwrap().revision,document.revision);
     }
     #[test]fn passcode_wrap_unlock_round_trip_returns_the_exact_key(){
         let s=fixture();let key=generate_recovery_key();
