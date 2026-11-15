@@ -490,12 +490,32 @@ fn create_temp(path: &Path) -> std::io::Result<(std::path::PathBuf, std::fs::Fil
     }
 }
 
+/// The file a save replaces: for a symbolic link, the file it points to, so the rename updates that
+/// file and keeps the link. A link that cannot be resolved is replaced as before.
+fn save_target(path: &Path) -> std::borrow::Cow<'_, Path> {
+    if std::fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_symlink()) {
+        if let Ok(real) = std::fs::canonicalize(path) { return real.into(); }
+    }
+    path.into()
+}
+
+/// Give a new file the permissions of the file it stands in for, so a save never lets more people
+/// read a budget than before. Best effort: a file system without permissions keeps its defaults.
+fn keep_permissions(file: &std::fs::File, original: Option<&std::fs::Metadata>) {
+    #[cfg(unix)]
+    if let Some(m) = original { let _ = file.set_permissions(m.permissions()); }
+    #[cfg(not(unix))]
+    let _ = (file, original);
+}
+
 /// Replace `path` with `bytes` through a synced temporary file in the same directory and a rename,
 /// so the previous contents survive any failure before the rename. Nothing is left behind on failure.
 pub(crate) fn replace_file(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     use std::io::Write;
 
+    let path = &*save_target(path);
     let (temp_path, mut temp_file) = create_temp(path)?;
+    keep_permissions(&temp_file, std::fs::metadata(path).ok().as_ref());
     let staged = temp_file.write_all(bytes).and_then(|()| temp_file.sync_all());
     drop(temp_file);
     let result = staged.and_then(|()| std::fs::rename(&temp_path, path));
@@ -509,6 +529,7 @@ pub fn save_file(path: &Path, content: &str) -> Result<(), String> {
     use std::fs::{self, OpenOptions};
     use std::io::{ErrorKind, Write};
 
+    let path = &*save_target(path);
     let bytes = latin1_encode(content);
     let original = match fs::read(path) {
         Ok(old) if old == bytes => return Ok(()),
@@ -518,6 +539,8 @@ pub fn save_file(path: &Path, content: &str) -> Result<(), String> {
     };
 
     let (temp_path, mut temp_file) = create_temp(path).map_err(|error| format!("File Save: cannot create temporary file: {error}"))?;
+    let original_meta = original.as_ref().and_then(|_| fs::metadata(path).ok());
+    keep_permissions(&temp_file, original_meta.as_ref());
 
     let mut backup_path: Option<std::path::PathBuf> = None;
     let result = (|| -> Result<(), String> {
@@ -544,6 +567,7 @@ pub fn save_file(path: &Path, content: &str) -> Result<(), String> {
                     Err(error) => return Err(format!("File Save: cannot create backup: {error}")),
                 }
             };
+            keep_permissions(&backup, original_meta.as_ref());
             backup.write_all(&old).map_err(|error| format!("File Save: cannot write backup: {error}"))?;
             backup.flush().map_err(|error| format!("File Save: cannot flush backup: {error}"))?;
             backup.sync_all().map_err(|error| format!("File Save: cannot sync backup: {error}"))?;
