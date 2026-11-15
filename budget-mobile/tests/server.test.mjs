@@ -571,3 +571,68 @@ test('household passcode records are owner-managed, member-readable, and structu
   assert.equal(kick.status, 200);
   assert.equal((await request('GET', `/api/budgets/${budget.id}/passcode`, undefined, editor.token)).status, 404, 'membership is checked before the slot is served');
 });
+
+test('revision poll returns only id, revision and updatedAt, equal to the full snapshot before and after a commit', async t => {
+  const f = await fixture(t);
+  const owner = await f.setup(); const budget = await f.create(owner.token);
+  const editor = await f.joinUser(owner, budget);
+  const poll = token => f.request('GET', `/api/budgets/${budget.id}/revision`, undefined, token);
+  const full = token => f.request('GET', `/api/budgets/${budget.id}`, undefined, token);
+  for (const token of [owner.token, editor.token]) {
+    const [polled, snapshot] = [await poll(token), await full(token)];
+    assert.equal(polled.status, 200);
+    assert.deepEqual(polled.data, { id: budget.id, revision: snapshot.data.revision, updatedAt: snapshot.data.updatedAt });
+    assert.equal(polled.data.revision, 1);
+    assert.equal(polled.data.payload, undefined);
+  }
+  const before = (await poll(owner.token)).data;
+  f.advance(60000);
+  const committed = await f.request('POST', `/api/budgets/${budget.id}/commits`, {
+    operationId: 'fixture-poll-commit', expectedRevision: 1, payload: { ciphertext: 'polled' }, summary: 'Updated budget',
+  }, editor.token);
+  assert.equal(committed.status, 200);
+  const after = await poll(owner.token);
+  assert.equal(after.status, 200);
+  assert.deepEqual(after.data, { id: budget.id, revision: committed.data.revision, updatedAt: committed.data.updatedAt });
+  assert.deepEqual(after.data, (({ id, revision, updatedAt }) => ({ id, revision, updatedAt }))((await full(owner.token)).data));
+  assert.equal(after.data.revision, before.revision + 1);
+  assert.ok(Date.parse(after.data.updatedAt) > Date.parse(before.updatedAt));
+  // A browser session reads it with the same same-origin GET rules as the full snapshot.
+  const login = await f.browser('POST', '/api/login', { username: ownerName, password });
+  const cookie = login.headers.get('set-cookie');
+  const browserPoll = await f.browser('GET', `/api/budgets/${budget.id}/revision`, undefined, cookie);
+  assert.equal(browserPoll.status, 200);
+  assert.deepEqual(browserPoll.data, after.data);
+  // The poll never touches the stored ciphertext: an unreadable payload breaks the full read, not the poll.
+  const fixtureDb = new DatabaseSync(join(f.dir, 'data', 'budget.sqlite'));
+  try { fixtureDb.prepare('UPDATE snapshots SET payload=? WHERE budget_id=? AND revision=?').run('not json', budget.id, after.data.revision); }
+  finally { fixtureDb.close(); }
+  assert.equal((await full(owner.token)).status, 500);
+  assert.deepEqual((await poll(owner.token)).data, after.data);
+});
+
+test('revision poll refuses signed-out, non-member, unknown and wrong-method requests exactly like the full snapshot', async t => {
+  const f = await fixture(t);
+  const owner = await f.setup(); const budget = await f.create(owner.token); const other = await f.create(owner.token);
+  const editor = await f.joinUser(owner, budget);
+  const both = async (id, token, headers) => [
+    await f.request('GET', `/api/budgets/${id}/revision`, undefined, token, headers),
+    await f.request('GET', `/api/budgets/${id}`, undefined, token, headers),
+  ];
+  const same = (pair, status, code) => {
+    assert.equal(pair[0].status, status); assert.equal(pair[0].data.error.code, code);
+    assert.deepEqual(pair[0].data, pair[1].data); assert.equal(pair[1].status, status);
+  };
+  same(await both(budget.id, undefined), 401, 'authentication_required');
+  same(await both(other.id, editor.token), 404, 'not_found');
+  same(await both(randomUUID(), owner.token), 404, 'not_found');
+  same(await both(budget.id, owner.token, { Origin: 'http://localhost:8787' }), 403, 'invalid_origin');
+  assert.equal((await f.request('DELETE', `/api/budgets/${budget.id}/members/${editor.user.id}`, {}, owner.token)).status, 200);
+  same(await both(budget.id, editor.token), 404, 'not_found');
+  for (const method of ['POST', 'PUT', 'DELETE']) {
+    const polled = await f.request(method, `/api/budgets/${budget.id}/revision`, {}, owner.token);
+    const history = await f.request(method, `/api/budgets/${budget.id}/history`, {}, owner.token);
+    assert.equal(polled.status, 404, method); assert.deepEqual(polled.data, history.data);
+  }
+  assert.equal((await f.request('GET', `/api/budgets/${budget.id}/revision/1`, undefined, owner.token)).status, 404);
+});

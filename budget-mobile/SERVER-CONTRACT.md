@@ -20,6 +20,7 @@ Usernames are case-insensitive; use an email address or a 3–128 character iden
 | `GET /api/budgets` | — | `{budgets:[{id,name,revision,updatedAt,role}]}` |
 | `POST /api/budgets` | `{id,name,payload} (client-generated UUID id)` | `201` full snapshot; initial revision is `1` |
 | `GET /api/budgets/:id` | — | Full snapshot |
+| `GET /api/budgets/:id/revision` | — | `{id,revision,updatedAt}` equal to the full snapshot's; no payload; same membership/`404`/`401` rules as the full snapshot |
 | `POST /api/budgets/:id/commits` | `{operationId,expectedRevision,payload,summary}` | Full snapshot at accepted revision |
 | `GET /api/budgets/:id/history` | — | `{history:[{revision,author:{id,username},summary,createdAt,operationId}]}` newest first, last 50 revisions |
 | `GET /api/budgets/:id/history/:revision` | — | Full snapshot at retained revision |
@@ -32,7 +33,7 @@ Usernames are case-insensitive; use an email address or a 3–128 character iden
 | `DELETE /api/budgets/:id/passcode` | `{}` | `{ok:true}`; owner only; idempotent; devices then need the recovery key |
 | `DELETE /api/budgets/:id/members/:userId` | `{}` | `{ok:true}`; owner only; cannot revoke owner |
 
-A full snapshot is `{id,name,revision,payload,updatedAt,author:{id,username},summary,operationId,role}`. The role is `owner` or `editor`. Both roles may commit/restore. Only the owner manages membership/invitations. Every read/write checks current membership, including an idempotent commit retry. Nonmembers receive `404` to avoid revealing existence. Unauthenticated callers receive `401`.
+A full snapshot is `{id,name,revision,payload,updatedAt,author:{id,username},summary,operationId,role}`. The role is `owner` or `editor`. Both roles may commit/restore. Only the owner manages membership/invitations. Every read/write checks current membership, including an idempotent commit retry. Nonmembers receive `404` to avoid revealing existence. Unauthenticated callers receive `401`. Clients check for changes by polling `GET /api/budgets/:id/revision` and fetch the full snapshot only when its `revision` differs from the one they hold.
 
 Each commit has a client-generated unique `operationId` (8–128 ASCII letters/digits/`._:-`) and an `expectedRevision`. A successful commit increments revision once. Stale requests receive `409`, code `revision_conflict`, with `current`. An identical operation ID/body retry by the same user returns the **original** snapshot even after later commits; reused ID with different body or author receives `409 operation_reused`. Persist the entire original request before sending. Payload is at most 8 MiB encoded JSON, name at most 100 characters, summary at most 200 characters. Request size is capped at 8 MiB + 64 KiB. Operators can lower the payload limit to match hosting resources. With encryption, summaries must be generic event labels such as `Updated budget`, without descriptions or amounts.
 

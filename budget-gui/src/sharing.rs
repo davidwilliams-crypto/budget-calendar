@@ -69,6 +69,8 @@ enum Event {
     Opened(Result<(SharedDocument, Option<String>), String>),
     Passcode(Result<String, String>),
     Sync { id: String, operation: Option<String>, result: Result<Remote, client::ServiceError> },
+    /// An idle poll found the revision this household already has and downloaded nothing.
+    Unchanged { id: String },
 }
 
 /// A creation is a durable operation before it is a shared document. Keep its exact encrypted
@@ -444,6 +446,10 @@ impl App {
                         }
                     }
                 }
+                // As after an unchanged full GET: the poll succeeded and nothing else changes.
+                Event::Unchanged { id } => {
+                    if self.sharing.document.as_ref().is_some_and(|d| d.working.id == id) { self.sharing.error = None; }
+                }
             }
         }
         if let Some(doc) = self.sharing.staged.take() {
@@ -475,7 +481,7 @@ impl App {
         if current.conflict.is_some() { return; }
         let remaining = POLL_INTERVAL.saturating_sub(self.sharing.last_poll.elapsed());
         if !remaining.is_zero() { ctx.request_repaint_after(remaining); return; }
-        let id = current.working.id.clone(); let connection = current.connection.clone();
+        let id = current.working.id.clone(); let connection = current.connection.clone(); let known = current.revision;
         let prepared = if let Some(first) = current.pending.first() {
             if let Some(request) = &first.request {
                 // A saved immutable request may be retried without re-encryption or another flush.
@@ -495,9 +501,9 @@ impl App {
         self.sharing.spawn(ctx, move || {
             let operation = prepared.as_ref().and_then(|v| v["operationId"].as_str()).map(str::to_string);
             let result = Api::new(connection).and_then(|api| if let Some(body) = prepared {
-                api.request("POST", &format!("/api/budgets/{id}/commits"), Some(body)).and_then(|v| serde_json::from_value(v).map_err(|_| client::ServiceError { status: 0, message: "Invalid commit receipt.".into(), current: None }))
-            } else { api.remote(&id) });
-            Event::Sync { id, operation, result }
+                api.request("POST", &format!("/api/budgets/{id}/commits"), Some(body)).and_then(|v| serde_json::from_value(v).map_err(|_| client::ServiceError { status: 0, message: "Invalid commit receipt.".into(), current: None })).map(Some)
+            } else { api.remote_if_changed(&id, known) });
+            match result.transpose() { None => Event::Unchanged { id }, Some(result) => Event::Sync { id, operation, result } }
         });
     }
     pub(super) fn shared_panel(&mut self, ctx: &egui::Context) {

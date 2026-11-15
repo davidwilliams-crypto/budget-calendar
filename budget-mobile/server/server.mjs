@@ -378,7 +378,7 @@ export function createBudgetServer(options) {
           return send(res, 201, result);
         }
       }
-      const match = /^\/api\/budgets\/([A-Za-z0-9-]{1,128})(?:\/(commits|history|invites|members|passcode)(?:\/([A-Za-z0-9-]{1,128}))?)?$/.exec(path);
+      const match = /^\/api\/budgets\/([A-Za-z0-9-]{1,128})(?:\/(commits|history|invites|members|passcode|revision)(?:\/([A-Za-z0-9-]{1,128}))?)?$/.exec(path);
       if (!match) fail(404, 'not_found', 'Not found');
       const [, budgetId, route, item] = match;
       const budget = membership(budgetId, user.id);
@@ -406,6 +406,12 @@ export function createBudgetServer(options) {
         }
       }
       if (!route && req.method === 'GET') return send(res, 200, snapshot(budget));
+      if (route === 'revision' && !item && req.method === 'GET') {
+        // Polling reads no ciphertext; clients fetch the full snapshot only when the revision differs.
+        const row = sql('SELECT revision,created_at FROM snapshots WHERE budget_id=? AND revision=?').get(budget.id, budget.revision);
+        if (!row) fail(404, 'not_found', 'Snapshot is no longer retained');
+        return send(res, 200, { id: budget.id, revision: row.revision, updatedAt: row.created_at });
+      }
       if (route === 'commits' && !item && req.method === 'POST') return send(res, 200, commit(user, budgetId, await readBody()));
       if (route === 'history' && req.method === 'GET') {
         if (item) return send(res, 200, snapshot(budget, revision(Number(item))));
