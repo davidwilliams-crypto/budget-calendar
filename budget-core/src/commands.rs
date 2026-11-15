@@ -252,7 +252,12 @@ fn put_payment_from(db: &mut BudgetDb, edited: Payment, id: i32, date: i32) -> R
     let i = db.get_by_id(id).ok_or("This payment no longer exists.")?;
     let original = db.payments[i].clone();
     let cut = cut(&original, date);
-    let Some((k, nominal)) = cut.first.filter(|&(k, _)| k > 0) else { return put_payment(db, edited, Some(id)) };
+    let Some((k, nominal)) = cut.first.filter(|&(k, _)| k > 0) else {
+        // With no regular occurrence from the date on, the schedule ended before it and the edit
+        // applies to the whole record: only allowed when no earlier transaction changes.
+        if cut.first.is_none() { earlier_unchanged(db.today, &original, &edited, date)?; }
+        return put_payment(db, edited, Some(id));
+    };
     validate_future_payment(&original)?;
     if edited.end_mode() == END_MODE_LOAN_PAID && (edited.is_sticky() || edited.is_tentative() || edited.amount == 0.0
         || edited.amount.is_sign_negative() != original.amount.is_sign_negative()) {
@@ -297,6 +302,21 @@ fn put_payment_from(db: &mut BudgetDb, edited: Payment, id: i32, date: i32) -> R
         return Err("This change cannot keep the earlier transactions unchanged. Apply it to all occurrences instead.".into());
     }
     Ok(commit_split(db, i, Some(earlier), later))
+}
+
+/// Refuse an edit "from `date` onward" that, applied to the whole record, would change a transaction
+/// shown before `date` (its date, amount, or whether it counts in the balance).
+fn earlier_unchanged(today: i32, original: &Payment, edited: &Payment, date: i32) -> Result<(), String> {
+    let mut edited = edited.clone();
+    align_end_date(&mut edited);
+    let mut last = Cal::from_int(date);
+    last.add(Field::Day, -1);
+    let from = history_start(original)?.min(history_start(&edited)?);
+    let changed = original.disabled != edited.disabled
+        || (from <= last.get() && schedule_snapshot(today, std::slice::from_ref(original), from, last.get())?
+            != schedule_snapshot(today, std::slice::from_ref(&edited), from, last.get())?);
+    if changed { return Err("This change cannot keep the earlier transactions unchanged. Apply it to all occurrences instead.".into()); }
+    Ok(())
 }
 
 /// Replace payment `i` by its earlier part (when split) and add the later part as a new record.
@@ -490,9 +510,12 @@ fn regular_dates(p: &Payment, from: i32, until: i32) -> BTreeSet<i32> {
     if p.is_tentative() || until < from { return dates; }
     let mut schedule = p.clone();
     if schedule.end_mode() == END_MODE_LOAN_PAID { schedule.set_end_mode(END_MODE_INDEFINITE); }
+    let mut limit = Cal::from_int(until);
+    limit.add(Field::Day, 2);
+    let limit = limit.get();
     nominal_slots(&schedule, |_, nominal| {
         // Weekend shifting moves an occurrence by at most two days.
-        if nominal > until + 2 { return false; }
+        if nominal > limit { return false; }
         let date = actual_date(&schedule, nominal);
         if (from..=until).contains(&date) { dates.insert(date); }
         true
