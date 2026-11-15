@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.11.3] - 2026-11-15
+
+A review pass that fixes defects found across the app, the shared-budget sync and the phone app. Each fix comes with a test that failed before it.
+
+- **Shared budgets no longer get stuck:** a shared budget holding an amount with many decimal places (for example one carried over from an older budget file) could leave its unsynced edits waiting forever, because the confirmation from the server was read back a hair different and rejected. The same check stopped such a budget from being shared at all. Both now compare the values as they were actually sent.
+- **"From this date on" never rewrites the past:** on the phone, changing a payment from a date after its last scheduled occurrence used to apply the change to every earlier transaction too. It is now refused with the existing "apply it to all occurrences instead" message when earlier transactions would change.
+- **Month-end payments follow amount changes:** a payment moved earlier by the weekend rule across a month end (1 February paid on Friday 30 January) kept its old amount after a "this and all future" amount change.
+- **Phone recovery key:** after unlocking or creating a household on a phone, **Show recovery key** is offered again, so changing the passcode no longer asks for the key you just entered. Reviewing an old snapshot shows its payment count as text, never as page markup.
+- **File checks:** **Check again** on a recent budget can no longer be overruled by an older, slower check, such as one that hung on a network share and later reported the file missing.
+- **Saving on Linux and macOS builds:** a save keeps the budget's file permissions (a private budget stays private, and so does its backup) and saving through a symbolic link updates the linked file instead of replacing the link.
+- **Keyboard:** typing "?" or pressing F1 in the Shared budget panel no longer opens the keyboard-shortcuts sheet over it. `--month` outside the years 1000–9999 is ignored instead of opening a month the arrows cannot leave.
+- **Phone engine:** the desktop's reference engine answers a request that is not UTF-8 the same way the phone's engine does instead of stopping.
+
 ## [0.11.1] - 2026-11-04
 
 A polish pass: the monthly chores take fewer clicks, searches answer "how much?", and a first budget starts from your real balance.

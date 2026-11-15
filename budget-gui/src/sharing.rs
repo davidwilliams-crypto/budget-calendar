@@ -98,7 +98,7 @@ impl CreationCandidate {
         }
         let remote = Remote { id: self.snapshot.id.clone(), name: self.snapshot.name.clone(), revision: 1,
             payload: self.request["payload"].clone(), updated_at: String::new(), role: "owner".into(), summary: String::new() };
-        if client::unlock(&remote, &self.recovery_key)? != self.snapshot { return Err("Pending household contents differ from their protected request.".into()); }
+        if client::unlock(&remote, &self.recovery_key)? != client::as_sealed(&self.snapshot)? { return Err("Pending household contents differ from their protected request.".into()); }
         Ok(())
     }
 }
@@ -1295,6 +1295,17 @@ mod tests {
         assert!(stored_slot.recv_timeout(Duration::from_secs(5)).is_ok(), "the slot was still sent");
     }
 
+    #[test]
+    fn creation_accepts_amounts_json_does_not_read_back_bit_for_bit() {
+        // An unrounded legacy amount: serde_json's default float parser reads it one ulp away.
+        let mut db = budget_core::BudgetDb::new_with_today(&budget_core::Cal::from_int(20261029), 0, false, 20261029);
+        db.adjustments.set_custom_amount(20261030, -107354.81379999999);
+        let snapshot = snapshot_from_db_with_operation(&db, &uuid::Uuid::new_v4().to_string(), "Fixture household", "America/Halifax", None, &uuid::Uuid::new_v4().to_string()).unwrap();
+        let connection = Connection { server: "http://127.0.0.1:8787".into(), token: "fixture-session".into(), user: client::User { id: "fixture".into(), username: "fixture".into() } };
+        let mut candidate = CreationCandidate::new(connection, client::generate_recovery_key(), String::new(), snapshot.clone()).unwrap();
+        assert_eq!(candidate.snapshot, snapshot);
+        candidate.validate().unwrap();
+    }
     fn creation(app: &App) -> CreationCandidate {
         let doc = app.sharing.document.as_ref().unwrap();
         let mut snapshot = doc.working.clone(); snapshot.id = uuid::Uuid::new_v4().to_string();

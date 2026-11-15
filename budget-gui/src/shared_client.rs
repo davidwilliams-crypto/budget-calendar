@@ -129,6 +129,11 @@ fn encode_snapshot(snapshot: &Snapshot) -> Result<Vec<u8>, String> {
     if bytes.len() > MAX_SNAPSHOT_BYTES { return Err("This budget exceeds the encrypted synchronization size limit.".into()); }
     Ok(bytes)
 }
+/// The snapshot as every device decodes it from its sealed JSON. The default JSON float parser can
+/// read an unrounded amount back one unit in the last place away, so compare decoded with decoded.
+pub fn as_sealed(snapshot: &Snapshot) -> Result<Snapshot, String> {
+    serde_json::from_slice(&encode_snapshot(snapshot)?).map_err(|_| "The shared budget has an unsupported format.".into())
+}
 pub fn seal(snapshot:&Snapshot,key:&str,revision:u64)->Result<Value,String>{
     let key=key_bytes(key)?;let cipher=Aes256Gcm::new_from_slice(&key).map_err(|_|"Invalid recovery key.")?;
     let bytes=encode_snapshot(snapshot)?;
@@ -175,8 +180,9 @@ impl SharedDocument {
         if self.pending.first().is_none_or(|p|p.operation_id!=operation_id){return Err("Acknowledgement does not match the pending change.".into())}
         if remote.revision!=self.revision+1{return Err("Unexpected acknowledgement revision.".into())}
         let snapshot=unlock(&remote,&self.recovery_key)?;
-        if self.pending[0].snapshot!=snapshot{return Err("Acknowledged contents differ from the pending change.".into())}
-        self.pending.remove(0);self.baseline=snapshot;self.revision=remote.revision;self.last_sync=remote.updated_at;self.role=remote.role;
+        if as_sealed(&self.pending[0].snapshot)?!=snapshot{return Err("Acknowledged contents differ from the pending change.".into())}
+        // Keep the exact values this device sent, which its open budget still holds.
+        self.baseline=self.pending.remove(0).snapshot;self.revision=remote.revision;self.last_sync=remote.updated_at;self.role=remote.role;
         if self.pending.is_empty(){self.working=self.baseline.clone()}Ok(())
     }
     pub fn receive(&mut self,remote:Remote)->Result<bool,String>{
@@ -358,6 +364,26 @@ pub fn load_protected<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T, 
         assert_eq!(reopened.working, doc.working);
     }
     #[test]fn pending_request_survives_serialization_and_later_edits_survive_ack(){let s=fixture();let key=generate_recovery_key();let mut d=SharedDocument::open(connection(),key.clone(),remote(&s,&key,1)).unwrap();let mut a=s.clone();a.notes="first".into();d.capture(a.clone()).unwrap();let first=d.prepare().unwrap().unwrap();let mut b=a.clone();b.notes="second".into();d.capture(b.clone()).unwrap();let mut d:SharedDocument=serde_json::from_str(&serde_json::to_string(&d).unwrap()).unwrap();assert_eq!(d.prepare().unwrap().unwrap(),first);d.acknowledge(remote(&a,&key,2),first["operationId"].as_str().unwrap()).unwrap();assert_eq!(d.working,b);assert_eq!(d.pending.len(),1);assert_eq!(d.prepare().unwrap().unwrap()["expectedRevision"],2);}
+    #[test]
+    fn acknowledging_a_commit_accepts_amounts_json_does_not_read_back_bit_for_bit() {
+        // An unrounded legacy amount: serde_json's default float parser reads it one ulp away.
+        let amount = -107354.81379999999_f64;
+        let read: f64 = serde_json::from_str(&serde_json::to_string(&amount).unwrap()).unwrap();
+        assert_ne!(read.to_bits(), amount.to_bits(), "the fixture must exercise an inexact JSON float");
+        let s = fixture(); let key = generate_recovery_key();
+        let mut d = SharedDocument::open(connection(), key.clone(), remote(&s, &key, 1)).unwrap();
+        let mut edited = s.clone(); edited.adjustments.set_custom_amount(20261030, amount);
+        d.capture(edited.clone()).unwrap();
+        let request = d.prepare().unwrap().unwrap();
+        // The service echoes the exact sealed payload in its receipt.
+        let receipt = Remote { id: s.id.clone(), name: s.name.clone(), revision: 2, payload: request["payload"].clone(),
+            updated_at: "fixture-2".into(), role: "owner".into(), summary: "Updated shared budget".into() };
+        d.acknowledge(receipt, request["operationId"].as_str().unwrap()).unwrap();
+        assert!(d.pending.is_empty()); assert_eq!(d.revision, 2);
+        assert_eq!(d.working, edited); assert_eq!(d.baseline, edited);
+        // The unchanged budget saved again queues nothing new.
+        d.capture(edited).unwrap(); assert!(d.pending.is_empty());
+    }
     #[test]
     fn an_unsyncable_snapshot_is_refused_before_changing_the_working_copy_or_pending_request() {
         let s = fixture(); let key = generate_recovery_key();
