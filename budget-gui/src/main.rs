@@ -88,7 +88,9 @@ fn parse_cli_from(args: Vec<String>) -> Cli {
     });
     Cli {
         file: first_positional(&args),
-        month: val("--month").and_then(|m| m.parse().ok()),
+        // Only a month the calendar can show: outside 1000..=9999 the month arrows and keys do nothing.
+        month: val("--month").and_then(|m| m.parse().ok())
+            .filter(|&m| (budget_core::date::YEAR_MIN..=budget_core::date::YEAR_MAX).contains(&Cal::from_int(m).year())),
         screenshot: val("--screenshot").map(PathBuf::from),
         size: val("--size").and_then(|s| { let (w, h) = s.split_once('x')?; Some([w.parse().ok()?, h.parse().ok()?]) }),
         dark: args.iter().any(|a| a == "--dark"),
@@ -2395,7 +2397,8 @@ impl App {
         let dragging = egui::DragAndDrop::payload::<calendar::DraggedTransaction>(ctx).is_some();
         let help = ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::F1))
             || (!text_input_has_focus(ctx) && ctx.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Text(s) if s == "?"))));
-        if help && !dragging && !self.dialogs.any_but_shortcuts() { self.dialogs.shortcuts = !self.dialogs.shortcuts; }
+        // The Shared budget panel is a dialog too, and its text boxes do not report their focus here.
+        if help && !dragging && !self.dialogs.any_but_shortcuts() && !self.sharing.open && !self.restoring_copy() { self.dialogs.shortcuts = !self.dialogs.shortcuts; }
         if self.has_modal() {
             // Dialogs keep their place (and any draft); say why the dropped budget did not open.
             if dropped.is_some() { self.warn("Close the open dialog first, then drop the budget again."); }
@@ -2818,6 +2821,17 @@ mod cli_tests {
         assert_eq!(parse_cli_from(a(&["--screenshot=shot.png", "--dark"])).screenshot, Some(PathBuf::from("shot.png")));
         // A flag without its value stays unset rather than taking the next flag.
         assert_eq!(parse_cli_from(a(&["--month", "--dark"])).month, None);
+    }
+
+    #[test]
+    fn a_month_outside_the_calendar_years_is_ignored() {
+        // The month arrows and keys only move within 1000..=9999, so a month outside it left them dead.
+        for month in ["1", "0", "-5", "99901", "2147483647"] {
+            assert_eq!(parse_cli_from(a(&["--month", month])).month, None, "--month {month}");
+        }
+        for month in ["202610", "100001", "999912", "2026"] {
+            assert_eq!(parse_cli_from(a(&["--month", month])).month, month.parse().ok(), "--month {month}");
+        }
     }
 }
 
@@ -4854,6 +4868,22 @@ mod lifecycle_tests {
         for _ in 0..3 { frame(&mut app, &ctx, vec![], false); }
         frame(&mut app, &ctx, vec![key(Key::PageDown, Modifiers::NONE)], false);
         assert_eq!(app.cur.get(), 20261101, "PageDown does not page while the search box has focus");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn typing_a_question_mark_in_the_shared_budget_panel_leaves_the_shortcuts_sheet_closed() {
+        // The panel's server, passcode and key boxes do not report text focus to the main window.
+        let (mut app, dir) = fixture();
+        app.sharing.open = true;
+        let ctx = gui(&app);
+        for event in [egui::Event::Text("?".into()), key(Key::F1, Modifiers::NONE)] {
+            let _ = ctx.run(egui::RawInput { events: vec![event], ..Default::default() }, |ctx| app.keys(ctx));
+            assert!(!app.dialogs.shortcuts, "a key typed in the Shared budget panel opened the shortcuts sheet");
+        }
+        app.sharing.open = false;
+        let _ = ctx.run(egui::RawInput { events: vec![egui::Event::Text("?".into())], ..Default::default() }, |ctx| app.keys(ctx));
+        assert!(app.dialogs.shortcuts, "? still opens the sheet when nothing else is open");
         std::fs::remove_dir_all(dir).unwrap();
     }
 
