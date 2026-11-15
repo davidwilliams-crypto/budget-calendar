@@ -253,6 +253,11 @@ pub(crate) mod tests {
         });
         let path = Path::new(r"\\unreachable\share\Home.bgt");
         assert_eq!(probes.status(path), FileStatus::Checking);
+        // Let the first check reach the gate before Check again, so it is the one that hangs: the
+        // threads otherwise race for the first probe call and the second check can be the one held.
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while gate.calls.load(Ordering::SeqCst) == 0 && Instant::now() < deadline { std::thread::sleep(Duration::from_millis(1)); }
+        assert_eq!(gate.calls.load(Ordering::SeqCst), 1, "the first check never started");
         probes.forget(path);
         assert_eq!(settle(&mut probes, path), FileStatus::Present(None));
         gate.open();
