@@ -138,3 +138,12 @@ test('native/raw WASM parity: forecast totals leave out disabled payments and ba
   assert.deepEqual(totals(20261106,20261204),{moneyIn:0,moneyOut:0});
   assert.deepEqual(totals(20261101,20261231),{moneyIn:1000,moneyOut:200.6});
 });
+test('native/raw WASM parity: a request that is not UTF-8 is answered, and later requests still are',()=>{
+  const bad=Buffer.from([0xff,0xfe]),good={action:'new',id:'utf8-check',name:'Generated fixture',timeZone:'America/Halifax',today};
+  const p=spawnSync(executable,[],{input:Buffer.concat([bad,Buffer.from('\n'+JSON.stringify(good)+'\n')]),windowsHide:true});
+  assert.equal(p.status,0,p.error?.message||String(p.stderr));
+  const answers=p.stdout.toString('utf8').split('\n').filter(Boolean).map(line=>JSON.parse(line));
+  const ptr=engine.alloc(bad.length);new Uint8Array(engine.memory.buffer,ptr,bad.length).set(bad);engine.request(ptr,bad.length);engine.dealloc(ptr,bad.length);
+  const raw=JSON.parse(new TextDecoder().decode(new Uint8Array(engine.memory.buffer,engine.result_ptr(),engine.result_len())));
+  assert.deepEqual(answers,[raw,portable(good)]);
+});
