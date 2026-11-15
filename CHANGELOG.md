@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.11.6] - 2026-11-15
+
+Shared budgets check for changes without downloading the whole budget each time.
+
+- **Lighter sync checks:** the desktop app and the phone now ask the server only for the shared budget's revision number on each automatic check, and download the full encrypted budget only when another device has changed it. An idle budget no longer downloads its full contents every few seconds. The server answers the new check (`GET /api/budgets/:id/revision`) with the same sign-in and access rules as a full download, and sends no budget contents.
+- **Sync now still downloads everything:** on the phone, tapping **Sync now** always fetches the full budget, so a manual sync remains a complete refresh.
+- If the revision check fails for any reason other than an expired sign-in or being offline, the app falls back to the full download, as before.
+
 ## [0.11.5] - 2026-11-15
 
 Shared budgets keep every amount exactly as it was written.
