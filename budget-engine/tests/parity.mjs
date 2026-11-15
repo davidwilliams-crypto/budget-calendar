@@ -147,3 +147,13 @@ test('native/raw WASM parity: a request that is not UTF-8 is answered, and later
   const raw=JSON.parse(new TextDecoder().decode(new Uint8Array(engine.memory.buffer,engine.result_ptr(),engine.result_len())));
   assert.deepEqual(answers,[raw,portable(good)]);
 });
+test('native/raw WASM parity: unrounded amounts survive the engine exactly',()=>{
+  // JavaScript reads and writes doubles exactly; the engine's JSON parser must as well, or shared
+  // snapshots change by a last binary digit on every pass through the phone engine.
+  const awkward=[-107354.81379999999,0.30000000000000004,1234.5678901234567];
+  let snapshot=start();
+  for(const [i,amount] of awkward.entries()) snapshot=apply(snapshot,{type:'put_payment',payment:{description:`Odd ${i}`,amount,start_date:20261105,end_date:20261105,flags:16,freq_type:'m'}},`odd-${i}`);
+  const kept=snapshot.payments.map(p=>p.payment.amount).sort((a,b)=>a-b);
+  assert.deepEqual(kept,[...awkward].sort((a,b)=>a-b));
+  const again=same({action:'validate',snapshot});assert.equal(again.ok,true,again.error);
+});

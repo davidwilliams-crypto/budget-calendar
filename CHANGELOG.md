@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.11.5] - 2026-11-15
+
+Shared budgets keep every amount exactly as it was written.
+
+- **Exact amounts through sync and the phone:** the desktop app and the phone's calculation engine now read amounts back from shared-budget data exactly. Before, about one in thirteen unrounded amounts (such as balances carried over from older budget files) came back changed in the last digit, for example −107,354.81379999999 as −107,354.8138. That could make an untouched payment look edited after a sync, and it was the root cause of the stuck-sync problem worked around in 0.11.3. Amounts typed in the app, which are rounded to cents, were never affected.
+
 ## [0.11.4] - 2026-11-15
 
 Release tooling hardening; the app itself is unchanged from 0.11.3.
