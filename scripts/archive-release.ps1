@@ -243,6 +243,16 @@ function Get-SourceControlState($AllowedSources) {
             '. Only committed sources can be archived, because the source ZIP and build identity must match a commit. ' +
             'Commit these files, rebuild, then archive again.')
     }
+    # git status omits ignored files and quotes unusual names, so exit codes decide as well: every input must be
+    # tracked and identical to HEAD. Otherwise an ignored file (such as scripts/.env.local.ps1) would enter source.zip.
+    $inputPaths = @($AllowedSources.Keys)
+    $tracked = Invoke-Git (@('--literal-pathspecs', 'ls-files', '--error-unmatch', '--') + $inputPaths)
+    $unchanged = Invoke-Git (@('--literal-pathspecs', 'diff', '--quiet', 'HEAD', '--') + $inputPaths)
+    if ($tracked.ExitCode -ne 0 -or $unchanged.ExitCode -ne 0) {
+        throw ('Refusing to archive: release inputs have uncommitted changes, including ignored, untracked or ' +
+            'unusually named files that git status does not list. Only committed sources can be archived, because the ' +
+            'source ZIP and build identity must match a commit. Commit or remove these files, rebuild, then archive again.')
+    }
     return @{ Commit = [string]$head.Output[0]; Clean = ($changed.Count -eq 0) }
 }
 

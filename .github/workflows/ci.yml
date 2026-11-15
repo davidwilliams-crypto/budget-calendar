@@ -17,6 +17,9 @@ jobs:
       BUDGET_CHROME: C:\Program Files\Google\Chrome\Application\chrome.exe
     steps:
       - uses: actions/checkout@v4
+        with:
+          # No later step pushes; keep the job token out of .git/config while tests and npm packages run.
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: 24.19.0

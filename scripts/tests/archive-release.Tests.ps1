@@ -370,6 +370,21 @@ Test-Case 'archive refuses untracked release inputs that no commit contains' {
     Assert-NoPublishedVersion $root
 }
 
+Test-Case 'archive refuses an ignored file inside a release input folder' {
+    $root = New-Fixture 'ignored release input'
+    Initialize-TestRepository $root
+    Write-Text (Join-Path $root '.git/info/exclude') ".env.*`n"
+    $ignored = 'scripts/.env.local.ps1'
+    Write-Text (Join-Path $root $ignored) '$signingKey = "generated fixture secret"'
+    # build.rs walks the same allowlist, so a real build lists the ignored file as an input too.
+    $manifestPath = Join-Path $root 'target/release/build/budget-gui-fixture/out/build-inputs-fixture-build-a.json'
+    $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+    $manifest.inputs += [pscustomobject]@{ path = $ignored; fnv1a = [BudgetArchiveTestHash]::FileHash((Join-Path $root $ignored)) }
+    Write-Text $manifestPath ($manifest | ConvertTo-Json -Depth 5)
+    Assert-ArchiveFails $root 'uncommitted changes'
+    Assert-NoPublishedVersion $root
+}
+
 Test-Case 'archive records a dirty tree outside the release inputs without blocking' {
     $root = New-Fixture 'dirty notes outside inputs'
     Initialize-TestRepository $root
