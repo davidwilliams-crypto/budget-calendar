@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.11.4] - 2026-11-15
+
+Release tooling hardening; the app itself is unchanged from 0.11.3.
+
+- **Release archives hold only committed sources:** `scripts/archive-release.ps1` now also refuses to archive when any release input is untracked, ignored or differs from the commit, decided by git exit codes. Before, a gitignored local file inside a release folder (such as `scripts/.env.local.ps1`) could be zipped into `source.zip`, and a change to an unusually named file could slip past the "committed sources only" check.
+- **No write token on disk during builds:** the CI and release workflows check out without persisting the job token in `.git/config`, so the tests, browser tests and npm packages that run afterwards cannot read it.
+- **Validated release version:** the release workflow accepts only a plain semantic version from `budget-gui/Cargo.toml` before using it in later steps and file names.
+- **Pinned signing actions:** `azure/login` and `azure/artifact-signing-action` are pinned to the commits of their v3 and v2.0.0 tags, so a moved tag cannot change what signs a release.
+
 ## [0.11.3] - 2026-11-15
 
 A review pass that fixes defects found across the app, the shared-budget sync and the phone app. Each fix comes with a test that failed before it.

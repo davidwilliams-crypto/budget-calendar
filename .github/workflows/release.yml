@@ -31,6 +31,9 @@ jobs:
       SIGNING_ENABLED: ${{ vars.AZURE_SIGNING_ENDPOINT != '' }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          # No later step pushes; keep the job token out of .git/config while tests and npm packages run.
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: 24.19.0
@@ -43,6 +46,8 @@ jobs:
           $section = [regex]::Match($text, '(?ms)^\[package\]\s*\r?\n(?<content>.*?)(?=^\[|\z)')
           $version = [regex]::Match($section.Groups['content'].Value, '(?m)^version\s*=\s*"(?<v>[^"]+)"\s*$').Groups['v'].Value
           if ([string]::IsNullOrWhiteSpace($version)) { throw 'budget-gui/Cargo.toml has no package version.' }
+          # The version is pasted into later PowerShell steps and file names, so only a plain semantic version may pass.
+          if ($version -cnotmatch '^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$') { throw "budget-gui/Cargo.toml version is not a semantic version." }
           if ($env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME -cne "v$version") {
             throw "Tag $env:GITHUB_REF_NAME does not match budget-gui/Cargo.toml version $version. Tag the commit as v$version."
           }
@@ -107,14 +112,14 @@ jobs:
 
       - name: Sign in to Azure
         if: env.SIGNING_ENABLED == 'true'
-        uses: azure/login@v3
+        uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3
         with:
           client-id: ${{ vars.AZURE_CLIENT_ID }}
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
       - name: Sign the executable
         if: env.SIGNING_ENABLED == 'true'
-        uses: azure/artifact-signing-action@v2.0.0
+        uses: azure/artifact-signing-action@c7ab2a863ab5f9a846ddb8265964877ef296ee82 # v2.0.0
         with:
           endpoint: ${{ vars.AZURE_SIGNING_ENDPOINT }}
           signing-account-name: ${{ vars.AZURE_SIGNING_ACCOUNT }}
@@ -158,7 +163,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Sign the setup program
         if: env.SIGNING_ENABLED == 'true'
-        uses: azure/artifact-signing-action@v2.0.0
+        uses: azure/artifact-signing-action@c7ab2a863ab5f9a846ddb8265964877ef296ee82 # v2.0.0
         with:
           endpoint: ${{ vars.AZURE_SIGNING_ENDPOINT }}
           signing-account-name: ${{ vars.AZURE_SIGNING_ACCOUNT }}
