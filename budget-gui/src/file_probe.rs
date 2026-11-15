@@ -50,8 +50,12 @@ pub struct FileProbes {
     probe: Probe,
     reader: Reader,
     cache: HashMap<PathBuf, FileStatus>,
-    tx: Sender<(PathBuf, FileStatus)>,
-    rx: Receiver<(PathBuf, FileStatus)>,
+    /// The probe each checking path waits for. An answer from a probe started before
+    /// [`Self::forget`] is stale and must not replace the newer one.
+    pending: HashMap<PathBuf, u64>,
+    next_probe: u64,
+    tx: Sender<(PathBuf, u64, FileStatus)>,
+    rx: Receiver<(PathBuf, u64, FileStatus)>,
     /// Repainted when an answer arrives, so an idle window updates.
     waker: Arc<Mutex<Option<egui::Context>>>,
 }
@@ -71,7 +75,7 @@ impl Default for FileProbes {
 impl FileProbes {
     pub fn with_probe(probe: impl Fn(&Path) -> FileStatus + Send + Sync + 'static) -> FileProbes {
         let (tx, rx) = channel();
-        FileProbes { probe: Arc::new(probe), reader: Arc::new(|path: &Path| std::fs::read(path)), cache: HashMap::new(), tx, rx, waker: Arc::default() }
+        FileProbes { probe: Arc::new(probe), reader: Arc::new(|path: &Path| std::fs::read(path)), cache: HashMap::new(), pending: HashMap::new(), next_probe: 0, tx, rx, waker: Arc::default() }
     }
 
     /// Reads files with `reader` instead of `std::fs::read`.
@@ -105,20 +109,23 @@ impl FileProbes {
         self.collect();
         if let Some(status) = self.cache.get(path) { return *status; }
         self.cache.insert(path.to_path_buf(), FileStatus::Checking);
+        self.next_probe += 1;
+        let id = self.next_probe;
+        self.pending.insert(path.to_path_buf(), id);
         let (probe, tx, waker, owned) = (self.probe.clone(), self.tx.clone(), self.waker.clone(), path.to_path_buf());
         let spawned = std::thread::Builder::new().name("file-probe".into()).spawn(move || {
             let status = probe(&owned);
-            if tx.send((owned, status)).is_ok() {
+            if tx.send((owned, id, status)).is_ok() {
                 if let Some(ctx) = waker.lock().unwrap_or_else(|e| e.into_inner()).as_ref() { ctx.request_repaint(); }
             }
         });
-        if spawned.is_err() { self.cache.insert(path.to_path_buf(), FileStatus::Missing); }
+        if spawned.is_err() { self.pending.remove(path); self.cache.insert(path.to_path_buf(), FileStatus::Missing); }
         self.cache[path]
     }
 
     /// Forgets the answer for `path`, so the next [`Self::status`] checks again: a file may have
     /// appeared or vanished since.
-    pub fn forget(&mut self, path: &Path) { self.cache.remove(path); }
+    pub fn forget(&mut self, path: &Path) { self.cache.remove(path); self.pending.remove(path); }
 
     /// Like [`Self::status`], but waits up to `timeout` for the answer (startup only).
     pub fn wait(&mut self, path: &Path, timeout: Duration) -> FileStatus {
@@ -127,14 +134,19 @@ impl FileProbes {
             let status = self.status(path);
             if status != FileStatus::Checking { return status; }
             match self.rx.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
-                Ok((done, status)) => { self.cache.insert(done, status); }
+                Ok((done, id, status)) => self.accept(done, id, status),
                 Err(RecvTimeoutError::Timeout | RecvTimeoutError::Disconnected) => return FileStatus::Checking,
             }
         }
     }
 
     fn collect(&mut self) {
-        while let Ok((path, status)) = self.rx.try_recv() { self.cache.insert(path, status); }
+        while let Ok((path, id, status)) = self.rx.try_recv() { self.accept(path, id, status); }
+    }
+
+    /// Keeps the answer of the probe `path` is waiting for; any other is stale.
+    fn accept(&mut self, path: PathBuf, id: u64, status: FileStatus) {
+        if self.pending.get(&path) == Some(&id) { self.pending.remove(&path); self.cache.insert(path, status); }
     }
 }
 
@@ -226,6 +238,30 @@ pub(crate) mod tests {
         assert_eq!(settle(&mut probes, path), FileStatus::Missing);
         assert_eq!(probes.status(path), FileStatus::Missing);
         assert_eq!(gate.calls.load(Ordering::SeqCst), 1, "a path is probed once, not every frame");
+    }
+
+    #[test]
+    fn an_answer_from_before_check_again_never_replaces_the_newer_one() {
+        // The first check hangs on an unreachable share and at last reports the file missing; the
+        // check started by Check again, once the share is back, finds it at once.
+        let (gate, started) = (Gate::new(), Arc::new(AtomicUsize::new(0)));
+        let (calls, release, count) = (gate.calls.clone(), gate.release.clone(), started.clone());
+        let mut probes = FileProbes::with_probe(move |_| {
+            if count.fetch_add(1, Ordering::SeqCst) > 0 { return FileStatus::Present(None); }
+            pass(&calls, &release);
+            FileStatus::Missing
+        });
+        let path = Path::new(r"\\unreachable\share\Home.bgt");
+        assert_eq!(probes.status(path), FileStatus::Checking);
+        probes.forget(path);
+        assert_eq!(settle(&mut probes, path), FileStatus::Present(None));
+        gate.open();
+        // Each probe thread holds the probe until its answer is sent.
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while Arc::strong_count(&probes.probe) > 1 && Instant::now() < deadline { std::thread::sleep(Duration::from_millis(5)); }
+        assert_eq!(Arc::strong_count(&probes.probe), 1, "the first check never answered");
+        assert_eq!(probes.status(path), FileStatus::Present(None), "the stale answer replaced the newer one");
+        assert_eq!(started.load(Ordering::SeqCst), 2);
     }
 
     #[test]
