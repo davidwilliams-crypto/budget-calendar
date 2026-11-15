@@ -366,10 +366,11 @@ pub fn load_protected<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T, 
     #[test]fn pending_request_survives_serialization_and_later_edits_survive_ack(){let s=fixture();let key=generate_recovery_key();let mut d=SharedDocument::open(connection(),key.clone(),remote(&s,&key,1)).unwrap();let mut a=s.clone();a.notes="first".into();d.capture(a.clone()).unwrap();let first=d.prepare().unwrap().unwrap();let mut b=a.clone();b.notes="second".into();d.capture(b.clone()).unwrap();let mut d:SharedDocument=serde_json::from_str(&serde_json::to_string(&d).unwrap()).unwrap();assert_eq!(d.prepare().unwrap().unwrap(),first);d.acknowledge(remote(&a,&key,2),first["operationId"].as_str().unwrap()).unwrap();assert_eq!(d.working,b);assert_eq!(d.pending.len(),1);assert_eq!(d.prepare().unwrap().unwrap()["expectedRevision"],2);}
     #[test]
     fn acknowledging_a_commit_accepts_amounts_json_does_not_read_back_bit_for_bit() {
-        // An unrounded legacy amount: serde_json's default float parser reads it one ulp away.
+        // An unrounded legacy amount that serde_json's default float parser read one ulp away; with
+        // the float_roundtrip feature it must read back exactly, and acknowledging stays exact too.
         let amount = -107354.81379999999_f64;
         let read: f64 = serde_json::from_str(&serde_json::to_string(&amount).unwrap()).unwrap();
-        assert_ne!(read.to_bits(), amount.to_bits(), "the fixture must exercise an inexact JSON float");
+        assert_eq!(read.to_bits(), amount.to_bits(), "serde_json must read amounts back exactly (float_roundtrip)");
         let s = fixture(); let key = generate_recovery_key();
         let mut d = SharedDocument::open(connection(), key.clone(), remote(&s, &key, 1)).unwrap();
         let mut edited = s.clone(); edited.adjustments.set_custom_amount(20261030, amount);
